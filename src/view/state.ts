@@ -1,6 +1,7 @@
 // Folds the session's events into what the terminal shows. A pure reducer: replaying a saved
 // conversation's events draws it the same way it was drawn live.
 import type {
+  EffortLevel,
   PermissionMode,
   SDKAssistantMessage,
   SDKMessage,
@@ -32,7 +33,16 @@ export type Item =
   | { kind: "text"; key: string; text: string }
   | { kind: "thinking"; key: string; text: string }
   | { kind: "tool"; key: string; call: ToolCall }
-  | { kind: "turn"; key: string; outcome: "finished" | "stopped" | "failed"; durationMs: number; tokens: number; detail?: string }
+  | {
+      kind: "turn";
+      key: string;
+      outcome: "finished" | "stopped" | "failed";
+      durationMs: number;
+      tokens: number;
+      detail?: string;
+      /** The end of a turn from a saved conversation, which doesn't record how long it took. */
+      replayed?: boolean;
+    }
   | { kind: "notice"; key: string; tone: "info" | "error"; text: string }
   /** A tool call's whole output, printed on request. */
   | { kind: "output"; key: string; call: ToolCall };
@@ -52,6 +62,7 @@ export type State = {
   cwd: string;
   home: string;
   model?: string;
+  effort?: EffortLevel;
   plan?: string;
   models: ModelChoice[];
   commands: CommandInfo[];
@@ -101,6 +112,8 @@ export function reduce(state: State, event: ViewEvent): State {
   switch (event.kind) {
     case "ready":
       return { ...state, plan: event.plan, models: event.models, commands: event.commands };
+    case "commands":
+      return { ...state, commands: event.commands };
     case "prompt":
       return { ...add(state, { kind: "prompt", text: event.text }), busy: true };
     case "sdk":
@@ -123,12 +136,14 @@ export function reduce(state: State, event: ViewEvent): State {
       return { ...state, mode: event.mode };
     case "model":
       return { ...state, model: event.model };
+    case "effort":
+      return { ...state, effort: event.effort };
     case "context":
       return { ...state, context: { percentage: event.percentage, tokens: event.tokens, max: event.max } };
     case "notice":
       return add(state, { kind: "notice", tone: event.tone, text: event.text });
     case "history": {
-      const replayed = event.events.reduce(reduce, state);
+      const replayed = closeTurns(event.events.reduce(reduce, state), state.items.length);
       const settled = { ...stopRunningTools(replayed), busy: false, live: null, turnTokens: 0 };
       const count = settled.items.length - state.items.length;
       if (count === 0) return add(settled, { kind: "notice", tone: "info", text: "Resumed a session with nothing to show yet." });
@@ -299,6 +314,33 @@ function applyResult(state: State, message: SDKResultMessage): State {
     outcome: "failed",
     detail: message.errors.filter((error) => !error.startsWith("[ede_diagnostic]")).join("\n") || undefined,
   });
+}
+
+/**
+ * A saved conversation doesn't record where its turns ended, so each replayed turn ends where the
+ * next prompt starts, and the last one at the end. Items from `from` on are the replayed ones.
+ */
+function closeTurns(state: State, from: number): State {
+  let seq = state.seq;
+  const items = state.items.slice(0, from);
+  let open = false;
+  const close = () => {
+    if (open) items.push({ kind: "turn", key: `i${seq++}`, outcome: "finished", durationMs: 0, tokens: 0, replayed: true });
+    open = false;
+  };
+  for (const item of state.items.slice(from)) {
+    if (item.kind === "prompt") {
+      close();
+      open = true;
+    } else if (item.kind === "turn") open = false;
+    items.push(item);
+  }
+  close();
+  const tools: Record<string, number> = {};
+  items.forEach((item, index) => {
+    if (item.kind === "tool") tools[item.call.id] = index;
+  });
+  return { ...state, items, tools, seq };
 }
 
 /** Whatever was still running when a turn ended won't report back. */

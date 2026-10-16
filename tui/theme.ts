@@ -1,40 +1,47 @@
-// The terminal palette. Named colors follow your terminal's theme; the accent and the nebula
-// gradient are astrocode's own, from nebula-ui's presets (Catppuccin Mocha's pastels).
-const PRESETS: Record<string, string> = {
-  nebula: "#b4befe",
-  ember: "#fab387",
-  mint: "#94e2d5",
-  rose: "#f5c2e7",
-  gold: "#f9e2af",
-};
+// astrocode's palette: the Hubble palette, the gold and teal of narrowband space photographs.
+// Gold is you: your messages, whatever waits on you, your cursor and selection. Teal is Claude.
+// Everything else stays quiet so those two read at a glance.
+/** ASTROCODE_ACCENT, when it's a hex color: shades of it are mixed for the mirror and the selection. */
+const chosen = /^#[0-9a-f]{6}$/i.test(process.env.ASTROCODE_ACCENT?.trim() ?? "") ? process.env.ASTROCODE_ACCENT?.trim() : undefined;
 
-const chosen = process.env.ASTROCODE_ACCENT?.trim();
-
-/** Set ASTROCODE_ACCENT to a preset, a hex color or a terminal color name. */
-export const ACCENT = (chosen && (PRESETS[chosen] ?? chosen)) || "#b4befe";
-
-export const COLOR = {
-  muted: "gray",
-  success: "green",
-  error: "red",
-  warning: "yellow",
-  info: "blue",
+export const PALETTE = {
+  /** You. Set ASTROCODE_ACCENT to a hex color to change it. */
+  gold: chosen || "#F0B85A",
+  /** The mirror's deeper segments. */
+  goldDeep: "#B07E2C",
+  /** Claude: its replies, its tools, and work that went well. */
+  teal: "#56C6B6",
+  /** Code strings and inline code, a lighter teal. */
+  tealLight: "#93D9CD",
+  /** Errors and failures. */
+  rose: "#F2707E",
+  /** Stopped, denied, and warnings. */
+  ember: "#F0975E",
+  /** Links, plan mode, and keywords in code. */
+  sky: "#86A8F0",
+  /** Bright text: headings and values. */
+  star: "#E8ECF4",
+  /** Secondary text, readable. */
+  haze: "#9097AB",
+  /** The rail, panel edges and other lines. */
+  dust: "#6A7290",
+  /** Panels: code, output, the message box and the cards that ask you things. */
+  surface: "#222737",
+  /** A selected row, inline code and other raised marks on a panel. */
+  raised: "#30374D",
+  /** Text on a gold or teal chip. */
+  ink: "#141722",
 } as const;
 
-/** Lavender, mauve, pink, peach: the colors of a nebula, for the wordmark and the activity shimmer. */
-export const NEBULA = ["#b4befe", "#cba6f7", "#f5c2e7", "#fab387"];
+/** Lines a diff added and removed: the panel, tinted toward teal or rose. */
+export const TINT = {
+  added: mix(PALETTE.surface, PALETTE.teal, 0.16),
+  removed: mix(PALETTE.surface, PALETTE.rose, 0.16),
+};
 
-/** A share's color: calm, getting full, nearly out (as nebula-ui's dashboard). */
+/** A share's color: calm, getting full, nearly out. */
 export function tone(share: number) {
-  return share < 0.6 ? COLOR.success : share < 0.85 ? COLOR.warning : COLOR.error;
-}
-
-/** The color at `t` (0 to 1) along a gradient through `stops`. */
-export function gradient(stops: string[], t: number) {
-  const clamped = Math.min(1, Math.max(0, t));
-  const span = (stops.length - 1) * clamped;
-  const at = Math.min(stops.length - 2, Math.floor(span));
-  return mix(stops[at] ?? "#ffffff", stops[at + 1] ?? "#ffffff", span - at);
+  return share < 0.6 ? PALETTE.teal : share < 0.85 ? PALETTE.ember : PALETTE.rose;
 }
 
 /** `a` blended toward `b` by `amount` (0 to 1). */
@@ -45,7 +52,13 @@ export function mix(a: string, b: string, amount: number) {
   return `#${[0, 1, 2].map((i) => channel(i).toString(16).padStart(2, "0")).join("")}`;
 }
 
-function rgb(hex: string) {
+export function rgb(hex: string) {
   const value = Number.parseInt(hex.replace("#", ""), 16);
   return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+}
+
+/** A terminal color code for a hex color, foreground or background. */
+export function sgr(hex: string, background = false) {
+  const [r, g, b] = rgb(hex);
+  return `\x1b[${background ? 48 : 38};2;${r};${g};${b}m`;
 }

@@ -8,12 +8,14 @@ Our own version of `claude`: a terminal front end (Ink 8, React 19, Bun) for Cla
 - `src/session.ts`: the Agent SDK session
 - `src/events.ts`: what the session tells the interface
 - `src/history.ts`: saved sessions and replayed conversations
+- `src/plugins.ts`: plugins and marketplaces, through `claude plugin … --json`
 - `src/view/`: the reducer (`state.ts`), tool summaries, permission wording and formatting
-- `tui/`: the Ink components
+- `tui/`: the Ink components. `app.tsx` lays them out in scrollback (the default) or full screen (`screen.tsx`). `plugins.tsx` is `/plugins`; `files.ts` lists files for the message box's `@` menu.
+- `tui/transcript.tsx`, `tui/mouse.ts`, `tui/selection.ts`, `tui/clipboard.ts`: full screen's transcript as lines, the mouse, and copying
 
 ## Commands
 
-- `bun src/cli.ts [dir]`. Use `ASTROCODE_MODEL=haiku` for cheap test runs.
+- `bun src/cli.ts [dir]`, or `bun src/cli.ts -f [dir]` for full screen. Use `ASTROCODE_MODEL=haiku` for cheap test runs.
 - `bun run typecheck`
 
 ## Rules
@@ -24,13 +26,29 @@ Our own version of `claude`: a terminal front end (Ink 8, React 19, Bun) for Cla
 - AskUserQuestion arrives through `canUseTool`, even in bypass mode, and is answered with `updatedInput: { ...input, answers }`. Answers are keyed by question text, and a multi-select answer joins its labels with ", ".
 - `src/view/state.ts` must stay a pure reducer. A resumed conversation is replayed through it as one `history` event.
 - Saved transcripts have no record of permission prompts, so a refused tool is recognized by Claude Code's "The user doesn't want to proceed" result.
+- Effort is set with `applyFlagSettings({ effortLevel })` mid-session and the `effort` option at start. Claude Code doesn't report its default effort to the SDK, so the status bar shows only a level astrocode set.
 - Rate-limit windows come from `rate_limit_info.unifiedWindows`, which isn't in the SDK's types. Read it with `field()`.
 - Only finished entries go into Ink's `<Static>`, because Static never redraws. A tool row is finished once it isn't running and isn't waiting on the user (`settledCount`). `/clear` and `/resume` clear the screen and bump the store's epoch to start Static over.
-- The message box keeps its text in a ref, because keys can arrive faster than React re-renders.
+- Nothing may write to the terminal behind Ink's back, or the layout shifts and leaves ghost copies of the prompt. Claude Code's stderr is dropped, and process warnings become notices (`tui/main.tsx`). The SDK's warning that canUseTool won't run in bypass mode is dropped, because questions still come through it.
+- Raw mode goes on before each `render()` (`tui/main.tsx`). Ink asks the terminal about the kitty keyboard protocol as it starts, before its input hooks turn raw mode on, and a terminal still echoing prints the answer as `^[[?0u`. tmux doesn't answer that query, so tmux tests can't show this; kitty does.
+- The message box keeps its text in a ref, because keys can arrive faster than React re-renders. So does `/plugins` with where you are in it: two quick ↓ then Enter must act on the row they reached.
+- The SDK can only load and reload plugins. Installing, removing and turning them on or off run Claude Code's own `claude plugin … --json` with the binary the SDK ships (`claudeBinary()`), and then `reloadPlugins()` refreshes the session and the `/` menu. `claude plugin enable` and `disable` accept any id, installed or not, and write it into settings, so offer them only for installed plugins. Never pass `-y`: a plugin that installs by running a command must be confirmed by a person in `claude` itself.
+- `@path` mentions need nothing from astrocode but the menu: Claude Code expands them when the message arrives, quoted (`@"a b.md"`) when the path has a space. Don't send messages with `client_composed`, which turns that off.
 - The permission and question prompts ignore Enter, Space and digits for `GRACE_MS` after they appear. Don't remove that. Scripted tests must wait longer than that before pressing keys.
-- `tui/markdown.ts` is a copy of nebula-ui's `hooks/markdown.ts` with one change: links keep their URL as a `url` span. Port fixes in either direction by hand.
+- Full screen (`-f`, `ASTROCODE_FULLSCREEN=1`, `/fullscreen`, `/config fullscreen=true|false`) runs in Ink's alternate screen. `/fullscreen` unmounts Ink and renders again in the other layout, so whatever must survive the switch, such as the sent-message history, lives in the `Store`, not in component state.
+- Full screen draws the transcript as lines with Ink's `renderToString`, kept per item object; the reducer replaces items rather than changing them. `renderToString` shares Ink's reconciler, so it can't run during a render or a commit: `useTranscript` draws in a microtask after the commit. Anything drawn there can't use hooks.
+- The mouse is on only in full screen. In scrollback it would take the wheel from the terminal's own scrollback. `Mouse` lifts SGR reports out of `stdin.read()` before Ink parses input, and turns reporting off on exit, crash included.
+- A component finds what was clicked with `hit()` on a Box ref, and sets `event.handled` on events it uses. The viewport listens as a fallback, so the wheel scrolls the transcript unless a picker or menu under the pointer used it. Clicks on the permission and question prompts wait for `GRACE_MS` too.
+- A selection copies what's highlighted, no more: `cellsOn()` decides both. It leaves out the rail's gutter (`Row.inset`), a panel's padding and edges, and a quote's hairline.
+- astrocode's look is its own, not nebula-ui's. Colors come from `PALETTE` in `tui/theme.ts`, never terminal color names: gold is the user (their messages, what waits on them, focus, selection), teal is Claude, rose is failure, ember is stopped or denied. Gold appears only where the user is or is needed.
+- Every transcript entry draws its own piece of the rail through `Railed`, with its place from `rails()`. Spacing between entries is the rail's gap row, not margins, so the rail stays continuous in `<Static>` and in full screen alike. A turn closes with a `turn` item; a replayed conversation gets its closers from `closeTurns()`.
+- Code and anything a tool printed go on a `Panel`; prose doesn't. Text colored by a tool or highlighter goes through `onPanel()` first, so its resets don't punch holes in the panel. A panel with the user's keys gets `accent` (the gold hairline). `selection.ts` recognizes panel rows by their background, so a new panel background must be added to `PANELS` there.
+- `tui/markdown.ts` (the Markdown parser) is a copy of nebula-ui's `hooks/markdown.ts` with one change: links keep their URL as a `url` span. Port fixes in either direction by hand.
 - Auth comes from the user's Claude Code login, which is their subscription. Never add API-key handling, and never read credentials in astrocode. `topLevelEnv()` removes only Claude Code's session markers from the environment; settings pass through.
 - Testing spends the user's plan. Use `ASTROCODE_MODEL=haiku` and a throwaway project folder, never this repo or another real project.
-  - Drive the app in tmux on its own socket (`tmux -L <name>`, `send-keys`, `capture-pane -p`).
+  - Drive the app in tmux on its own socket (`tmux -L <name>`, `send-keys`, `capture-pane -p`). Send typed text and Enter in separate `send-keys` calls with a pause between them: tmux can deliver them as one chunk, and Ink then passes the Enter along with the text instead of as Enter.
+  - Mouse: send SGR reports as bytes with `send-keys -H` (`ESC [ < button ; x ; y M` to press, `m` to release; 32 added to the button for a drag, 64 and 65 for the wheel; 1-based cells). `tmux display -p '#{mouse_sgr_flag} #{alternate_on}'` shows whether reporting and the alternate screen are on. With `set -g set-clipboard on`, a copy lands in `tmux show-buffer`.
+  - vhs can't send mouse events. To screenshot full screen, have vhs attach to the tmux session and drive the app from a background script.
   - Take color screenshots with vhs: `Set Theme "Catppuccin Mocha"`, relative screenshot paths that don't start with a digit, and `/clear` between scenes, since vhs reads the top of the buffer.
   - Start with `env -i HOME=… PATH=…` so this session's own environment doesn't leak in.
+  - Plugin changes write to Claude Code's real settings and plugin folders. Test them with `CLAUDE_CONFIG_DIR` set to a throwaway folder and a local marketplace (`claude plugin validate` checks one). That run isn't signed in, but `/plugins` and `reloadPlugins()` don't need it.

@@ -1,52 +1,55 @@
-// A tool call as one row, after nebula-ui: a status glyph, the tool as a pill, what it acts on,
-// and a word on how it went. Finished rows in scrollback also keep what matters from the result.
+// A tool call: its node on the rail says how it went (a filled hexagon once it's done, an outline
+// while it runs or after it stopped), and its row says what it was: the tool, what it acts on,
+// and a word on the result, set against the right edge. Finished rows keep what matters from the
+// result on a panel under them.
 import { Box, Text } from "ink";
 import type { ToolCall } from "../src/view/state";
 import { bashOutput, field, plural, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
 import { cellWidth, printable, printableColored } from "./markdown";
-import { Frame, fit } from "./markdown-view";
-import { ACCENT, COLOR } from "./theme";
+import { fit, onPanel, Panel } from "./markdown-view";
+import { PALETTE, TINT } from "./theme";
 
 export const STATUS = {
-  running: { glyph: "◌", color: COLOR.info },
-  waiting: { glyph: "◆", color: ACCENT },
-  done: { glyph: "✓", color: COLOR.success },
-  error: { glyph: "✗", color: COLOR.error },
-  denied: { glyph: "⊘", color: COLOR.warning },
-  stopped: { glyph: "⊘", color: COLOR.warning },
+  running: { glyph: "⬡", color: PALETTE.haze },
+  waiting: { glyph: "⬢", color: PALETTE.gold },
+  done: { glyph: "⬢", color: PALETTE.teal },
+  error: { glyph: "⬢", color: PALETTE.rose },
+  denied: { glyph: "⬡", color: PALETTE.ember },
+  stopped: { glyph: "⬡", color: PALETTE.ember },
 } as const;
 
 export const PATHLIKE = new Set(["Read", "Edit", "Write", "NotebookEdit", "WebFetch"]);
 
-/** Lines of output a finished row keeps in scrollback; its frame says how many more there were. */
+/** Lines of output a finished row keeps; its panel says how many more there were. */
 const OUTPUT_LINES = 12;
 
 type Props = { call: ToolCall; waiting?: boolean; cwd: string; home: string; width: number; detailed?: boolean };
 
+/** The node a tool call shows on the rail. */
+export function toolNode(call: ToolCall, waiting: boolean) {
+  return STATUS[waiting ? "waiting" : call.status];
+}
+
 export function ToolRow({ call, waiting = false, cwd, home, width, detailed = false }: Props) {
   const status = waiting ? "waiting" : call.status;
-  const { glyph, color } = STATUS[status];
-  const pill = ` ${toolLabel(call.name)} `;
+  const name = toolLabel(call.name);
   const summary = toolSummary(call, waiting);
   const summaryColor =
-    status === "error" ? COLOR.error : status === "denied" || status === "stopped" ? COLOR.warning : status === "waiting" ? ACCENT : undefined;
-  const room = width - 2 - cellWidth(pill) - 1 - (summary ? cellWidth(summary) + 2 : 0);
+    status === "error" ? PALETTE.rose : status === "denied" || status === "stopped" ? PALETTE.ember : status === "waiting" ? PALETTE.gold : PALETTE.haze;
+  const room = width - cellWidth(name) - 2 - (summary ? cellWidth(summary) + 2 : 0);
   const target = fit(toolTarget(call, cwd, home), room, PATHLIKE.has(call.name));
   return (
-    <Box flexDirection="column">
-      <Text wrap="truncate-end">
-        <Text color={color}>{glyph}</Text>{" "}
-        <Text inverse bold color={ACCENT}>
-          {pill}
-        </Text>
-        {target ? ` ${target}` : ""}
-        {summary ? (
-          <Text color={summaryColor} dimColor={!summaryColor}>
-            {`  ${summary}`}
+    <Box flexDirection="column" width={width}>
+      <Box justifyContent="space-between" width={width}>
+        <Text wrap="truncate-end">
+          <Text bold color={PALETTE.teal}>
+            {name}
           </Text>
-        ) : null}
-      </Text>
-      {detailed ? <Detail call={call} width={width - 2} /> : null}
+          {target ? `  ${target}` : ""}
+        </Text>
+        {summary ? <Text color={summaryColor}>{summary}</Text> : null}
+      </Box>
+      {detailed ? <Detail call={call} width={width} /> : null}
     </Box>
   );
 }
@@ -55,28 +58,18 @@ export function ToolRow({ call, waiting = false, cwd, home, width, detailed = fa
 export function DraftRow({ name }: { name: string }) {
   return (
     <Text>
-      <Text color={COLOR.info}>⋯</Text>{" "}
-      <Text inverse bold color={ACCENT}>
-        {` ${toolLabel(name)} `}
+      <Text bold color={PALETTE.teal}>
+        {toolLabel(name)}
       </Text>
-      <Text dimColor>{"  preparing"}</Text>
+      <Text color={PALETTE.haze}>{"  getting ready"}</Text>
     </Text>
   );
 }
 
 function Detail({ call, width }: { call: ToolCall; width: number }) {
-  const body = detail(call, width);
-  return body ? (
-    <Box paddingLeft={2} flexDirection="column">
-      {body}
-    </Box>
-  ) : null;
-}
-
-function detail(call: ToolCall, width: number) {
   if (call.status === "error") {
     const said = printable(call.result ?? "").trim();
-    return said ? <Text color={COLOR.error}>{clip(said, 6).text}</Text> : null;
+    return said ? <Text color={PALETTE.rose}>{clip(said, 6).text}</Text> : null;
   }
   if (call.status !== "done") return null;
   switch (call.name) {
@@ -102,14 +95,14 @@ export function BashOutput({ call, width, limit }: { call: ToolCall; width: numb
   return (
     <Box flexDirection="column">
       {stdout.text ? (
-        <Frame label="stdout" note={stdout.note} width={width}>
-          <Text>{stdout.text}</Text>
-        </Frame>
+        <Panel note={stdout.hidden ? stdout.note : undefined} width={width}>
+          <Text>{onPanel(stdout.text)}</Text>
+        </Panel>
       ) : null}
       {stderr.text ? (
-        <Frame label="stderr" note={stderr.note} width={width} labelColor={COLOR.error}>
-          <Text color={COLOR.error}>{stderr.text}</Text>
-        </Frame>
+        <Panel label="stderr" note={stderr.hidden ? stderr.note : undefined} width={width}>
+          <Text color={PALETTE.rose}>{stderr.text}</Text>
+        </Panel>
       ) : null}
     </Box>
   );
@@ -128,21 +121,24 @@ export function patchLines(call: ToolCall) {
   return [...text("old_string").split("\n").map((line) => `-${line}`), ...text("new_string").split("\n").map((line) => `+${line}`)];
 }
 
+/** An edit as a diff on a panel: added lines tinted teal, removed ones rose, the rest quiet. */
 export function EditDiff({ call, width, limit }: { call: ToolCall; width: number; limit: number }) {
   const lines = patchLines(call);
-  const added = lines.filter((line) => line.startsWith("+")).length;
-  const removed = lines.filter((line) => line.startsWith("-")).length;
   const shown = lines.slice(0, limit);
-  const path = typeof call.input.file_path === "string" ? call.input.file_path : "";
   return (
-    <Frame label={path.split("/").pop() ?? path} note={`+${added} −${removed}`} width={width}>
-      {shown.map((line, i) => (
-        <Text key={i} color={line.startsWith("+") ? COLOR.success : line.startsWith("-") ? COLOR.error : undefined} dimColor={line.startsWith(" ")}>
-          {printable(line) || " "}
-        </Text>
-      ))}
-      {lines.length > shown.length ? <Text dimColor>{plural(lines.length - shown.length, "more line")}</Text> : null}
-    </Frame>
+    <Panel width={width} paddingX={0}>
+      {shown.map((line, i) => {
+        const kind = line.startsWith("+") ? "added" : line.startsWith("-") ? "removed" : "context";
+        return (
+          <Box key={i} backgroundColor={kind === "added" ? TINT.added : kind === "removed" ? TINT.removed : undefined} width={width}>
+            <Text color={kind === "added" ? PALETTE.teal : kind === "removed" ? PALETTE.rose : PALETTE.haze}>
+              {` ${printable(line) || " "}`}
+            </Text>
+          </Box>
+        );
+      })}
+      {lines.length > shown.length ? <Text color={PALETTE.haze}>{` ${plural(lines.length - shown.length, "more line")}`}</Text> : null}
+    </Panel>
   );
 }
 
@@ -155,25 +151,25 @@ function Todos({ call }: { call: ToolCall }) {
         const content = String(field(todo, "content") ?? "");
         if (status === "completed") {
           return (
-            <Text key={i} dimColor strikethrough>
-              {`☒ ${content}`}
+            <Text key={i} color={PALETTE.haze} strikethrough>
+              {`● ${content}`}
             </Text>
           );
         }
         if (status === "in_progress") {
           return (
-            <Text key={i} bold color={ACCENT}>
+            <Text key={i} bold color={PALETTE.teal}>
               {`◐ ${content}`}
             </Text>
           );
         }
-        return <Text key={i}>{`☐ ${content}`}</Text>;
+        return <Text key={i}>{`○ ${content}`}</Text>;
       })}
     </Box>
   );
 }
 
-/** What you answered, under the question row. */
+/** What you answered, under the question's row, in your color. */
 function QuestionAnswers({ call }: { call: ToolCall }) {
   const answers = field(call.output, "answers") ?? call.input.answers;
   if (typeof answers !== "object" || answers === null) return null;
@@ -181,8 +177,8 @@ function QuestionAnswers({ call }: { call: ToolCall }) {
     <Box flexDirection="column">
       {Object.entries(answers as Record<string, unknown>).map(([question, answer]) => (
         <Text key={question}>
-          <Text dimColor>{`${question} `}</Text>
-          <Text color={ACCENT}>{`→ ${String(answer)}`}</Text>
+          <Text color={PALETTE.haze}>{`${question}  `}</Text>
+          <Text color={PALETTE.gold}>{String(answer)}</Text>
         </Text>
       ))}
     </Box>
@@ -195,6 +191,7 @@ export function clip(text: string, limit: number) {
   const hidden = lines.length - limit;
   return {
     text: text.trim() ? lines.slice(0, limit).join("\n") : "",
+    hidden: hidden > 0,
     note: hidden > 0 ? plural(hidden, "more line") : plural(lines.length, "line"),
   };
 }

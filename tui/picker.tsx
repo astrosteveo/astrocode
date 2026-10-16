@@ -1,7 +1,12 @@
-// A list to choose from, for /model, /resume and the tool output browser. Type to filter.
-import { Box, Text, useInput } from "ink";
-import { useEffect, useState } from "react";
-import { ACCENT, COLOR } from "./theme";
+// A list to choose from, for /model, /resume and the tool output browser, on a panel with a gold
+// top edge while it has your keys. Type to filter. In full screen, click an item to pick it; the
+// wheel moves through the list.
+import { Box, Text, useInput, type DOMElement } from "ink";
+import { useEffect, useRef, useState } from "react";
+import { ChoiceRow } from "./choice";
+import { Panel } from "./markdown-view";
+import { hit, useMouse } from "./mouse";
+import { PALETTE } from "./theme";
 
 export type PickerItem = {
   key: string;
@@ -27,6 +32,8 @@ type Props = {
 export function Picker({ title, items, width, rows = 8, empty = "Nothing here yet.", onPick, onCancel }: Props) {
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState(0);
+  const panel = useRef<DOMElement>(null);
+  const list = useRef<DOMElement>(null);
 
   // Open on the current item once the list arrives.
   useEffect(() => {
@@ -60,44 +67,62 @@ export function Picker({ title, items, width, rows = 8, empty = "Nothing here ye
   const start = Math.min(Math.max(0, index - Math.floor(rows / 2)), Math.max(0, shown.length - rows));
   const visible = shown.slice(start, start + rows);
   const focused = shown[index];
+  const inner = width - 2;
+
+  useMouse((event) => {
+    if (event.type === "wheel" && hit(panel.current, event)) {
+      event.handled = true;
+      return setSelected(Math.max(0, Math.min(shown.length - 1, index + event.wheel)));
+    }
+    if (event.type !== "press" || event.button !== "left" || !hit(panel.current, event)) return;
+    event.handled = true;
+    const at = hit(list.current, event);
+    const item = at ? visible[at.y] : undefined;
+    if (!item) return;
+    setSelected(start + (at?.y ?? 0));
+    onPick(item);
+  });
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={ACCENT} paddingX={1} width={width}>
-      <Text>
-        <Text bold color={ACCENT}>
-          {title}
+    <Box ref={panel} flexDirection="column">
+      <Panel width={width} accent={PALETTE.gold} note={shown.length > rows ? `${index + 1} of ${shown.length}` : undefined}>
+        <Text>
+          <Text bold color={PALETTE.star}>
+            {title}
+          </Text>
+          <Text color={filter ? PALETTE.gold : PALETTE.dust}>{filter ? `   ${filter}` : "   type to filter"}</Text>
         </Text>
-        <Text dimColor>{filter ? `  filter: ${filter}` : "  type to filter"}</Text>
-      </Text>
-      <Box flexDirection="column" marginTop={1}>
-        {items === null ? (
-          <Text dimColor>Loading…</Text>
-        ) : shown.length === 0 ? (
-          <Text dimColor>{filter ? "Nothing matches." : empty}</Text>
-        ) : (
-          visible.map((item, i) => {
-            const isFocused = start + i === index;
-            return (
-              <Text key={item.key} wrap="truncate-end">
-                <Text color={isFocused ? ACCENT : undefined} bold={isFocused}>
-                  {`${isFocused ? "❯" : " "} ${item.label}`}
-                </Text>
-                {item.current ? <Text color={COLOR.success}> ✓</Text> : null}
-                {item.note ? <Text dimColor>{`  ${item.note}`}</Text> : null}
-              </Text>
-            );
-          })
-        )}
-      </Box>
-      {shown.length > rows ? <Text dimColor>{`${index + 1} of ${shown.length}`}</Text> : null}
-      {focused?.detail ? (
-        <Box marginTop={1}>
-          <Text dimColor>{focused.detail}</Text>
+        <Box ref={list} flexDirection="column" marginTop={1}>
+          {items === null ? (
+            <Text color={PALETTE.haze}>Loading…</Text>
+          ) : shown.length === 0 ? (
+            <Text color={PALETTE.haze}>{filter ? "Nothing matches." : empty}</Text>
+          ) : (
+            visible.map((item, i) => {
+              const isFocused = start + i === index;
+              return (
+                <ChoiceRow key={item.key} selected={isFocused} width={inner}>
+                  <Text wrap="truncate-end">
+                    <Text bold={isFocused} color={isFocused ? PALETTE.star : undefined}>
+                      {item.label}
+                    </Text>
+                    {item.current ? <Text color={PALETTE.teal}>{"  current"}</Text> : null}
+                    {item.note ? <Text color={PALETTE.haze}>{`   ${item.note}`}</Text> : null}
+                  </Text>
+                </ChoiceRow>
+              );
+            })
+          )}
         </Box>
-      ) : null}
-      <Box marginTop={1}>
-        <Text dimColor>↑↓ to choose · enter to select · esc to cancel</Text>
-      </Box>
+        {focused?.detail ? (
+          <Box marginTop={1}>
+            <Text color={PALETTE.haze}>{focused.detail}</Text>
+          </Box>
+        ) : null}
+        <Box marginTop={1}>
+          <Text color={PALETTE.dust}>↑↓ to choose   enter to select   esc to cancel</Text>
+        </Box>
+      </Panel>
     </Box>
   );
 }

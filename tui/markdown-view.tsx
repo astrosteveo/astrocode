@@ -1,5 +1,7 @@
-// Claude's Markdown drawn for the terminal, after nebula-ui: framed code with its language on the
-// border, tables redrawn with rounded box lines, glyph headings, and barred quotes and callouts.
+// Claude's Markdown, drawn in astrocode's own way. Prose sits on the terminal's background; code
+// and anything a machine printed sits on a panel, a filled surface with soft half-block edges and
+// its label set into the top edge. Headings are weight and color alone, tables have no grid, and
+// quotes hang off a hairline.
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import { plural } from "../src/view/tools";
@@ -19,19 +21,17 @@ import {
   type Callout,
   type Span,
 } from "./markdown";
-import { ACCENT, COLOR } from "./theme";
+import { PALETTE } from "./theme";
 
-const HEADINGS = ["◆", "◇", "›"];
-
-const CALLOUTS: Record<Callout, { glyph: string; color: string; title: string }> = {
-  note: { glyph: "ℹ", color: COLOR.info, title: "Note" },
-  tip: { glyph: "✦", color: COLOR.success, title: "Tip" },
-  important: { glyph: "◆", color: ACCENT, title: "Important" },
-  warning: { glyph: "▲", color: COLOR.warning, title: "Warning" },
-  caution: { glyph: "✗", color: COLOR.error, title: "Caution" },
+const CALLOUTS: Record<Callout, { color: string; title: string }> = {
+  note: { color: PALETTE.sky, title: "Note" },
+  tip: { color: PALETTE.teal, title: "Tip" },
+  important: { color: PALETTE.gold, title: "Important" },
+  warning: { color: PALETTE.ember, title: "Warning" },
+  caution: { color: PALETTE.rose, title: "Caution" },
 };
 
-/** The fewest lines a code frame names its length for; a shorter one is read at a glance. */
+/** The fewest lines a code panel names its length for; a shorter one is read at a glance. */
 const LINE_COUNT_FROM = 5;
 
 export function Markdown({ text, width }: { text: string; width: number }) {
@@ -52,15 +52,15 @@ function BlockView({ block, width }: { block: Block; width: number }) {
       const source = block.source.replace(/\n$/, "");
       const lines = source.split("\n").length;
       return (
-        <Frame label={block.language || "text"} note={lines >= LINE_COUNT_FROM ? plural(lines, "line") : undefined} width={width}>
-          <Text>{highlightCode(source, block.language)}</Text>
-        </Frame>
+        <Panel label={block.language} note={lines >= LINE_COUNT_FROM ? plural(lines, "line") : undefined} width={width}>
+          <Text>{onPanel(highlightCode(source, block.language))}</Text>
+        </Panel>
       );
     }
     case "heading":
       return (
-        <Text bold color={ACCENT}>
-          {HEADINGS[block.level - 1] ?? HEADINGS[2]} {inline(block.text)}
+        <Text bold color={block.level === 1 ? PALETTE.teal : block.level === 2 ? PALETTE.star : PALETTE.haze}>
+          {inline(block.text)}
         </Text>
       );
     case "table":
@@ -68,7 +68,7 @@ function BlockView({ block, width }: { block: Block; width: number }) {
     case "quote":
       return <Quote block={block} width={width} />;
     case "rule":
-      return <Text color={COLOR.muted}>{"─".repeat(width)}</Text>;
+      return <Text color={PALETTE.dust}>{"╌".repeat(width)}</Text>;
   }
 }
 
@@ -87,12 +87,13 @@ function Prose({ text, width }: { text: string; width: number }) {
             const item = LIST_ITEM.exec(line);
             if (!item) return rows(wrapSpans(spans(line.trim()), width), `${j}`);
             const [, indent = "", marker = "", task, body = ""] = item;
-            const bullet = task !== undefined ? (task === " " ? "☐" : "☒") : /\d/.test(marker) ? marker : "•";
+            const bullet = task !== undefined ? (task === " " ? "○" : "●") : /\d/.test(marker) ? marker : "•";
+            const color = task === undefined ? PALETTE.haze : PALETTE.teal;
             const hang = indent.length + cellWidth(bullet) + 1;
             return wrapSpans(spans(body), width - hang).map((row, k) => (
               <Text key={`${j}:${k}`} wrap="truncate-end">
                 {" ".repeat(indent.length)}
-                {k === 0 ? <Text color={ACCENT}>{bullet} </Text> : " ".repeat(hang - indent.length)}
+                {k === 0 ? <Text color={color}>{bullet} </Text> : " ".repeat(hang - indent.length)}
                 {row.map((run, n) => (
                   <Styled key={n} run={run} />
                 ))}
@@ -122,69 +123,110 @@ export function inline(text: string) {
 function Styled({ run }: { run: Span }) {
   switch (run.style) {
     case "code":
-      return <Text color={ACCENT}>{run.text}</Text>;
+      return (
+        <Text color={PALETTE.tealLight} backgroundColor={PALETTE.raised}>
+          {run.text}
+        </Text>
+      );
     case "command":
       return (
-        <Text bold color={ACCENT}>
+        <Text bold color={PALETTE.tealLight} backgroundColor={PALETTE.raised}>
           {run.text}
         </Text>
       );
     case "bold":
-      return <Text bold>{run.text}</Text>;
+      return (
+        <Text bold color={PALETTE.star}>
+          {run.text}
+        </Text>
+      );
     case "italic":
       return <Text italic>{run.text}</Text>;
     case "strike":
-      return <Text strikethrough>{run.text}</Text>;
+      return (
+        <Text strikethrough color={PALETTE.haze}>
+          {run.text}
+        </Text>
+      );
     case "link":
       return (
-        <Text color={COLOR.info} underline>
+        <Text color={PALETTE.sky} underline>
           {run.text}
         </Text>
       );
     case "url":
-      return <Text color={COLOR.muted}>{run.text}</Text>;
+      return <Text color={PALETTE.dust}>{run.text}</Text>;
     default:
       return <Text>{run.text}</Text>;
   }
 }
 
 /**
- * A rounded frame with a label and a note set into its top border. The top line is drawn as
- * text so the words can sit on it; the Box draws the sides and bottom.
+ * A panel: a filled surface with soft edges, a half row of it above and below the content. A
+ * label and a note sit in the top edge, on the left and the right. A panel that has your keys
+ * gets a gold hairline (`accent`) for its top edge instead.
  */
-export function Frame({
+export function Panel({
   label = "",
   note = "",
   width,
-  color = COLOR.muted,
-  labelColor = ACCENT,
+  accent,
+  background = PALETTE.surface,
+  paddingX = 1,
   children,
 }: {
   label?: string;
   note?: string;
   width: number;
-  color?: string;
-  labelColor?: string;
+  accent?: string;
+  background?: string;
+  paddingX?: number;
   children: ReactNode;
 }) {
-  const room = Math.max(0, width - 4);
+  const room = Math.max(0, width - 2);
   const left = label ? ` ${takeCells(label, Math.max(1, room - 2))[0]} ` : "";
-  const right = note && cellWidth(left) + cellWidth(note) + 2 <= room ? ` ${note} ` : "";
+  const right = note && cellWidth(left) + cellWidth(note) + 3 <= room ? ` ${note} ` : "";
   const fill = Math.max(0, room - cellWidth(left) - cellWidth(right));
+  const edge = accent ?? background;
+  const line = accent ? "▁" : "▄";
   return (
     <Box flexDirection="column" width={width}>
       <Text>
-        <Text color={color}>╭─</Text>
-        <Text color={labelColor}>{left}</Text>
-        <Text color={color}>{"─".repeat(fill)}</Text>
-        <Text color={COLOR.muted}>{right}</Text>
-        <Text color={color}>─╮</Text>
+        <Text color={edge}>{line}</Text>
+        <Text color={PALETTE.haze}>{left}</Text>
+        <Text color={edge}>{line.repeat(fill)}</Text>
+        <Text color={PALETTE.dust}>{right}</Text>
+        <Text color={edge}>{line}</Text>
       </Text>
-      <Box borderStyle="round" borderTop={false} borderColor={color} paddingX={1} width={width} flexDirection="column">
+      <Box backgroundColor={background} paddingX={paddingX} width={width} flexDirection="column">
         {children}
       </Box>
+      <Text color={background}>{"▀".repeat(width)}</Text>
     </Box>
   );
+}
+
+/**
+ * Text a tool or a highlighter colored, made safe for a panel: its background codes go, and a
+ * full reset becomes a reset of everything but the background, so the panel shows through.
+ */
+export function onPanel(text: string) {
+  return text.replace(/\x1b\[([0-9;]*)m/g, (_, codes: string) => {
+    const kept: string[] = [];
+    const list = codes === "" ? ["0"] : codes.split(";");
+    for (let i = 0; i < list.length; i++) {
+      const code = Number(list[i]);
+      if (code === 0) kept.push("22", "23", "24", "27", "29", "39");
+      else if (code === 38) {
+        const span = list[i + 1] === "5" ? 3 : 5;
+        kept.push(...list.slice(i, i + span));
+        i += span - 1;
+      } else if (code === 48) i += list[i + 1] === "5" ? 2 : 4;
+      else if ((code >= 40 && code <= 49) || (code >= 100 && code <= 107)) continue;
+      else kept.push(String(code));
+    }
+    return kept.length ? `\x1b[${kept.join(";")}m` : "";
+  });
 }
 
 /** Text cut to `room` cells: a path keeps its end, anything else its start. */
@@ -196,21 +238,21 @@ export function fit(text: string, room: number, isPath: boolean) {
 
 function Quote({ block, width }: { block: Extract<Block, { kind: "quote" }>; width: number }) {
   const callout = block.callout ? CALLOUTS[block.callout] : null;
-  const color = callout?.color ?? COLOR.muted;
+  const color = callout?.color ?? PALETTE.dust;
   return (
     <Box flexDirection="column">
       {callout ? (
         <Text>
-          <Text color={color}>▌ </Text>
+          <Text color={color}>▏ </Text>
           <Text bold color={color}>
-            {callout.glyph} {block.title || callout.title}
+            {block.title || callout.title}
           </Text>
         </Text>
       ) : null}
       {wrapText(block.text, width - 2).map((row, i) => (
         <Text key={i}>
-          <Text color={color}>▌ </Text>
-          <Text dimColor={!callout}>
+          <Text color={color}>▏ </Text>
+          <Text italic={!callout} color={callout ? undefined : PALETTE.haze}>
             {row.map((run, j) => (
               <Styled key={j} run={run} />
             ))}
@@ -221,11 +263,14 @@ function Quote({ block, width }: { block: Extract<Block, { kind: "quote" }>; wid
   );
 }
 
-/** A table as lines of text: each cell wrapped to its column, dividers written into each line. */
+/** Columns this far apart, with nothing drawn between them. */
+const COLUMN_GAP = 3;
+
+/** A table without a grid: the header in bold over a short rule per column, cells wrapped to their column. */
 function Table({ block, width }: { block: Extract<Block, { kind: "table" }>; width: number }) {
   const count = block.header.length;
   const natural = block.header.map((cell, column) => Math.max(textWidth(cell), ...block.rows.map((row) => textWidth(row[column] ?? ""))));
-  const room = width - (3 * count + 1);
+  const room = width - COLUMN_GAP * (count - 1);
   const widths = fitColumns(natural, room);
   // Too wide even at its narrowest: one record at a time, each cell under its header.
   if (widths.reduce((sum, one) => sum + one, 0) > room) {
@@ -249,9 +294,6 @@ function Table({ block, width }: { block: Extract<Block, { kind: "table" }>; wid
       </Box>
     );
   }
-  const border = (left: string, middle: string, right: string) => (
-    <Text color={COLOR.muted}>{left + widths.map((one) => "─".repeat(one + 2)).join(middle) + right}</Text>
-  );
   const lines = (values: string[], isHeader: boolean, key: string) => {
     const cells = values.map((value, column) => wrapSpans(spans(value), widths[column] ?? 1));
     const height = Math.max(1, ...cells.map((rows) => rows.length));
@@ -262,12 +304,12 @@ function Table({ block, width }: { block: Extract<Block, { kind: "table" }>; wid
           const free = (widths[column] ?? 0) - rowWidth(row);
           const align = block.align[column] ?? "left";
           const before = align === "right" ? free : align === "center" ? Math.floor(free / 2) : 0;
+          const after = column < count - 1 ? free - before + COLUMN_GAP : 0;
           return (
             <Text key={column}>
-              <Text color={COLOR.muted}>│ </Text>
               {" ".repeat(Math.max(0, before))}
               {isHeader ? (
-                <Text bold color={ACCENT}>
+                <Text bold color={PALETTE.star}>
                   {row.map((run, k) => (
                     <Styled key={k} run={run} />
                   ))}
@@ -275,21 +317,18 @@ function Table({ block, width }: { block: Extract<Block, { kind: "table" }>; wid
               ) : (
                 row.map((run, k) => <Styled key={k} run={run} />)
               )}
-              {" ".repeat(Math.max(0, free - before))}{" "}
+              {" ".repeat(Math.max(0, after))}
             </Text>
           );
         })}
-        <Text color={COLOR.muted}>│</Text>
       </Text>
     ));
   };
   return (
     <Box flexDirection="column">
-      {border("╭", "┬", "╮")}
       {lines(block.header, true, "head")}
-      {border("├", "┼", "┤")}
+      <Text color={PALETTE.dust}>{widths.map((one) => "─".repeat(one)).join(" ".repeat(COLUMN_GAP))}</Text>
       {block.rows.flatMap((values, i) => lines(values, false, `row${i}`))}
-      {border("╰", "┴", "╯")}
     </Box>
   );
 }

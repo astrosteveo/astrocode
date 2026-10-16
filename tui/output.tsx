@@ -1,35 +1,36 @@
-// A tool call's whole output, printed into scrollback on request (Ctrl+O or /output).
+// A tool call's whole output, printed into scrollback on request (Ctrl+O or /output), or opened
+// under its row in full screen.
 import { Box, Text } from "ink";
 import type { ToolCall } from "../src/view/state";
 import { field, toolLabel, toolTarget } from "../src/view/tools";
 import { highlightCode } from "./highlight";
 import { printable } from "./markdown";
-import { Frame, Markdown, fit } from "./markdown-view";
-import { BashOutput, clip, EditDiff, STATUS } from "./tool-row";
+import { Markdown, fit, onPanel, Panel } from "./markdown-view";
+import { PALETTE } from "./theme";
+import { BashOutput, clip, EditDiff } from "./tool-row";
 
 /** The most lines printed for one output; scrollback can hold this much without trouble. */
 const MAX_LINES = 2000;
 
 type Props = { call: ToolCall; cwd: string; home: string; width: number };
 
+/** The header of a printed output: which call it belongs to, since it lands at the end of the transcript. */
 export function FullOutput({ call, cwd, home, width }: Props) {
-  const { glyph, color } = STATUS[call.status];
   return (
     <Box flexDirection="column">
       <Text wrap="truncate-end">
-        <Text color={color}>{glyph}</Text>
-        <Text bold>{` ${toolLabel(call.name)} `}</Text>
-        <Text dimColor>{fit(toolTarget(call, cwd, home), width - 20, true)}</Text>
-        <Text dimColor>{"  full output"}</Text>
+        <Text bold color={PALETTE.teal}>
+          {toolLabel(call.name)}
+        </Text>
+        <Text>{`  ${fit(toolTarget(call, cwd, home), width - 30, true)}`}</Text>
+        <Text color={PALETTE.haze}>{"  whole output"}</Text>
       </Text>
-      <Box paddingLeft={2} flexDirection="column">
-        <Body call={call} width={width - 2} />
-      </Box>
+      <OutputBody call={call} width={width} />
     </Box>
   );
 }
 
-function Body({ call, width }: { call: ToolCall; width: number }) {
+export function OutputBody({ call, width }: { call: ToolCall; width: number }) {
   const path = typeof call.input.file_path === "string" ? call.input.file_path : "";
   const language = path.includes(".") ? (path.split(".").pop() ?? "") : "";
   switch (call.name) {
@@ -53,20 +54,20 @@ function Body({ call, width }: { call: ToolCall; width: number }) {
     }
   }
   const result = call.result?.trim() ? call.result : call.output === undefined ? "" : JSON.stringify(call.output, null, 2);
-  if (!result) return <Text dimColor>No output.</Text>;
+  if (!result) return <Text color={PALETTE.haze}>No output.</Text>;
   const shown = clip(printable(result), MAX_LINES);
   return (
-    <Frame label="result" note={shown.note} width={width}>
+    <Panel note={shown.note} width={width}>
       <Text>{shown.text}</Text>
-    </Frame>
+    </Panel>
   );
 }
 
 function Source({ label, source, language, width }: { label: string; source: string; language: string; width: number }) {
   const shown = clip(source, MAX_LINES);
   return (
-    <Frame label={label} note={shown.note} width={width}>
-      <Text>{highlightCode(shown.text, language)}</Text>
-    </Frame>
+    <Panel label={label} note={shown.note} width={width}>
+      <Text>{onPanel(highlightCode(shown.text, language))}</Text>
+    </Panel>
   );
 }

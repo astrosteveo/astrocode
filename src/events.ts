@@ -1,5 +1,5 @@
 // What the session tells the interface, and the requests that wait on the user.
-import type { PermissionMode, PermissionUpdate, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { EffortLevel, PermissionMode, PermissionUpdate, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 /** A tool call waiting for the user to allow or deny it. */
 export type PermissionRequest = {
@@ -39,13 +39,22 @@ export type Answers = Record<string, string>;
 /** The permission modes Shift+Tab steps through, in order. */
 export const MODES = ["default", "acceptEdits", "plan", "auto", "bypassPermissions"] as const satisfies readonly PermissionMode[];
 
-export type ModelChoice = { value: string; name: string; description: string };
+/** `efforts` lists the effort levels the model takes, if it takes any. */
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const satisfies readonly EffortLevel[];
+
+export function isEffort(value: string): value is EffortLevel {
+  return (EFFORTS as readonly string[]).includes(value);
+}
+
+export type ModelChoice = { value: string; name: string; description: string; efforts?: EffortLevel[] };
 
 export type CommandInfo = { name: string; description: string; argumentHint: string };
 
 export type SessionEvent =
   /** Claude Code started: the account, and the models and slash commands it offers. */
   | { kind: "ready"; plan?: string; models: ModelChoice[]; commands: CommandInfo[] }
+  /** The slash commands changed, after plugins were reloaded. */
+  | { kind: "commands"; commands: CommandInfo[] }
   | { kind: "prompt"; text: string }
   | { kind: "sdk"; message: SDKMessage }
   | { kind: "permission"; request: PermissionRequest }
@@ -53,5 +62,6 @@ export type SessionEvent =
   | { kind: "resolved"; id: string; outcome: Decision | "answered" | "cancelled" }
   | { kind: "mode"; mode: PermissionMode }
   | { kind: "model"; model: string }
+  | { kind: "effort"; effort: EffortLevel }
   | { kind: "context"; percentage: number; tokens: number; max: number }
   | { kind: "notice"; tone: "info" | "error"; text: string };

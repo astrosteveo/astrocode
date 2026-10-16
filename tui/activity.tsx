@@ -1,48 +1,50 @@
-// What the turn is doing: a spinner turning through the nebula colors, a label with light
-// moving across it, the time so far and the tokens Claude has written.
+// The tip of the rail while Claude works: a dot in orbit, what Claude is doing with light passing
+// over the words, the time so far and the tokens written. While it waits on you, the tip turns
+// gold and holds still.
 import { Box, Text, useAnimation } from "ink";
 import { compact, duration } from "../src/view/format";
 import type { State } from "../src/view/state";
 import { toolLabel } from "../src/view/tools";
-import { ACCENT, COLOR, gradient, mix, NEBULA } from "./theme";
+import { GUTTER } from "./rail";
+import { mix, PALETTE } from "./theme";
 
-const SPINNER = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
+/** One dot going round a braille cell: down the left column, up the right. */
+const ORBIT = ["⠁", "⠂", "⠄", "⡀", "⢀", "⠠", "⠐", "⠈"];
 
-/** Catppuccin Mocha's mauve, green and blue, so the shimmer has a hex to blend from. */
-const HUES = { thinking: "#cba6f7", writing: "#a6e3a1", tools: "#89b4fa" };
-
-export function Activity({ state }: { state: State }) {
-  const active = state.busy || state.pending.length > 0 || state.questions.length > 0;
-  const { frame, time } = useAnimation({ interval: 80, isActive: active });
+export function Activity({ state, width }: { state: State; width: number }) {
+  const waiting = state.pending.length > 0 || state.questions.length > 0;
+  const active = state.busy || waiting;
+  const { frame, time } = useAnimation({ interval: 90, isActive: active });
   if (!active) return null;
-  const { label, hue } = describe(state);
+  const label = describe(state);
   const live = state.live?.blocks.slice(state.live.finalized).reduce((sum, block) => sum + (block?.text.length ?? 0), 0) ?? 0;
   const tokens = state.turnTokens + Math.round(live / 4);
-  const waiting = state.pending.length > 0 || state.questions.length > 0;
+  const stats = `   ${duration(time)}${tokens > 0 ? `   ${compact(tokens)} tokens` : ""}`;
   return (
-    <Box marginTop={1}>
-      <Text>
-        <Text color={gradient(NEBULA, (Math.sin(frame / 8) + 1) / 2)}>{SPINNER[frame % SPINNER.length]}</Text>{" "}
-        <Shimmer text={`${label}…`} hue={hue} frame={frame} still={waiting} />
-        <Text color={COLOR.muted}>
-          {`  ${duration(time)}${tokens > 0 ? ` · ↓ ${compact(tokens)} tokens` : ""}${waiting ? "" : " · esc to stop"}`}
+    <Box flexDirection="column">
+      <Text color={PALETTE.dust}>│</Text>
+      <Box justifyContent="space-between" width={width}>
+        <Text>
+          <Text color={waiting ? PALETTE.gold : PALETTE.teal}>{(waiting ? "◆" : (ORBIT[frame % ORBIT.length] ?? "")).padEnd(GUTTER)}</Text>
+          {waiting ? <Text color={PALETTE.gold}>{label}</Text> : <Sweep text={label} frame={frame} />}
+          <Text color={PALETTE.haze}>{stats}</Text>
         </Text>
-      </Text>
+        {waiting ? null : <Text color={PALETTE.dust}>esc to stop</Text>}
+      </Box>
     </Box>
   );
 }
 
-/** Light passing over the text, letter by letter. Still while Claude waits on you. */
-function Shimmer({ text, hue, frame, still }: { text: string; hue: string; frame: number; still: boolean }) {
+/** Light passing over the words, letter by letter, from teal to starlight and back. */
+function Sweep({ text, frame }: { text: string; frame: number }) {
   const letters = [...text];
-  if (still || !hue.startsWith("#")) return <Text color={hue}>{text}</Text>;
-  const head = (frame % (letters.length + 10)) - 5;
+  const head = (frame % (letters.length + 12)) - 6;
   return (
     <>
       {letters.map((letter, i) => {
-        const glow = Math.max(0, 1 - Math.abs(i - head) / 3);
+        const glow = Math.max(0, 1 - Math.abs(i - head) / 4);
         return (
-          <Text key={i} color={glow > 0 ? mix(hue, "#ffffff", glow * 0.8) : hue}>
+          <Text key={i} color={mix(PALETTE.teal, PALETTE.star, glow)}>
             {letter}
           </Text>
         );
@@ -52,14 +54,14 @@ function Shimmer({ text, hue, frame, still }: { text: string; hue: string; frame
 }
 
 function describe(state: State) {
-  if (state.questions.length > 0) return { label: "Waiting for your answer", hue: ACCENT };
-  if (state.pending.length > 0) return { label: "Waiting for your OK", hue: ACCENT };
+  if (state.questions.length > 0) return "Claude has a question for you";
+  if (state.pending.length > 0) return "Waiting for your OK";
   const live = state.live;
   const block = live?.blocks.slice(live.finalized).findLast((b) => b !== undefined);
-  if (block?.kind === "thinking") return { label: "Thinking", hue: HUES.thinking };
-  if (block?.kind === "text") return { label: "Writing", hue: HUES.writing };
-  if (block?.kind === "tool") return { label: `Preparing ${toolLabel(block.name ?? "a tool")}`, hue: HUES.tools };
+  if (block?.kind === "thinking") return "Thinking";
+  if (block?.kind === "text") return "Writing";
+  if (block?.kind === "tool") return `Getting ${toolLabel(block.name ?? "a tool")} ready`;
   const running = state.items.findLast((item) => item.kind === "tool" && item.call.status === "running");
-  if (running?.kind === "tool") return { label: `Running ${toolLabel(running.call.name)}`, hue: HUES.tools };
-  return { label: "Working", hue: HUES.thinking };
+  if (running?.kind === "tool") return `Running ${toolLabel(running.call.name)}`;
+  return "Working";
 }

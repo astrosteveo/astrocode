@@ -1,5 +1,4 @@
 // How each tool call reads in a single row: its name, what it acts on, and how it went.
-// The summaries follow nebula-ui's.
 import type { ToolCall } from "./state";
 
 const NAMES: Record<string, string> = { AskUserQuestion: "Question", TodoWrite: "To-dos" };

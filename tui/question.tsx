@@ -1,11 +1,14 @@
-// Claude's multiple-choice questions (the AskUserQuestion tool), one at a time.
-import { Box, Text, useInput, usePaste } from "ink";
+// Claude's multiple-choice questions (the AskUserQuestion tool), one at a time, on a panel with a
+// gold top edge. In full screen, clicking an option is pressing its number.
+import { Box, Text, useInput, usePaste, type DOMElement } from "ink";
 import { useRef, useState } from "react";
 import type { Answers, QuestionRequest } from "../src/events";
-import { Frame } from "./markdown-view";
-import { ACCENT, COLOR } from "./theme";
+import { ChoiceRow } from "./choice";
+import { Panel } from "./markdown-view";
+import { hit, useMouse } from "./mouse";
+import { PALETTE } from "./theme";
 
-/** Keys pressed this soon after a question appears were meant for something else, so Enter, Space and digits wait. */
+/** Keys pressed this soon after a question appears were meant for something else, so Enter, Space, digits and clicks wait. */
 const GRACE_MS = 500;
 
 type Props = { request: QuestionRequest; width: number; onAnswer: (answers: Answers | null) => void };
@@ -19,6 +22,7 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
   /** What's typed for "Other", or null while choosing. */
   const [typing, setTyping] = useState<string | null>(null);
   const shownAt = useRef(Date.now());
+  const rows = useRef<(DOMElement | null)[]>([]);
 
   const question = questions[step] ?? questions[0]!;
   const other = question.options.length;
@@ -41,6 +45,24 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
 
   const toggle = (i: number) => setChecked((list) => (list.includes(i) ? list.filter((one) => one !== i) : [...list, i]));
 
+  /** Option `i`, chosen: "Other" opens the box to type in, a multi-select checks or unchecks, and anything else answers. */
+  const pick = (i: number) => {
+    if (i === other) return setTyping("");
+    if (question.multiSelect) return toggle(i);
+    finish(question.options[i]?.label ?? "");
+  };
+
+  useMouse((event) => {
+    if (event.type !== "press" || event.button !== "left") return;
+    const index = rows.current.findIndex((row, i) => i <= other && hit(row, event));
+    if (index === -1) return;
+    event.handled = true;
+    setSelected(index);
+    if (Date.now() - shownAt.current < GRACE_MS) return;
+    if (typing !== null) setTyping(null);
+    pick(index);
+  });
+
   usePaste((text) => setTyping((typed) => (typed === null ? typed : typed + text.replace(/\s*\n\s*/g, " "))), { isActive: typing !== null });
 
   useInput((input, key) => {
@@ -60,11 +82,6 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
     if (key.downArrow || (key.tab && !key.shift)) return setSelected((i) => (i + 1) % (other + 1));
     if (key.leftArrow && step > 0) return goTo(step - 1);
     if (Date.now() - shownAt.current < GRACE_MS) return;
-    const pick = (i: number) => {
-      if (i === other) return setTyping("");
-      if (question.multiSelect) return toggle(i);
-      finish(question.options[i]?.label ?? "");
-    };
     if (input === " " && question.multiSelect) return pick(selected);
     if (key.return) {
       if (selected === other) return setTyping("");
@@ -78,36 +95,43 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
   });
 
   const preview = question.options[selected]?.preview;
+  const inner = width - 2;
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={ACCENT} paddingX={1} width={width}>
-      <Text>
-        <Text bold color={ACCENT}>
-          {questions.length === 1 ? "◆ Claude has a question" : `◆ Claude has ${questions.length} questions`}
+    <Panel width={width} accent={PALETTE.gold} note={questions.length > 1 ? `${step + 1} of ${questions.length}` : undefined}>
+      {questions.length > 1 ? (
+        <Text>
+          {questions.map((one, i) => (
+            <Text key={i} bold={i === step} color={i < step ? PALETTE.teal : i === step ? PALETTE.gold : PALETTE.dust}>
+              {`${i > 0 ? "   " : ""}${i < step ? "✓ " : ""}${one.header || `Question ${i + 1}`}`}
+            </Text>
+          ))}
         </Text>
-        {questions.length > 1
-          ? questions.map((one, i) => (
-              <Text key={i}>
-                {"  "}
-                <Text inverse={i === step} color={i < step ? COLOR.success : i === step ? ACCENT : COLOR.muted}>
-                  {` ${i < step ? "✓ " : ""}${one.header || `Question ${i + 1}`} `}
-                </Text>
-              </Text>
-            ))
-          : null}
+      ) : null}
+      <Text bold color={PALETTE.star}>
+        {question.question}
       </Text>
-      <Box marginTop={1}>
-        <Text bold>{question.question}</Text>
-      </Box>
       <Box flexDirection="column" marginTop={1}>
         {[...question.options, { label: "Other…", description: "Type your own answer" }].map((option, i) => {
           const isFocused = i === selected;
-          const box = question.multiSelect && i !== other ? (checked.includes(i) ? "[✓] " : "[ ] ") : "";
+          const box = question.multiSelect && i !== other ? (checked.includes(i) ? "● " : "○ ") : "";
           return (
-            <Box key={i} flexDirection="column">
-              <Text color={isFocused ? ACCENT : undefined} bold={isFocused}>
-                {`${isFocused ? "❯" : " "} ${box}${i + 1}. ${option.label}`}
-              </Text>
-              {option.description ? <Text dimColor>{`     ${option.description}`}</Text> : null}
+            <Box
+              key={i}
+              flexDirection="column"
+              ref={(element) => {
+                rows.current[i] = element;
+              }}
+            >
+              <ChoiceRow selected={isFocused} width={inner}>
+                <Text>
+                  <Text color={PALETTE.dust}>{`${i + 1}  `}</Text>
+                  {box ? <Text color={checked.includes(i) ? PALETTE.gold : PALETTE.dust}>{box}</Text> : null}
+                  <Text bold={isFocused} color={isFocused ? PALETTE.star : undefined}>
+                    {option.label}
+                  </Text>
+                </Text>
+                {option.description ? <Text color={PALETTE.haze}>{`${" ".repeat(3 + box.length)}${option.description}`}</Text> : null}
+              </ChoiceRow>
             </Box>
           );
         })}
@@ -115,26 +139,26 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
       {typing !== null ? (
         <Box marginTop={1}>
           <Text>
-            <Text color={ACCENT}>{"› "}</Text>
-            {typing}
-            <Text inverse> </Text>
+            <Text color={PALETTE.gold}>{"❯ "}</Text>
+            <Text color={PALETTE.star}>{typing}</Text>
+            <Text backgroundColor={PALETTE.gold}> </Text>
           </Text>
         </Box>
       ) : null}
       {preview && typing === null ? (
         <Box marginTop={1}>
-          <Frame label="preview" width={width - 4}>
+          <Panel label="preview" width={inner} background={PALETTE.raised}>
             <Text>{preview}</Text>
-          </Frame>
+          </Panel>
         </Box>
       ) : null}
       <Box marginTop={1}>
-        <Text dimColor>
+        <Text color={PALETTE.dust}>
           {typing !== null
-            ? "enter to answer · esc to go back"
-            : `↑↓ to choose · ${question.multiSelect ? "space to check · enter when done" : "enter to answer"}${step > 0 ? " · ← back" : ""} · esc to dismiss`}
+            ? "enter to answer   esc to go back"
+            : `↑↓ to choose   ${question.multiSelect ? "space to check   enter when done" : "enter to answer"}${step > 0 ? "   ← back" : ""}   esc to dismiss`}
         </Text>
       </Box>
-    </Box>
+    </Panel>
   );
 }

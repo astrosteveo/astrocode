@@ -1,12 +1,17 @@
-import { Box, Text, useInput } from "ink";
+// Asking you before a tool runs: what Claude wants to do, on a panel with a gold top edge, and the
+// choices. "Always allow" names the one rule it adds.
+import { Box, Text, useInput, type DOMElement } from "ink";
 import { useRef, useState } from "react";
 import type { Decision as Choice, PermissionRequest } from "../src/events";
 import { alwaysLabel, permissionNote, permissionTitle } from "../src/view/permissions";
 import { plural, shortPath } from "../src/view/tools";
+import { ChoiceRow } from "./choice";
 import { printable } from "./markdown";
-import { ACCENT, COLOR } from "./theme";
+import { Panel } from "./markdown-view";
+import { hit, useMouse } from "./mouse";
+import { PALETTE, TINT } from "./theme";
 
-/** Keys pressed this soon after the prompt appears were meant for something else, so Enter and digits wait. */
+/** Keys pressed this soon after the prompt appears were meant for something else, so Enter, digits and clicks wait. */
 const GRACE_MS = 500;
 
 /** Lines of a command, diff or file the prompt shows before saying how many more there are. */
@@ -14,7 +19,7 @@ const PREVIEW_LINES = 12;
 
 type Props = { request: PermissionRequest; cwd: string; home: string; width: number; onDecide: (choice: Choice) => void };
 
-/** Choose with the arrow keys and Enter, or press a number. Esc or Ctrl+C denies. */
+/** Choose with the arrow keys and Enter, press a number, or click an option. Esc or Ctrl+C denies. */
 export function DecisionPrompt({ request, cwd, home, width, onDecide }: Props) {
   const always = alwaysLabel(request.alwaysAllow, home);
   const options: { choice: Choice; label: string }[] = [
@@ -24,7 +29,18 @@ export function DecisionPrompt({ request, cwd, home, width, onDecide }: Props) {
   ];
   const [selected, setSelected] = useState(request.defaultToNo ? options.length - 1 : 0);
   const shownAt = useRef(Date.now());
+  const rows = useRef<(DOMElement | null)[]>([]);
   const note = permissionNote(request, cwd, home);
+
+  useMouse((event) => {
+    if (event.type !== "press" || event.button !== "left") return;
+    const index = options.findIndex((_, i) => hit(rows.current[i], event));
+    const option = options[index];
+    if (!option) return;
+    event.handled = true;
+    setSelected(index);
+    if (Date.now() - shownAt.current >= GRACE_MS) onDecide(option.choice);
+  });
 
   useInput((input, key) => {
     if (key.eventType === "release") return;
@@ -39,28 +55,41 @@ export function DecisionPrompt({ request, cwd, home, width, onDecide }: Props) {
     }
   });
 
+  const inner = width - 2;
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={ACCENT} paddingX={1} width={width}>
-      <Text bold color={ACCENT}>
+    <Panel width={width} accent={PALETTE.gold}>
+      <Text bold color={PALETTE.star}>
         {permissionTitle(request)}
       </Text>
-      {note ? <Text dimColor>{note}</Text> : null}
+      {note ? <Text color={PALETTE.haze}>{note}</Text> : null}
       <Box flexDirection="column" marginTop={1}>
-        <Details request={request} cwd={cwd} home={home} />
+        <Details request={request} cwd={cwd} home={home} width={inner} note={note} />
       </Box>
       <Box flexDirection="column" marginTop={1}>
         {options.map((option, i) => (
-          <Text key={option.choice} color={i === selected ? ACCENT : undefined} bold={i === selected}>
-            {`${i === selected ? "❯" : " "} ${i + 1}. ${option.label}`}
-          </Text>
+          <Box
+            key={option.choice}
+            ref={(element) => {
+              rows.current[i] = element;
+            }}
+          >
+            <ChoiceRow selected={i === selected} width={inner}>
+              <Text bold={i === selected} color={i === selected ? PALETTE.star : undefined}>
+                {`${i + 1}  ${option.label}`}
+              </Text>
+            </ChoiceRow>
+          </Box>
         ))}
       </Box>
-      <Text dimColor>↑↓ to choose · enter to confirm · esc to deny</Text>
-    </Box>
+      <Box marginTop={1}>
+        <Text color={PALETTE.dust}>↑↓ to choose   enter to confirm   esc to deny</Text>
+      </Box>
+    </Panel>
   );
 }
 
-function Details({ request, cwd, home }: Pick<Props, "request" | "cwd" | "home">) {
+/** What the tool would do. `note` is already shown above, so a description that says the same isn't repeated. */
+function Details({ request, cwd, home, width, note }: Pick<Props, "request" | "cwd" | "home" | "width"> & { note?: string }) {
   const text = (key: string) => {
     const value = request.input[key];
     return typeof value === "string" ? printable(value) : "";
@@ -70,39 +99,43 @@ function Details({ request, cwd, home }: Pick<Props, "request" | "cwd" | "home">
       return (
         <>
           <Text>
-            <Text color={ACCENT}>$ </Text>
-            {preview(text("command"))}
+            <Text color={PALETTE.dust}>$ </Text>
+            <Text color={PALETTE.star}>{preview(text("command"))}</Text>
           </Text>
-          {text("description") ? <Text dimColor>{text("description")}</Text> : null}
+          {text("description") && text("description") !== note ? <Text color={PALETTE.haze}>{text("description")}</Text> : null}
         </>
       );
     case "Edit":
       return (
         <>
-          <Text bold>{shortPath(text("file_path"), cwd, home)}</Text>
+          <Text color={PALETTE.star}>{shortPath(text("file_path"), cwd, home)}</Text>
           {preview(text("old_string"))
             .split("\n")
             .map((line, i) => (
-              <Text key={`d${i}`} color={COLOR.error}>{`- ${line}`}</Text>
+              <Box key={`d${i}`} width={width} backgroundColor={TINT.removed}>
+                <Text color={PALETTE.rose}>{`- ${line}`}</Text>
+              </Box>
             ))}
           {preview(text("new_string"))
             .split("\n")
             .map((line, i) => (
-              <Text key={`a${i}`} color={COLOR.success}>{`+ ${line}`}</Text>
+              <Box key={`a${i}`} width={width} backgroundColor={TINT.added}>
+                <Text color={PALETTE.teal}>{`+ ${line}`}</Text>
+              </Box>
             ))}
         </>
       );
     case "Write":
       return (
         <>
-          <Text bold>{shortPath(text("file_path"), cwd, home)}</Text>
-          <Text dimColor>{preview(text("content"))}</Text>
+          <Text color={PALETTE.star}>{shortPath(text("file_path"), cwd, home)}</Text>
+          <Text color={PALETTE.haze}>{preview(text("content"))}</Text>
         </>
       );
     case "WebFetch":
-      return <Text>{text("url")}</Text>;
+      return <Text color={PALETTE.sky}>{text("url")}</Text>;
     default:
-      return <Text dimColor>{preview(JSON.stringify(request.input, null, 2))}</Text>;
+      return <Text color={PALETTE.haze}>{preview(JSON.stringify(request.input, null, 2))}</Text>;
   }
 }
 

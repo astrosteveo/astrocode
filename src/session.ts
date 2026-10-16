@@ -2,13 +2,15 @@ import {
   query,
   type AccountInfo,
   type CanUseTool,
+  type EffortLevel,
   type PermissionMode,
   type PermissionResult,
   type PermissionUpdate,
   type Query,
   type SDKUserMessage,
+  type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { Answers, Decision, PermissionRequest, Question, SessionEvent } from "./events";
+import type { Answers, CommandInfo, Decision, PermissionRequest, Question, SessionEvent } from "./events";
 import { AsyncQueue } from "./queue";
 
 export type SessionOptions = {
@@ -16,6 +18,8 @@ export type SessionOptions = {
   cwd: string;
   /** Leave unset to use Claude Code's default model. */
   model?: string;
+  /** Leave unset to use Claude Code's default effort for the model. */
+  effort?: EffortLevel;
   /** A saved session to pick up instead of starting a new one. */
   resume?: string;
   /** Pick up the most recent session in `cwd`. */
@@ -44,11 +48,13 @@ export class AgentSession {
   private sessionId: string | undefined;
   private mode: PermissionMode = "default";
   private model: string | undefined;
+  private effort: EffortLevel | undefined;
   private resumeFrom: string | undefined;
   private continueLast: boolean;
 
   constructor(private readonly options: SessionOptions) {
     this.model = options.model;
+    this.effort = options.effort;
     this.resumeFrom = options.resume;
     this.continueLast = options.continue ?? false;
   }
@@ -69,6 +75,7 @@ export class AgentSession {
       options: {
         cwd: this.options.cwd,
         model: this.model,
+        effort: this.effort,
         resume: this.sessionId ?? this.resumeFrom,
         continue: this.sessionId === undefined && this.resumeFrom === undefined && this.continueLast ? true : undefined,
         // Without an explicit mode, Claude Code starts in the mode from your settings, which
@@ -136,6 +143,25 @@ export class AgentSession {
     await this.run?.query.setModel(model);
     this.model = model;
     this.options.emit({ kind: "model", model });
+  }
+
+  async setEffort(effort: EffortLevel) {
+    await this.run?.query.applyFlagSettings({ effortLevel: effort });
+    this.effort = effort;
+    this.options.emit({ kind: "effort", effort });
+  }
+
+  /**
+   * Loads plugins again after they're installed, removed, or turned on or off, and passes on the
+   * slash commands that come with them. Without a running Claude Code there's nothing to reload:
+   * the next start loads them.
+   */
+  async reloadPlugins() {
+    const run = this.run;
+    if (!run) return;
+    const reloaded = await run.query.reloadPlugins();
+    if (run.closing) return;
+    this.options.emit({ kind: "commands", commands: reloaded.commands.map(commandInfo) });
   }
 
   /** Stops Claude Code and forgets the conversation, so the next start begins a new one. */
@@ -239,15 +265,18 @@ export class AgentSession {
       this.options.emit({
         kind: "ready",
         plan: planOf(init.account),
-        models: init.models.map((model) => ({ value: model.value, name: model.displayName, description: model.description })),
-        commands: init.commands.map((command) => ({
-          name: command.name,
-          description: command.description,
-          argumentHint: command.argumentHint ?? "",
+        models: init.models.map((model) => ({
+          value: model.value,
+          name: model.displayName,
+          description: model.description,
+          efforts: model.supportsEffort ? (model.supportedEffortLevels ?? undefined) : undefined,
         })),
+        commands: init.commands.map(commandInfo),
       });
       // A model chosen at launch is known now; Claude Code's own default arrives with the first reply.
       if (this.model) this.options.emit({ kind: "model", model: this.model });
+      // Claude Code doesn't report its default effort, so only a level chosen here is shown.
+      if (this.effort) this.options.emit({ kind: "effort", effort: this.effort });
       await this.reportContext(run);
     } catch {
       // A failed start is reported by pump().
@@ -270,6 +299,10 @@ function planOf(account: AccountInfo) {
   if (account.apiProvider && account.apiProvider !== "firstParty") return account.apiProvider;
   if (account.apiKeySource && account.apiKeySource !== "none") return "API key";
   return account.subscriptionType;
+}
+
+function commandInfo(command: SlashCommand): CommandInfo {
+  return { name: command.name, description: command.description, argumentHint: command.argumentHint ?? "" };
 }
 
 /** AskUserQuestion's questions, checked, since the model writes them. */
@@ -318,7 +351,7 @@ const SESSION_MARKERS = [
  * session even when it's launched from inside Claude Code. Settings such as
  * CLAUDE_CODE_OAUTH_TOKEN pass through.
  */
-function topLevelEnv() {
+export function topLevelEnv() {
   const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: "astrocode" };
   for (const name of SESSION_MARKERS) delete env[name];
   return env;
