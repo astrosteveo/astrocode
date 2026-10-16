@@ -13,7 +13,7 @@ import { cellWidth } from "./markdown";
 import { hit, useMouse } from "./mouse";
 import { PALETTE, tone } from "./theme";
 
-const MODES: Record<PermissionMode, { label: string; color: string }> = {
+export const MODE_CHIPS: Record<PermissionMode, { label: string; color: string }> = {
   default: { label: "ask first", color: PALETTE.haze },
   acceptEdits: { label: "accept edits", color: PALETTE.teal },
   plan: { label: "plan", color: PALETTE.sky },
@@ -45,7 +45,7 @@ type Props = {
 
 export function StatusBar({ state, mode, git, width, exitArmed, toast, onMode, onModel, onEffort, onTasks }: Props) {
   const bar = useRef<DOMElement>(null);
-  const chip = MODES[mode];
+  const chip = MODE_CHIPS[mode];
   // The chip's caps are half blocks, so it reads as a solid lozenge.
   const left = exitArmed ? "Press Ctrl+C again to exit" : `▐${chip.label}▌`;
   const room = width - 2 - cellWidth(left) - (exitArmed ? 0 : cellWidth("  shift+tab")) - 2;

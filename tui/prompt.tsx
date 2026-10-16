@@ -2,6 +2,10 @@
 // mentions, on a panel whose top edge turns gold while it has your keys. The text lives in a ref so
 // keys that arrive faster than React re-renders still see the latest text. In full screen, clicking
 // puts the cursor where you click, and clicking in a menu chooses.
+//
+// The keys are Claude Code's and the shell's: Ctrl+R searches what you've sent, Ctrl+_ undoes,
+// Ctrl+K, Ctrl+U, Ctrl+W and Alt+D cut and Ctrl+Y puts back, Alt+B and Alt+F move by words, and
+// Ctrl+X starts a two-key chord. Ctrl+S puts the message aside until Ctrl+S brings it back.
 import { Box, Text, useInput, usePaste, type DOMElement } from "ink";
 import { useEffect, useReducer, useRef, type ReactNode, type RefObject } from "react";
 import wrapAnsi from "wrap-ansi";
@@ -10,7 +14,7 @@ import { argumentMatches } from "./arguments";
 import { ChoiceRow } from "./choice";
 import { baseName, fileMatches, projectFiles } from "./files";
 import { cellWidth, takeCells } from "./markdown";
-import { Panel } from "./markdown-view";
+import { fit, Panel } from "./markdown-view";
 import { clipboardImage, imageLabel, pastedImageFile } from "./images";
 import { hit, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
@@ -46,6 +50,13 @@ type Props = {
   onToggleTodos: () => void;
   /** Esc twice on an empty box, while Claude isn't working. */
   onRewind: () => void;
+  /** Alt+P: the model and effort picker. */
+  onModelPicker: () => void;
+  /** Ctrl+X Ctrl+K: everything in the background stopped. */
+  onStopTasks: () => void;
+  /** A message put aside with Ctrl+S. It stays until Ctrl+S brings it back, whatever is sent meanwhile. */
+  stash: string | null;
+  onStash: (text: string | null) => void;
 };
 
 /** Two presses of Esc this close together are a double press. */
@@ -53,6 +64,15 @@ const DOUBLE_ESC_MS = 600;
 
 /** Rows a menu shows at once. */
 const MENU_ROWS = 6;
+
+/** How long Ctrl+X waits for the chord's second key. */
+const CHORD_MS = 1500;
+
+/** Steps Ctrl+_ can undo. */
+const UNDO_STEPS = 200;
+
+/** The second keys of Ctrl+X chords, as Claude Code binds them. */
+const CHORDS = "ctrl+x, then ctrl+e editor · ctrl+b background · ctrl+k stop background";
 
 /**
  * What a menu offers: a slash command, a word its first argument can be, or a file or folder
@@ -79,20 +99,83 @@ export function Prompt(props: Props) {
   const area = useRef<DOMElement>(null);
   const menuBox = useRef<DOMElement>(null);
   const lastEscape = useRef(0);
+  /** Earlier texts for Ctrl+_, and whether the last change was typing, which a run of undoes as one. */
+  const undo = useRef<{ text: string; cursor: number }[]>([]);
+  const lastEdit = useRef<"type" | "edit" | "undo" | "fresh">("edit");
+  /** What Ctrl+K, Ctrl+U, Ctrl+W or Alt+D cut last, for Ctrl+Y. */
+  const killed = useRef("");
+  /** Ctrl+R: what's typed to find, how many older matches to skip, and the box as it was. */
+  const search = useRef<{ query: string; skip: number; before: { text: string; cursor: number } } | null>(null);
+  /** When Ctrl+X was pressed, while it waits for a second key. */
+  const chord = useRef(0);
+  /** The stash as last set here, ahead of the re-render that brings the prop. */
+  const stashed = useRef(props.stash);
+  stashed.current = props.stash;
   const [, redraw] = useReducer((n: number) => n + 1, 0);
 
-  const set = (text: string, cursor: number) => {
-    if (text !== buffer.current.text) menu.current = { index: 0, moved: false, closedFor: "" };
+  /**
+   * How the change undoes: `type` joins the typing before it, `word` (a space typed) starts a new
+   * run of typing, and `fresh` starts the history over, for text that's been sent or stashed.
+   */
+  const set = (text: string, cursor: number, edit: "type" | "word" | "edit" | "undo" | "fresh" = "edit") => {
+    const before = buffer.current;
+    if (text !== before.text) {
+      menu.current = { index: 0, moved: false, closedFor: "" };
+      if (edit === "edit" || edit === "word" || (edit === "type" && lastEdit.current !== "type")) {
+        undo.current.push(before);
+        if (undo.current.length > UNDO_STEPS) undo.current.shift();
+      }
+    }
+    if (edit === "fresh") undo.current = [];
+    lastEdit.current = edit === "word" ? "type" : edit;
     buffer.current = { text, cursor };
     redraw();
   };
   const insert = (value: string) => {
     const { text, cursor } = buffer.current;
-    set(text.slice(0, cursor) + value + text.slice(cursor), cursor + value.length);
+    // A word typed undoes as one step, with the space before it.
+    const edit = /^\S$/u.test(value) ? "type" : value === " " ? "word" : "edit";
+    set(text.slice(0, cursor) + value + text.slice(cursor), cursor + value.length, edit);
+  };
+  /** Cuts from `from` to `to`, keeping what went for Ctrl+Y. */
+  const cut = (from: number, to: number) => {
+    const { text } = buffer.current;
+    if (from === to) return;
+    killed.current = text.slice(from, to);
+    set(text.slice(0, from) + text.slice(to), from);
   };
 
-  const mention = active && buffer.current.text !== menu.current.closedFor ? mentionAt(buffer.current.text, buffer.current.cursor) : null;
-  const matches: Suggestion[] = [
+  /** Ctrl+S: the message goes aside, or comes back, or the two trade places. */
+  const toggleStash = () => {
+    const { text } = buffer.current;
+    const kept = stashed.current;
+    if (!text.trim() && kept === null) {
+      return props.onNotice("info", "Nothing to stash. Ctrl+S puts what you've written aside, and Ctrl+S again brings it back.");
+    }
+    const next = text.trim() ? text : null;
+    stashed.current = next;
+    props.onStash(next);
+    recall.current = null;
+    set(kept ?? "", (kept ?? "").length, "fresh");
+  };
+
+  /** Ctrl+R's matches, newest first and each once, and the one it's on. */
+  const found = (query: string) => {
+    const wanted = query.toLowerCase();
+    return [...new Set([...history].reverse())].filter((text) => text.toLowerCase().includes(wanted));
+  };
+  const endSearch = (keep: boolean) => {
+    const open = search.current;
+    if (!open) return;
+    search.current = null;
+    const match = found(open.query)[open.skip];
+    if (keep && match !== undefined && open.query) set(match, match.length);
+    else redraw();
+  };
+
+  const searching = search.current !== null;
+  const mention = active && !searching && buffer.current.text !== menu.current.closedFor ? mentionAt(buffer.current.text, buffer.current.cursor) : null;
+  const matches: Suggestion[] = searching ? [] : [
     ...menuMatches(buffer.current.text, commands, menu.current.closedFor).map((command) => ({ kind: "command" as const, command })),
     ...(active && buffer.current.text !== menu.current.closedFor
       ? argumentMatches(buffer.current.text, commands).map((match) => ({ kind: "argument" as const, ...match }))
@@ -131,7 +214,7 @@ export function Prompt(props: Props) {
 
   const submit = (text: string) => {
     recall.current = null;
-    set("", 0);
+    set("", 0, "fresh");
     props.onSubmit(text);
   };
 
@@ -222,6 +305,41 @@ export function Prompt(props: Props) {
       if (key.eventType === "release") return;
       const { text, cursor } = buffer.current;
 
+      if (search.current) {
+        const open = search.current;
+        if (key.ctrl && input === "r") {
+          if (open.skip + 1 < found(open.query).length) open.skip += 1;
+          return redraw();
+        }
+        if (key.escape || (key.ctrl && (input === "c" || input === "g"))) {
+          search.current = null;
+          return set(open.before.text, open.before.cursor);
+        }
+        if (key.backspace) {
+          open.query = open.query.slice(0, -1);
+          open.skip = 0;
+          return redraw();
+        }
+        if (key.return || key.tab || key.leftArrow || key.rightArrow || key.upArrow || key.downArrow) return endSearch(true);
+        if (key.ctrl || key.meta || !input) return;
+        open.query += input;
+        open.skip = 0;
+        return redraw();
+      }
+
+      if (chord.current) {
+        const armed = Date.now() - chord.current < CHORD_MS;
+        chord.current = 0;
+        redraw();
+        if (armed && key.ctrl) {
+          if (input === "e") return props.onEdit(text);
+          if (input === "b") return props.onBackground();
+          if (input === "k") return props.onStopTasks();
+          if (input === "x") return;
+        }
+        if (armed) return;
+      }
+
       if (matches.length > 0) {
         const chosen = matches[Math.min(menu.current.index, matches.length - 1)];
         if (key.upArrow || key.downArrow) {
@@ -253,6 +371,31 @@ export function Prompt(props: Props) {
       if (key.ctrl && input === "g") return props.onEdit(text);
       if (key.ctrl && input === "b") return props.onBackground();
       if (key.ctrl && input === "t") return props.onToggleTodos();
+      if (key.ctrl && input === "s") return toggleStash();
+      if (key.meta && input === "p") return props.onModelPicker();
+      if (key.ctrl && input === "r") {
+        search.current = { query: "", skip: 0, before: buffer.current };
+        return redraw();
+      }
+      if (key.ctrl && input === "x") {
+        const at = Date.now();
+        chord.current = at;
+        setTimeout(() => {
+          if (chord.current !== at) return;
+          chord.current = 0;
+          redraw();
+        }, CHORD_MS);
+        return redraw();
+      }
+      if (key.ctrl && (input === "_" || input === "-")) {
+        const last = undo.current.pop();
+        if (last) set(last.text, last.cursor, "undo");
+        return;
+      }
+      if (key.ctrl && input === "l") return set("", 0);
+      if (key.ctrl && input === "y") return killed.current ? insert(killed.current) : undefined;
+      // Ctrl+J is a new line: a line feed without the kitty protocol, Ctrl and j with it.
+      if ((key.ctrl && input === "j") || input === "\n") return insert("\n");
       if (key.escape) {
         if (busy || props.running) return props.onInterrupt();
         if (text) return;
@@ -275,6 +418,7 @@ export function Prompt(props: Props) {
         if (text.trim()) submit(text);
         return;
       }
+      if (key.backspace && key.meta) return cut(wordStart(text, cursor), cursor);
       if (key.backspace) {
         if (cursor > 0) {
           const at = previous(text, cursor);
@@ -286,20 +430,17 @@ export function Prompt(props: Props) {
         if (cursor < text.length) set(text.slice(0, cursor) + text.slice(next(text, cursor)), cursor);
         return;
       }
+      if (key.meta && input === "b") return set(text, wordStart(text, cursor));
+      if (key.meta && input === "f") return set(text, wordEnd(text, cursor));
+      if (key.meta && input === "d") return cut(cursor, wordEnd(text, cursor));
       if (key.leftArrow) return set(text, key.ctrl || key.meta ? wordStart(text, cursor) : previous(text, cursor));
       if (key.rightArrow) return set(text, key.ctrl || key.meta ? wordEnd(text, cursor) : next(text, cursor));
       // Ctrl+Home and Ctrl+End scroll full screen to the top and the end.
       if ((key.home && !key.ctrl) || (key.ctrl && input === "a")) return set(text, lineStart(text, cursor));
       if ((key.end && !key.ctrl) || (key.ctrl && input === "e")) return set(text, lineEnd(text, cursor));
-      if (key.ctrl && input === "u") {
-        const start = lineStart(text, cursor);
-        return set(text.slice(0, start) + text.slice(cursor), start);
-      }
-      if (key.ctrl && input === "k") return set(text.slice(0, cursor) + text.slice(lineEnd(text, cursor)), cursor);
-      if (key.ctrl && input === "w") {
-        const at = wordStart(text, cursor);
-        return set(text.slice(0, at) + text.slice(cursor), at);
-      }
+      if (key.ctrl && input === "u") return cut(lineStart(text, cursor), cursor);
+      if (key.ctrl && input === "k") return cut(cursor, lineEnd(text, cursor));
+      if (key.ctrl && input === "w") return cut(wordStart(text, cursor), cursor);
       if (key.upArrow) {
         if (!moveLine(-1)) recallHistory(-1);
         return;
@@ -316,6 +457,7 @@ export function Prompt(props: Props) {
 
   useMouse(
     (event) => {
+      if (search.current) return;
       const inMenu = matches.length > 0 ? hit(menuBox.current, event) : null;
       if (event.type === "wheel" && inMenu) {
         event.handled = true;
@@ -361,9 +503,38 @@ export function Prompt(props: Props) {
     ) : (
       character
     );
+  const preview = props.stash === null ? "" : fit(props.stash.replace(/\s+/g, " ").trim(), 24, false);
+  const note = chord.current ? CHORDS : preview ? `stashed “${preview}”  ctrl+s` : undefined;
+
+  if (search.current) {
+    const { query, skip } = search.current;
+    const all = query ? found(query) : [];
+    const match = all[skip];
+    return (
+      <Panel width={width} accent={PALETTE.gold} label="search what you've sent" note={query ? (match === undefined ? "no match" : `${skip + 1} of ${all.length}`) : undefined}>
+        <Box>
+          <Box flexShrink={0}>
+            <Text color={PALETTE.gold}>{"⌕ "}</Text>
+          </Box>
+          <Text color={PALETTE.gold}>
+            {query}
+            {caret(" ")}
+          </Text>
+        </Box>
+        {match === undefined ? (
+          <Text color={PALETTE.dust}>{query ? "Nothing you've sent has that in it." : "Type to search. ctrl+r older   enter keeps it   esc cancels"}</Text>
+        ) : (
+          <Box paddingLeft={2}>
+            <Highlighted text={match} query={query} />
+          </Box>
+        )}
+      </Panel>
+    );
+  }
+
   return (
     <Box flexDirection="column">
-      <Panel width={width} accent={active ? PALETTE.gold : undefined} label={mode}>
+      <Panel width={width} accent={active ? PALETTE.gold : undefined} label={mode} note={note}>
         <Box>
           <Box flexShrink={0}>
             <Text color={active ? PALETTE.gold : PALETTE.dust}>
@@ -389,6 +560,21 @@ export function Prompt(props: Props) {
       </Panel>
       {active && matches.length > 0 ? <SuggestionMenu matches={matches} focus={focus} start={menuStart} width={width} rows={menuBox} /> : null}
     </Box>
+  );
+}
+
+/** A match from Ctrl+R, with the first place the search found in gold. */
+function Highlighted({ text, query }: { text: string; query: string }) {
+  const at = text.toLowerCase().indexOf(query.toLowerCase());
+  if (at === -1) return <Text color={PALETTE.star}>{text}</Text>;
+  return (
+    <Text color={PALETTE.star}>
+      {text.slice(0, at)}
+      <Text color={PALETTE.gold} bold>
+        {text.slice(at, at + query.length)}
+      </Text>
+      {text.slice(at + query.length)}
+    </Text>
   );
 }
 

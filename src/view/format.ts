@@ -1,9 +1,20 @@
+import type { ModelChoice } from "../events";
+
 /** `claude-opus-5-5` reads as `Opus 5.5`. */
 export function modelLabel(model: string) {
   const match = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?!\d)/.exec(model);
   if (!match) return model.charAt(0).toUpperCase() + model.slice(1);
   const [, family = "", major = "", minor] = match;
   return `${family.charAt(0).toUpperCase()}${family.slice(1)} ${major}${minor ? `.${minor}` : ""}`;
+}
+
+/** Whether one of Claude Code's model choices is the model running, which it may name by id or by alias. */
+export function isCurrentModel(current: string | undefined, choice: ModelChoice) {
+  return current !== undefined && (current === choice.value || modelLabel(current) === choice.name);
+}
+
+export function currentModel(state: { model?: string; models: ModelChoice[] }) {
+  return state.models.find((model) => isCurrentModel(state.model, model));
 }
 
 export function duration(ms: number) {

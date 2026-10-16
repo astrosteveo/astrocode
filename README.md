@@ -29,13 +29,25 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | Key | What it does |
 | :-- | :-- |
 | Enter | Send |
-| Shift+Enter, Alt+Enter, or `\` then Enter | New line |
+| Shift+Enter, Alt+Enter, Ctrl+J, or `\` then Enter | New line |
 | `/` | Command menu: ↑↓ to choose, Tab to complete, Enter to run |
 | `@` | File menu: type part of a path, then Tab or Enter to put it in your message. A folder opens on what's in it |
-| Esc | Stop Claude |
+| Esc | Stop Claude. Twice on an empty box: rewind to an earlier message |
 | Shift+Tab | Change the permission mode: ask first, accept edits, plan, auto, bypass permissions |
-| Ctrl+O | Pick a tool call and print its whole output |
+| Alt+P | Switch the model (↑↓) and its effort (←→) in one picker |
+| Ctrl+S | Put the message aside. It stays stashed, whatever you send meanwhile, until Ctrl+S brings it back; with a message in the box, the two trade places |
 | ↑ ↓ | Earlier messages, or move between lines |
+| Ctrl+R | Search what you've sent: type to find, Ctrl+R for older matches, Enter keeps it, Esc cancels |
+| Ctrl+_ | Undo, a word at a time |
+| Ctrl+K, Ctrl+U, Ctrl+W, Alt+D, Ctrl+Y | Cut to the end of the line, to its start, the word before, the word after; put back what was cut |
+| Alt+B, Alt+F | Move a word back or forward |
+| Ctrl+L | Clear the box |
+| Ctrl+G, or Ctrl+X Ctrl+E | Write the message in `$EDITOR` |
+| Ctrl+V | Attach the clipboard's image |
+| Ctrl+B, or Ctrl+X Ctrl+B | Move the command or subagent Claude is waiting on to the background |
+| Ctrl+X Ctrl+K | Stop everything in the background |
+| Ctrl+T | Show or hide the to-do list |
+| Ctrl+O | Pick a tool call and print its whole output |
 | Ctrl+C | Clear the box, stop Claude, or exit when pressed twice |
 
 ## Commands
@@ -43,11 +55,12 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | Command | What it does |
 | :-- | :-- |
 | `/resume` | Pick a saved session from this folder (type to filter); its conversation replays on screen |
-| `/model` | Switch the model (or `/model sonnet`) |
+| `/model` | Switch the model and its effort, as Alt+P does (or `/model sonnet`) |
 | `/effort` | Set how hard Claude thinks (or `/effort high`) |
 | `/clear` | Start a new session on a clean screen |
 | `/output` | Same as Ctrl+O |
 | `/plugins` | Manage plugins: turn them on or off, install, update and uninstall them, and add or remove marketplaces |
+| `/config` | astrocode's settings: model, effort, permission mode and full screen. ↑↓ chooses, ←→ changes, Esc puts the changes into effect and saves them, Ctrl+C throws them away |
 | `/fullscreen` | Switch to full screen, or back to the terminal's scrollback |
 | `/help`, `/exit` | Keys and commands, quit |
 
@@ -102,6 +115,8 @@ Full screen uses the terminal's alternate screen, so the conversation isn't in y
 
 ## Settings
 
+`/config`, and the model, effort, mode and layout you pick anywhere else, are kept for next time in `~/.config/astrocode/settings.json` (under `$XDG_CONFIG_HOME` if it's set), not in Claude Code's settings, so `claude` keeps its own. Plan mode and max effort are for one session only, as in Claude Code.
+
 | Variable | Default | What it does |
 | :-- | :-- | :-- |
 | `ASTROCODE_ACCENT` | gold | Your color, as a hex color such as `#F0B85A` |
@@ -130,5 +145,3 @@ Keep it for your own use. Anthropic's [terms for Claude Code](https://code.claud
 ## Not built yet
 
 - Subagent transcripts. Only the number of tool calls a subagent made is shown.
-- Image input
-- Controls for background tasks

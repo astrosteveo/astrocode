@@ -5,26 +5,29 @@ import type { EffortLevel, PermissionMode, RewindFilesResult } from "@anthropic-
 import { Box, Static, useApp, useStdout, useWindowSize } from "ink";
 import { randomUUID } from "node:crypto";
 import { useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { EFFORTS, isEffort, MODES, type CommandInfo, type ImageAttachment, type ModelChoice } from "../src/events";
+import { EFFORTS, isEffort, MODES, type CommandInfo, type ImageAttachment } from "../src/events";
 import { historyEvents, loadHistory, savedSessions, shellMessages, type SavedSession } from "../src/history";
 import { addMemory, memoryFiles, type MemoryFile } from "../src/memory";
 import type { AgentSession } from "../src/session";
-import { remember, type Remembered } from "../src/settings";
+import { remember, settingsPath, type Remembered } from "../src/settings";
 import { runShell } from "../src/shell";
-import { ago, modelLabel } from "../src/view/format";
+import { ago, currentModel } from "../src/view/format";
 import type { Item } from "../src/view/state";
 import { todoList } from "../src/view/todos";
 import { plural, shortPath, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
 import { Activity } from "./activity";
 import { Banner } from "./banner";
 import { copy } from "./clipboard";
+import { ConfigMenu, type ConfigValues } from "./config";
 import { DecisionPrompt } from "./decision";
+import { EFFORT_NOTES } from "./effort";
 import { editText } from "./editor";
 import { ItemView, LiveView } from "./entries";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
 import { ANSI } from "./markdown";
 import { fit } from "./markdown-view";
+import { ModelPicker } from "./model-picker";
 import { MouseContext } from "./mouse";
 import { Picker, type PickerItem } from "./picker";
 import { PluginManager } from "./plugins";
@@ -37,8 +40,11 @@ import type { Store } from "./store";
 import { PinnedTodos, STATUS } from "./tool-row";
 
 type Overlay =
+  /** The model and its effort, as Alt+P opens it. */
   | { kind: "model" }
   | { kind: "effort" }
+  /** astrocode's settings, as they were when /config opened. */
+  | { kind: "config"; initial: ConfigValues }
   | { kind: "resume"; sessions: SavedSession[] | null }
   | { kind: "output" }
   | { kind: "plugins" }
@@ -54,29 +60,22 @@ type Overlay =
 /** Kinds of background work, by Claude Code's task types. */
 const TASK_KINDS: Record<string, string> = { local_bash: "command", local_agent: "subagent", local_workflow: "workflow", monitor: "monitor" };
 
-const EFFORT_NOTES: Record<(typeof EFFORTS)[number], string> = {
-  low: "Quick answers, least thinking",
-  medium: "Balanced",
-  high: "Thinks things through",
-  xhigh: "Thinks harder still",
-  max: "As much as it takes, for this session only",
-};
-
 /** How long the status bar says what was copied. */
 const TOAST_MS = 2000;
 
 const HELP = [
-  "Enter sends. Shift+Enter, Alt+Enter, or \\ then Enter starts a new line. Type / for commands.",
+  "Enter sends. Shift+Enter, Alt+Enter, Ctrl+J, or \\ then Enter starts a new line. Type / for commands.",
   "Esc stops Claude. Esc twice on an empty box rewinds to an earlier message (/rewind).",
-  "Shift+Tab changes the permission mode. ↑ and ↓ recall earlier messages.",
+  "Shift+Tab changes the permission mode. Alt+P switches the model and its effort. ↑ and ↓ recall earlier messages; Ctrl+R searches them.",
+  "Ctrl+S puts the message aside, and it stays there until Ctrl+S brings it back. Pressed with a message in the box, the two trade places.",
+  "Ctrl+_ undoes. Ctrl+K, Ctrl+U, Ctrl+W and Alt+D cut, Ctrl+Y puts back what they cut. Alt+B and Alt+F move by words. Ctrl+L clears the box.",
   "! runs a command in your shell and shows it to Claude. # adds a note to a CLAUDE.md.",
-  "Ctrl+V attaches the clipboard's image; a pasted or dropped image file attaches too. Ctrl+G edits the message in $EDITOR.",
-  "Ctrl+B moves a command or subagent Claude is waiting on to the background (/tasks). Ctrl+T shows or hides the to-dos.",
+  "Ctrl+V attaches the clipboard's image; a pasted or dropped image file attaches too. Ctrl+G or Ctrl+X Ctrl+E edits the message in $EDITOR.",
+  "Ctrl+B moves a command or subagent Claude is waiting on to the background (/tasks); Ctrl+X Ctrl+K stops everything there. Ctrl+T shows or hides the to-dos.",
   "Ctrl+O opens a tool call's whole output. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
-  "/fullscreen, or /config fullscreen=true|false, switches to full screen and back.",
-  "The model, effort, mode and full screen you pick are kept for next time, except plan mode and max effort.",
+  "/config changes the model, effort, mode and full screen, and keeps them for next time, except plan mode and max effort. /fullscreen switches layouts.",
 ].join("\n");
 
 const FULLSCREEN_HELP = [
@@ -115,6 +114,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   const [prefill, setPrefill] = useState<{ text: string } | null>(null);
   /** The pinned to-dos: shown while some are left (auto), or as Ctrl+T last set. */
   const [todoMode, setTodoMode] = useState<"auto" | "on" | "off">("auto");
+  /** The message put aside with Ctrl+S, kept in the store so it outlives a switch of layouts. */
+  const [stash, setStash] = useState(store.stash);
   /** Commands run with `!` that haven't finished, to stop with Esc. */
   const shells = useRef(new Map<string, AbortController>());
   const editing = useRef(false);
@@ -164,6 +165,45 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     );
   const pickModel = (model: string) => void session.setModel(model).then(() => keep({ model }), report);
   const pickEffort = (effort: EffortLevel) => void session.setEffort(effort).then(() => keep({ effort }), report);
+  /**
+   * What /config changed, put into effect and then written to the settings file in one save. The
+   * model goes first, since the effort levels it takes depend on it, and the layout last, since
+   * switching starts the interface over.
+   */
+  const applyConfig = async (changes: Partial<ConfigValues>) => {
+    const kept: Remembered = {};
+    const attempt = async (change: () => Promise<void>, onDone: () => void) => {
+      try {
+        await change();
+        onDone();
+      } catch (error) {
+        report(error);
+      }
+    };
+    const { model, effort, mode, fullscreen: layout } = changes;
+    if (model) await attempt(() => session.setModel(model), () => (kept.model = model));
+    if (effort) await attempt(() => session.setEffort(effort), () => (kept.effort = effort));
+    if (mode) await attempt(() => session.setMode(mode), () => (kept.mode = mode));
+    if (layout !== undefined) kept.fullscreen = layout;
+    if (!Object.keys(kept).length) return;
+    try {
+      await remember(kept);
+      const lasting = Object.keys(kept).some((key) => !(key === "effort" && kept.effort === "max") && !(key === "mode" && kept.mode === "plan"));
+      if (lasting) notice("info", `Saved to ${shortPath(settingsPath(), state.cwd, state.home)}.`);
+    } catch (error) {
+      report(`Couldn't save the settings: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (layout !== undefined && layout !== fullscreen) onToggleFullscreen();
+  };
+
+  const stopAllTasks = () => {
+    if (!state.tasks.length) return notice("info", "Nothing runs in the background.");
+    void Promise.all(state.tasks.map((task) => session.stopTask(task.id))).then(
+      () => notice("info", `Stopped ${plural(state.tasks.length, "background task")}.`),
+      report,
+    );
+  };
+
   /** Full screen or scrollback, kept for next time even when it's the layout already showing. */
   const pickLayout = (next: boolean) => {
     keep({ fullscreen: next });
@@ -363,13 +403,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       case "/tasks":
         return setOverlay({ kind: "tasks" });
       case "/config": {
+        if (!rest.length) {
+          return setOverlay({ kind: "config", initial: { model: state.model, effort: state.effort, mode: wanted.current ?? state.mode, fullscreen } });
+        }
         // fullscreen= is astrocode's own key; Claude Code gets the rest.
         const ours = rest.filter((pair) => /^fullscreen=/i.test(pair));
         const theirs = rest.filter((pair) => !ours.includes(pair));
-        if (!rest.length) {
-          store.emit({ kind: "notice", tone: "info", text: `astrocode: fullscreen=true|false (now ${fullscreen}), or /fullscreen` });
-        }
-        if (!ours.length || theirs.length) session.send(["/config", ...theirs].join(" "));
+        if (theirs.length) session.send(["/config", ...theirs].join(" "));
         const value = ours.at(-1)?.split("=")[1]?.toLowerCase();
         if (value === undefined) return;
         if (value !== "true" && value !== "false") {
@@ -427,12 +467,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   const commands: CommandInfo[] = [
     { name: "clear", description: "Start a new session on a clean screen", argumentHint: "" },
     { name: "resume", description: "Pick up a saved session from this folder", argumentHint: "" },
-    { name: "model", description: "Switch the model", argumentHint: "" },
+    { name: "model", description: "Switch the model and its effort (Alt+P)", argumentHint: "" },
     { name: "effort", description: "Set how hard Claude thinks", argumentHint: "[low|medium|high|xhigh|max]" },
     { name: "output", description: "Open a tool call's whole output (Ctrl+O)", argumentHint: "" },
     { name: "rewind", description: "Go back to an earlier message, its files, or both (Esc Esc)", argumentHint: "" },
     { name: "tasks", description: "What runs in the background, to stop (Ctrl+B moves work there)", argumentHint: "" },
     { name: "plugins", description: "Install, turn on or off, and remove plugins", argumentHint: "" },
+    { name: "config", description: "astrocode's settings: model, effort, mode and full screen", argumentHint: "" },
     {
       name: "fullscreen",
       description: fullscreen ? "Go back to the terminal's own scrollback" : "Use the whole terminal, with the mouse",
@@ -446,21 +487,33 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     switch (overlay?.kind) {
       case "model":
         return (
-          <Picker
-            title="Switch model"
+          <ModelPicker
+            models={state.models}
+            model={state.model}
+            effort={state.effort}
             width={width}
             rows={listRows}
-            items={state.models.map((model) => ({
-              key: model.value,
-              label: model.name,
-              note: model.description,
-              current: isCurrentModel(state.model, model),
-            }))}
-            empty="Claude Code hasn't listed its models yet. Try again in a moment."
             onCancel={close}
-            onPick={(item) => {
+            onPick={({ model, effort }) => {
               close();
-              pickModel(item.key);
+              // The model first: the effort levels it takes depend on it.
+              void (async () => {
+                if (model) await session.setModel(model).then(() => keep({ model }));
+                if (effort) await session.setEffort(effort).then(() => keep({ effort }));
+              })().catch(report);
+            }}
+          />
+        );
+      case "config":
+        return (
+          <ConfigMenu
+            models={state.models}
+            initial={overlay.initial}
+            path={shortPath(settingsPath(), state.cwd, state.home)}
+            width={width}
+            onClose={(changes) => {
+              close();
+              if (changes) void applyConfig(changes);
             }}
           />
         );
@@ -645,6 +698,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           onBackground={background}
           onToggleTodos={() => setTodoMode(showTodos ? "off" : "on")}
           onRewind={openRewind}
+          onModelPicker={() => setOverlay({ kind: "model" })}
+          onStopTasks={stopAllTasks}
+          stash={stash}
+          onStash={(text) => {
+            store.stash = text;
+            setStash(text);
+          }}
         />
         <StatusBar
           state={state}
@@ -727,14 +787,6 @@ function useGit(cwd: string, refresh: number) {
     };
   }, [cwd, refresh]);
   return info;
-}
-
-function currentModel(state: { model?: string; models: ModelChoice[] }) {
-  return state.models.find((model) => isCurrentModel(state.model, model));
-}
-
-function isCurrentModel(current: string | undefined, choice: ModelChoice) {
-  return current !== undefined && (current === choice.value || modelLabel(current) === choice.name);
 }
 
 /** This session's tool calls for the output browser, newest first. */

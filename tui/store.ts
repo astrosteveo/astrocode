@@ -12,6 +12,8 @@ export class Store {
   readonly sent: string[] = [];
   /** Images attached in the message box, by the number its `[Image #n]` shows. */
   readonly images = new Map<number, ImageAttachment>();
+  /** A message put aside with Ctrl+S, until Ctrl+S brings it back. Kept through /clear and switching layouts. */
+  stash: string | null = null;
   private nextImage = 1;
   private state: State;
   private listeners = new Set<() => void>();
