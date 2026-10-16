@@ -6,6 +6,7 @@ import { Box, Text, useInput, usePaste, type DOMElement } from "ink";
 import { useEffect, useReducer, useRef, type ReactNode, type RefObject } from "react";
 import wrapAnsi from "wrap-ansi";
 import type { CommandInfo, ImageAttachment } from "../src/events";
+import { argumentMatches } from "./arguments";
 import { ChoiceRow } from "./choice";
 import { baseName, fileMatches, projectFiles } from "./files";
 import { cellWidth, takeCells } from "./markdown";
@@ -53,8 +54,14 @@ const DOUBLE_ESC_MS = 600;
 /** Rows a menu shows at once. */
 const MENU_ROWS = 6;
 
-/** What a menu offers: a slash command, or a file or folder (ending in `/`) for an `@` mention. */
-type Suggestion = { kind: "command"; command: CommandInfo } | { kind: "file"; path: string };
+/**
+ * What a menu offers: a slash command, a word its first argument can be, or a file or folder
+ * (ending in `/`) for an `@` mention.
+ */
+type Suggestion =
+  | { kind: "command"; command: CommandInfo }
+  | { kind: "argument"; command: CommandInfo; value: string }
+  | { kind: "file"; path: string };
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
@@ -62,8 +69,11 @@ export function Prompt(props: Props) {
   const { active, busy, width, cwd, history, commands } = props;
   const buffer = useRef({ text: "", cursor: 0 });
   const recall = useRef<{ index: number; draft: string } | null>(null);
-  /** The highlighted suggestion, and whether Esc closed the menu for the text as it is. */
-  const menu = useRef({ index: 0, closedFor: "" });
+  /**
+   * The highlighted suggestion, whether you moved to it with the arrows or the wheel, and whether
+   * Esc closed the menu for the text as it is.
+   */
+  const menu = useRef({ index: 0, moved: false, closedFor: "" });
   /** The project's files, listed again each time an `@` mention starts. */
   const files = useRef<string[] | null>(null);
   const area = useRef<DOMElement>(null);
@@ -72,7 +82,7 @@ export function Prompt(props: Props) {
   const [, redraw] = useReducer((n: number) => n + 1, 0);
 
   const set = (text: string, cursor: number) => {
-    if (text !== buffer.current.text) menu.current = { index: 0, closedFor: "" };
+    if (text !== buffer.current.text) menu.current = { index: 0, moved: false, closedFor: "" };
     buffer.current = { text, cursor };
     redraw();
   };
@@ -84,6 +94,9 @@ export function Prompt(props: Props) {
   const mention = active && buffer.current.text !== menu.current.closedFor ? mentionAt(buffer.current.text, buffer.current.cursor) : null;
   const matches: Suggestion[] = [
     ...menuMatches(buffer.current.text, commands, menu.current.closedFor).map((command) => ({ kind: "command" as const, command })),
+    ...(active && buffer.current.text !== menu.current.closedFor
+      ? argumentMatches(buffer.current.text, commands).map((match) => ({ kind: "argument" as const, ...match }))
+      : []),
     ...(mention && files.current ? fileMatches(files.current, mention.typed).map((path) => ({ kind: "file" as const, path })) : []),
   ];
   const focus = Math.min(menu.current.index, Math.max(0, matches.length - 1));
@@ -138,7 +151,7 @@ export function Prompt(props: Props) {
 
   /**
    * A suggestion from the menu. A command that takes arguments, or Tab, completes it to type them
-   * after; otherwise it runs. A file replaces the `@` mention it was found for. A folder leaves the
+   * after; otherwise it runs. An argument does the same for the command it follows. A file replaces the `@` mention it was found for. A folder leaves the
    * menu open on what's in it.
    */
   const choose = (chosen: Suggestion, complete: boolean) => {
@@ -146,6 +159,10 @@ export function Prompt(props: Props) {
       const completed = `/${chosen.command.name}`;
       if (complete || chosen.command.argumentHint) return set(`${completed} `, completed.length + 1);
       return submit(completed);
+    }
+    if (chosen.kind === "argument") {
+      const completed = `/${chosen.command.name} ${chosen.value}`;
+      return complete ? set(`${completed} `, completed.length + 1) : submit(completed);
     }
     const { text, cursor } = buffer.current;
     const at = mentionAt(text, cursor);
@@ -210,13 +227,16 @@ export function Prompt(props: Props) {
         if (key.upArrow || key.downArrow) {
           const step = key.upArrow ? -1 : 1;
           menu.current.index = (menu.current.index + step + matches.length) % matches.length;
+          menu.current.moved = true;
           return redraw();
         }
         if (key.escape) {
           menu.current.closedFor = text;
           return redraw();
         }
-        if (chosen && (key.tab || key.return)) return choose(chosen, key.tab);
+        // Enter right after `/name ` sends the command bare, unless you've moved to a choice.
+        const bare = key.return && chosen?.kind === "argument" && text.endsWith(" ") && !menu.current.moved;
+        if (chosen && (key.tab || key.return) && !bare) return choose(chosen, key.tab);
       }
 
       if (key.ctrl && input === "c") {
@@ -300,6 +320,7 @@ export function Prompt(props: Props) {
       if (event.type === "wheel" && inMenu) {
         event.handled = true;
         menu.current.index = (focus + event.wheel + matches.length) % matches.length;
+        menu.current.moved = true;
         return redraw();
       }
       if (event.type !== "press" || event.button !== "left") return;
@@ -373,11 +394,14 @@ export function Prompt(props: Props) {
 
 type MenuProps = { matches: Suggestion[]; focus: number; start: number; width: number; rows: RefObject<DOMElement | null> };
 
-/** Commands, with what they do, or paths, with the name bright and its folder dim. */
+/** Commands, with what they do, a command's choices, or paths, with the name bright and its folder dim. */
 function SuggestionMenu({ matches, focus, start, width, rows }: MenuProps) {
   const names = Math.min(24, Math.max(...matches.map((match) => (match.kind === "command" ? cellWidth(match.command.name) + 1 : 0))));
   const inner = width - 2;
-  const files = matches[0]?.kind === "file";
+  const kind = matches[0]?.kind;
+  const files = kind === "file";
+  const what = files ? "matches" : kind === "argument" ? "choices" : "commands";
+  const keys = files ? "tab or enter attaches   esc closes" : kind === "argument" ? "tab completes   enter runs   esc closes" : "tab completes   enter runs";
   const row = (match: Suggestion, isFocused: boolean): ReactNode => {
     const color = isFocused ? PALETTE.star : PALETTE.tealLight;
     if (match.kind === "file") {
@@ -388,6 +412,13 @@ function SuggestionMenu({ matches, focus, start, width, rows }: MenuProps) {
           <Text color={color} bold={isFocused}>
             {name}
           </Text>
+        </Text>
+      );
+    }
+    if (match.kind === "argument") {
+      return (
+        <Text wrap="truncate-end" color={color} bold={isFocused}>
+          {match.value}
         </Text>
       );
     }
@@ -403,15 +434,15 @@ function SuggestionMenu({ matches, focus, start, width, rows }: MenuProps) {
     );
   };
   return (
-    <Panel width={width} note={matches.length > MENU_ROWS ? `${matches.length} ${files ? "matches" : "commands"}` : undefined}>
+    <Panel width={width} note={matches.length > MENU_ROWS ? `${matches.length} ${what}` : undefined}>
       <Box ref={rows} flexDirection="column">
         {matches.slice(start, start + MENU_ROWS).map((match, i) => (
-          <ChoiceRow key={match.kind === "file" ? match.path : match.command.name} selected={start + i === focus} width={inner}>
+          <ChoiceRow key={match.kind === "file" ? match.path : match.kind === "argument" ? match.value : match.command.name} selected={start + i === focus} width={inner}>
             {row(match, start + i === focus)}
           </ChoiceRow>
         ))}
       </Box>
-      <Text color={PALETTE.dust}>{files ? "  ↑↓ to choose   tab or enter attaches   esc closes" : "  ↑↓ to choose   tab completes   enter runs"}</Text>
+      <Text color={PALETTE.dust}>{`  ↑↓ to choose   ${keys}`}</Text>
     </Panel>
   );
 }
