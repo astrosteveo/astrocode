@@ -313,18 +313,25 @@ export function Prompt(props: Props) {
       if (!at) return;
       event.handled = true;
       const { text, cursor } = buffer.current;
-      const offset = offsetAt(text, cursor, area.current?.yogaNode?.getComputedWidth() ?? 1, at.x, at.y);
-      if (offset !== null) set(text, offset);
+      // In a mode, the `!` or `#` is drawn as the marker, not in the text area.
+      const skip = modeOf(text) ? 1 : 0;
+      const offset = offsetAt(text.slice(skip), cursor >= skip ? cursor - skip : null, area.current?.yogaNode?.getComputedWidth() ?? 1, at.x, at.y);
+      if (offset !== null) set(text, offset + skip);
     },
     { isActive: active },
   );
 
-  const { text, cursor } = buffer.current;
+  const mode = modeOf(buffer.current.text);
+  // `!` runs a command in your shell, and `#` adds a note to CLAUDE.md. The box says which, and the
+  // `!` or `#` takes the place of `❯`, as the transcript draws it.
+  const skip = mode ? 1 : 0;
+  const marker = mode ? buffer.current.text.slice(0, skip) : "❯";
+  const onMarker = mode !== undefined && buffer.current.cursor === 0;
+  const text = buffer.current.text.slice(skip);
+  const cursor = Math.max(0, buffer.current.cursor - skip);
   const end = next(text, cursor);
   const under = text.slice(cursor, end);
   const placeholder = busy ? "Claude is working. Type to queue a message" : "Message Claude, / for commands, @ for files, ! for a shell";
-  // `!` runs a command in your shell, and `#` adds a note to CLAUDE.md. The box says which.
-  const mode = text.startsWith("!") ? "shell" : text.startsWith("#") ? "memory" : undefined;
   const caret = (character: string) =>
     active ? (
       <Text backgroundColor={PALETTE.gold} color={PALETTE.ink}>
@@ -338,18 +345,20 @@ export function Prompt(props: Props) {
       <Panel width={width} accent={active ? PALETTE.gold : undefined} label={mode}>
         <Box>
           <Box flexShrink={0}>
-            <Text color={active ? PALETTE.gold : PALETTE.dust}>{"❯ "}</Text>
+            <Text color={active ? PALETTE.gold : PALETTE.dust}>
+              {onMarker ? caret(marker) : marker}{" "}
+            </Text>
           </Box>
           <Box ref={area} flexGrow={1} flexShrink={1}>
             {text === "" ? (
               <Text>
-                {active ? caret(" ") : null}
-                <Text color={PALETTE.haze}>{placeholder}</Text>
+                {active && !onMarker ? caret(" ") : null}
+                {mode ? null : <Text color={PALETTE.haze}>{placeholder}</Text>}
               </Text>
             ) : (
               <Text color={PALETTE.star}>
                 {text.slice(0, cursor)}
-                {active ? caret(under && under !== "\n" ? under : " ") : under === "\n" ? "" : under}
+                {active && !onMarker ? caret(under && under !== "\n" ? under : " ") : under === "\n" ? "" : under}
                 {under === "\n" ? "\n" : ""}
                 {text.slice(end)}
               </Text>
@@ -433,23 +442,27 @@ function menuMatches(text: string, commands: CommandInfo[], closedFor: string) {
  * drawn at `cursor`. Wrapping keeps every character and only adds line breaks, so each cell can be
  * traced back to the text. Past the end of a line, the cursor goes to its end.
  */
-function offsetAt(text: string, cursor: number, room: number, x: number, y: number) {
-  const end = next(text, cursor);
-  const under = text.slice(cursor, end);
-  // What's drawn: the text, with a space for the cursor where it has no character of its own to cover.
+function offsetAt(text: string, cursor: number | null, room: number, x: number, y: number) {
+  // What's drawn: the text, with a space for the cursor where it has no character of its own to
+  // cover. A `null` cursor is drawn outside the text, on the marker.
   let shown = "";
   const offsets: number[] = [];
   const put = (part: string, from: number | null) => {
     for (let k = 0; k < part.length; k++) {
       shown += part[k];
-      offsets.push(from === null ? cursor : from + k);
+      offsets.push(from === null ? (cursor ?? 0) : from + k);
     }
   };
-  put(text.slice(0, cursor), 0);
-  if (under && under !== "\n") put(under, cursor);
-  else put(" ", null);
-  if (under === "\n") put("\n", null);
-  put(text.slice(end), end);
+  if (cursor === null) put(text, 0);
+  else {
+    const end = next(text, cursor);
+    const under = text.slice(cursor, end);
+    put(text.slice(0, cursor), 0);
+    if (under && under !== "\n") put(under, cursor);
+    else put(" ", null);
+    if (under === "\n") put("\n", null);
+    put(text.slice(end), end);
+  }
 
   const cells: { row: number; col: number; width: number; offset: number; newline: boolean }[] = [];
   let row = 0;
@@ -481,6 +494,11 @@ function offsetAt(text: string, cursor: number, room: number, x: number, y: numb
   const covering = line.find((cell) => x >= cell.col && x < cell.col + Math.max(1, cell.width));
   const offset = covering ? covering.offset : last.newline ? last.offset : y === row ? text.length : last.offset;
   return offset >= text.length ? text.length : previous(text, offset + 1);
+}
+
+/** The box's mode: `!` runs a command in your shell, and `#` adds a note to CLAUDE.md. */
+function modeOf(text: string) {
+  return text.startsWith("!") ? "shell" : text.startsWith("#") ? "memory" : undefined;
 }
 
 function previous(text: string, at: number) {
