@@ -1,5 +1,5 @@
-// Turns the server's event log into what the page shows. It's a pure reducer, so a page
-// that reconnects gets the same view by replaying the log from the start.
+// Folds the session's events into what the terminal shows. A pure reducer: replaying a saved
+// conversation's events draws it the same way it was drawn live.
 import type {
   PermissionMode,
   SDKAssistantMessage,
@@ -7,7 +7,7 @@ import type {
   SDKPartialAssistantMessage,
   SDKResultMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { PermissionRequest, ServerEvent } from "../protocol";
+import type { CommandInfo, ModelChoice, PermissionRequest, QuestionRequest, SessionEvent } from "../events";
 
 type StreamEvent = SDKPartialAssistantMessage["event"];
 type AssistantBlock = SDKAssistantMessage["message"]["content"][number];
@@ -32,8 +32,10 @@ export type Item =
   | { kind: "text"; key: string; text: string }
   | { kind: "thinking"; key: string; text: string }
   | { kind: "tool"; key: string; call: ToolCall }
-  | { kind: "turn"; key: string; outcome: "finished" | "stopped" | "failed"; durationMs: number; detail?: string }
-  | { kind: "notice"; key: string; tone: "info" | "error"; text: string };
+  | { kind: "turn"; key: string; outcome: "finished" | "stopped" | "failed"; durationMs: number; tokens: number; detail?: string }
+  | { kind: "notice"; key: string; tone: "info" | "error"; text: string }
+  /** A tool call's whole output, printed on request. */
+  | { kind: "output"; key: string; call: ToolCall };
 
 type NewItem = Item extends infer I ? (I extends Item ? Omit<I, "key"> : never) : never;
 
@@ -43,76 +45,100 @@ export type LiveBlock = { kind: "text" | "thinking" | "tool" | "other"; text: st
 /** Blocks before `finalized` have arrived as complete messages and are shown from `items` instead. */
 export type Live = { messageId: string; blocks: LiveBlock[]; finalized: number };
 
+/** A plan usage window, from Claude Code's rate-limit events. `utilization` is 0 to 1. */
+export type UsageWindow = { utilization: number; resetsAt: number };
+
 export type State = {
-  connected: boolean;
   cwd: string;
   home: string;
   model?: string;
   plan?: string;
+  models: ModelChoice[];
+  commands: CommandInfo[];
   mode: PermissionMode;
+  context?: { percentage: number; tokens: number; max: number };
+  limits: { fiveHour?: UsageWindow; sevenDay?: UsageWindow };
   items: Item[];
   /** Tool call id to its index in `items`. */
   tools: Record<string, number>;
   live: Live | null;
   pending: PermissionRequest[];
+  questions: QuestionRequest[];
   busy: boolean;
+  /** Output tokens of this turn's finished messages. */
+  turnTokens: number;
   seq: number;
 };
 
-export const initialState: State = {
-  connected: false,
-  cwd: "",
-  home: "",
-  mode: "default",
-  items: [],
-  tools: {},
-  live: null,
-  pending: [],
-  busy: false,
-  seq: 0,
-};
+/** Events the terminal adds of its own, beside the session's. */
+export type ViewEvent =
+  | SessionEvent
+  /** A saved conversation, replayed when resuming it. */
+  | { kind: "history"; events: SessionEvent[]; title?: string }
+  /** Print a tool call's whole output into the transcript. */
+  | { kind: "output"; id: string };
 
-export type Action =
-  | { type: "connected"; connected: boolean }
-  | { type: "replay"; events: ServerEvent[] }
-  | { type: "reset" }
-  | { type: "event"; event: ServerEvent };
-
-export function reducer(state: State, action: Action): State {
-  switch (action.type) {
-    case "connected":
-      return { ...state, connected: action.connected };
-    case "replay":
-      return action.events.reduce(apply, { ...initialState, connected: state.connected });
-    case "reset":
-      return { ...initialState, connected: state.connected };
-    case "event":
-      return apply(state, action.event);
-  }
+export function initialState(cwd: string, home: string): State {
+  return {
+    cwd,
+    home,
+    models: [],
+    commands: [],
+    mode: "default",
+    limits: {},
+    items: [],
+    tools: {},
+    live: null,
+    pending: [],
+    questions: [],
+    busy: false,
+    turnTokens: 0,
+    seq: 0,
+  };
 }
 
-function apply(state: State, event: ServerEvent): State {
+export function reduce(state: State, event: ViewEvent): State {
   switch (event.kind) {
-    case "hello":
-      return { ...state, cwd: event.cwd, home: event.home };
-    case "account":
-      return { ...state, plan: planLabel(event) };
+    case "ready":
+      return { ...state, plan: event.plan, models: event.models, commands: event.commands };
     case "prompt":
       return { ...add(state, { kind: "prompt", text: event.text }), busy: true };
     case "sdk":
       return applySdk(state, event.message);
     case "permission":
       return { ...state, pending: [...state.pending.filter((p) => p.id !== event.request.id), event.request] };
-    case "permission_resolved": {
-      const next = { ...state, pending: state.pending.filter((p) => p.id !== event.id) };
-      if (event.decision === "deny") return updateTool(next, event.id, () => ({ status: "denied" }));
-      if (event.decision === "cancelled") return updateTool(next, event.id, () => ({ status: "stopped" }));
+    case "question":
+      return { ...state, questions: [...state.questions.filter((q) => q.id !== event.request.id), event.request] };
+    case "resolved": {
+      const next = {
+        ...state,
+        pending: state.pending.filter((p) => p.id !== event.id),
+        questions: state.questions.filter((q) => q.id !== event.id),
+      };
+      if (event.outcome === "deny") return updateTool(next, event.id, () => ({ status: "denied" }));
+      if (event.outcome === "cancelled") return updateTool(next, event.id, () => ({ status: "stopped" }));
       return next;
     }
     case "mode":
       return { ...state, mode: event.mode };
+    case "model":
+      return { ...state, model: event.model };
+    case "context":
+      return { ...state, context: { percentage: event.percentage, tokens: event.tokens, max: event.max } };
     case "notice":
       return add(state, { kind: "notice", tone: event.tone, text: event.text });
+    case "history": {
+      const replayed = event.events.reduce(reduce, state);
+      const settled = { ...stopRunningTools(replayed), busy: false, live: null, turnTokens: 0 };
+      const count = settled.items.length - state.items.length;
+      if (count === 0) return add(settled, { kind: "notice", tone: "info", text: "Resumed a session with nothing to show yet." });
+      return add(settled, { kind: "notice", tone: "info", text: `Resumed ${event.title ? `“${event.title}”` : "the session"} above.` });
+    }
+    case "output": {
+      const index = state.tools[event.id];
+      const item = index === undefined ? undefined : state.items[index];
+      return item?.kind === "tool" ? add(state, { kind: "output", call: item.call }) : state;
+    }
   }
 }
 
@@ -121,7 +147,7 @@ function applySdk(state: State, message: SDKMessage): State {
     case "system":
       switch (message.subtype) {
         case "init":
-          return { ...state, model: message.model, mode: message.permissionMode };
+          return { ...state, model: state.model ?? message.model, mode: message.permissionMode };
         case "status":
           return message.permissionMode ? { ...state, mode: message.permissionMode } : state;
         case "compact_boundary":
@@ -131,6 +157,8 @@ function applySdk(state: State, message: SDKMessage): State {
         default:
           return state;
       }
+    case "rate_limit_event":
+      return { ...state, limits: usageWindows(message.rate_limit_info, state.limits) };
     case "stream_event":
       return message.parent_tool_use_id ? state : applyStream({ ...state, busy: true }, message.event);
     case "assistant":
@@ -144,10 +172,24 @@ function applySdk(state: State, message: SDKMessage): State {
   }
 }
 
+/** Claude Code's plan windows. `unifiedWindows` isn't in the SDK's types yet, so it's read with care. */
+function usageWindows(info: unknown, previous: State["limits"]): State["limits"] {
+  const windows = field(info, "unifiedWindows");
+  const read = (key: string): UsageWindow | undefined => {
+    const window = field(windows, key);
+    const utilization = field(window, "utilization");
+    const resetsAt = field(window, "resetsAt");
+    return typeof utilization === "number" && typeof resetsAt === "number" ? { utilization, resetsAt } : undefined;
+  };
+  return { fiveHour: read("five_hour") ?? previous.fiveHour, sevenDay: read("seven_day") ?? previous.sevenDay };
+}
+
 function applyStream(state: State, event: StreamEvent): State {
   switch (event.type) {
     case "message_start":
       return { ...state, live: { messageId: event.message.id, blocks: [], finalized: 0 } };
+    case "message_delta":
+      return { ...state, turnTokens: state.turnTokens + (event.usage.output_tokens ?? 0) };
     case "content_block_start": {
       if (!state.live) return state;
       const block = event.content_block;
@@ -231,39 +273,40 @@ function applyUser(state: State, message: UserMessage): State {
   let next = state;
   for (const block of results) {
     const result = resultText(block.content);
+    // A saved conversation has no record of the prompt, only Claude Code's note that it was refused.
+    const refused = block.is_error === true && result.startsWith("The user doesn't want to proceed with this tool use");
     next = updateTool(next, block.tool_use_id, (call) => ({
       result,
       output,
-      status: call.status === "denied" || call.status === "stopped" ? call.status : block.is_error ? "error" : "done",
+      status: call.status === "denied" || call.status === "stopped" ? call.status : refused ? "denied" : block.is_error ? "error" : "done",
     }));
   }
   return next;
 }
 
 function applyResult(state: State, message: SDKResultMessage): State {
-  // Whatever was still running when the turn ended won't report back.
+  const settled = { ...stopRunningTools(state), busy: false, live: null, turnTokens: 0 };
+  const turn = { kind: "turn" as const, durationMs: message.duration_ms, tokens: state.turnTokens };
+  // Stop, Esc and Deny all end the turn early. The SDK reports that as an error, but it isn't one.
+  if (message.terminal_reason === "aborted_streaming" || message.terminal_reason === "aborted_tools") {
+    return add(settled, { ...turn, outcome: "stopped" });
+  }
+  if (message.subtype === "success") {
+    return add(settled, { ...turn, outcome: message.is_error ? "failed" : "finished", detail: message.is_error ? message.result : undefined });
+  }
+  return add(settled, {
+    ...turn,
+    outcome: "failed",
+    detail: message.errors.filter((error) => !error.startsWith("[ede_diagnostic]")).join("\n") || undefined,
+  });
+}
+
+/** Whatever was still running when a turn ended won't report back. */
+function stopRunningTools(state: State): State {
   const items = state.items.map((item) =>
     item.kind === "tool" && item.call.status === "running" ? { ...item, call: { ...item.call, status: "stopped" as const } } : item,
   );
-  const settled = { ...state, items, busy: false, live: null };
-  // Stop, Esc and Deny all end the turn early. The SDK reports that as an error, but it isn't one.
-  if (message.terminal_reason === "aborted_streaming" || message.terminal_reason === "aborted_tools") {
-    return add(settled, { kind: "turn", outcome: "stopped", durationMs: message.duration_ms });
-  }
-  if (message.subtype === "success") {
-    return add(settled, {
-      kind: "turn",
-      outcome: message.is_error ? "failed" : "finished",
-      durationMs: message.duration_ms,
-      detail: message.is_error ? message.result : undefined,
-    });
-  }
-  return add(settled, {
-    kind: "turn",
-    outcome: "failed",
-    durationMs: message.duration_ms,
-    detail: message.errors.filter((error) => !error.startsWith("[ede_diagnostic]")).join("\n") || undefined,
-  });
+  return { ...state, items };
 }
 
 function add(state: State, item: NewItem): State {
@@ -288,6 +331,10 @@ function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
 
+function field(value: unknown, key: string): unknown {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>)[key] : undefined;
+}
+
 function resultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -299,13 +346,6 @@ function resultText(content: unknown): string {
     })
     .filter(Boolean)
     .join("\n");
-}
-
-function planLabel(account: Extract<ServerEvent, { kind: "account" }>) {
-  if (account.apiProvider && account.apiProvider !== "firstParty") return account.apiProvider;
-  if (account.apiKeySource && account.apiKeySource !== "none") return "API key";
-  // Claude Code reports this as a display name already, such as "Claude Max".
-  return account.subscriptionType;
 }
 
 const ERRORS: Record<string, string> = {

@@ -1,9 +1,8 @@
-import { initialState, reducer, type State } from "../src/view/state";
-import type { ServerEvent } from "../src/protocol";
+import { initialState, reduce, type State, type ViewEvent } from "../src/view/state";
 
 /**
- * The session's events, folded into view state with the same reducer as the web page.
- * `epoch` counts resets, so the scrollback Ink has already written can start over.
+ * The session's events folded into view state. `epoch` counts resets, so the scrollback Ink has
+ * already written can start over.
  */
 export class Store {
   epoch = 0;
@@ -14,16 +13,18 @@ export class Store {
     private readonly cwd: string,
     private readonly home: string,
   ) {
-    this.state = this.fresh();
+    this.state = initialState(cwd, home);
   }
 
-  emit = (event: ServerEvent) => {
-    this.state = reducer(this.state, { type: "event", event });
+  emit = (event: ViewEvent) => {
+    this.state = reduce(this.state, event);
     this.notify();
   };
 
+  /** Starts over for a new or resumed session. What's known about the account and Claude Code stays. */
   reset() {
-    this.state = this.fresh();
+    const { plan, models, commands, limits, mode, model } = this.state;
+    this.state = { ...initialState(this.cwd, this.home), plan, models, commands, limits, mode, model };
     this.epoch += 1;
     this.notify();
   }
@@ -36,11 +37,6 @@ export class Store {
   };
 
   getSnapshot = () => this.state;
-
-  private fresh(): State {
-    // The account outlives a reset; the model is reported again when the next session starts.
-    return { ...initialState, connected: true, cwd: this.cwd, home: this.home, plan: this.state?.plan };
-  }
 
   private notify() {
     for (const listener of this.listeners) listener();

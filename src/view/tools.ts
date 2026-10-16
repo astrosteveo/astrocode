@@ -1,9 +1,12 @@
 // How each tool call reads in a single row: its name, what it acts on, and how it went.
-// Shared by the web page and the terminal app; the summaries follow nebula-ui's.
+// The summaries follow nebula-ui's.
 import type { ToolCall } from "./state";
+
+const NAMES: Record<string, string> = { AskUserQuestion: "Question", TodoWrite: "To-dos" };
 
 /** `mcp__server__tool` reads as `tool (server)`. */
 export function toolLabel(name: string) {
+  if (NAMES[name]) return NAMES[name];
   if (!name.startsWith("mcp__")) return name;
   const [, server = "", ...rest] = name.split("__");
   return `${rest.join("__")} (${server})`;
@@ -39,6 +42,11 @@ export function toolTarget(call: ToolCall, cwd: string, home: string) {
       return text("skill");
     case "TodoWrite":
       return Array.isArray(call.input.todos) ? plural(call.input.todos.length, "to-do") : "";
+    case "AskUserQuestion": {
+      const [first] = Array.isArray(call.input.questions) ? call.input.questions : [];
+      const question = field(first, "question");
+      return typeof question === "string" ? question : "";
+    }
     default: {
       const first = Object.values(call.input).find((value) => typeof value === "string");
       return typeof first === "string" ? firstLine(first) : "";
@@ -73,6 +81,8 @@ function doneSummary(call: ToolCall) {
     case "Agent":
     case "Task":
       return plural(call.subagentCalls, "tool call");
+    case "AskUserQuestion":
+      return "answered";
     case "Read": {
       const lines = field(field(output, "file"), "numLines");
       if (typeof lines === "number") return plural(lines, "line");

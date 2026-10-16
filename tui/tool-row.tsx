@@ -7,7 +7,7 @@ import { cellWidth, printable, printableColored } from "./markdown";
 import { Frame, fit } from "./markdown-view";
 import { ACCENT, COLOR } from "./theme";
 
-const STATUS = {
+export const STATUS = {
   running: { glyph: "◌", color: COLOR.info },
   waiting: { glyph: "◆", color: ACCENT },
   done: { glyph: "✓", color: COLOR.success },
@@ -16,7 +16,7 @@ const STATUS = {
   stopped: { glyph: "⊘", color: COLOR.warning },
 } as const;
 
-const PATHLIKE = new Set(["Read", "Edit", "Write", "NotebookEdit", "WebFetch"]);
+export const PATHLIKE = new Set(["Read", "Edit", "Write", "NotebookEdit", "WebFetch"]);
 
 /** Lines of output a finished row keeps in scrollback; its frame says how many more there were. */
 const OUTPUT_LINES = 12;
@@ -81,21 +81,23 @@ function detail(call: ToolCall, width: number) {
   if (call.status !== "done") return null;
   switch (call.name) {
     case "Bash":
-      return <BashOutput call={call} width={width} />;
+      return <BashOutput call={call} width={width} limit={OUTPUT_LINES} />;
     case "Edit":
-      return <EditDiff call={call} width={width} />;
+      return <EditDiff call={call} width={width} limit={OUTPUT_LINES * 2} />;
     case "TodoWrite":
       return <Todos call={call} />;
+    case "AskUserQuestion":
+      return <QuestionAnswers call={call} />;
     default:
       return null;
   }
 }
 
-function BashOutput({ call, width }: { call: ToolCall; width: number }) {
+export function BashOutput({ call, width, limit }: { call: ToolCall; width: number; limit: number }) {
   const structured = bashOutput(call.output);
   const fallback = /^\(\w+ completed with no output\)$/.test(call.result?.trim() ?? "") ? "" : (call.result ?? "");
-  const stdout = clip(printableColored(structured?.stdout ?? fallback), OUTPUT_LINES);
-  const stderr = clip(printable(structured?.stderr ?? ""), OUTPUT_LINES);
+  const stdout = clip(printableColored(structured?.stdout ?? fallback), limit);
+  const stderr = clip(printable(structured?.stderr ?? ""), limit);
   if (!stdout.text && !stderr.text) return null;
   return (
     <Box flexDirection="column">
@@ -114,19 +116,24 @@ function BashOutput({ call, width }: { call: ToolCall; width: number }) {
 }
 
 /** Claude Code's patch for the edit when it sent one, with context lines; else the replaced text. */
-function EditDiff({ call, width }: { call: ToolCall; width: number }) {
+export function patchLines(call: ToolCall) {
   const hunks = field(call.output, "structuredPatch");
   const text = (key: string) => (typeof call.input[key] === "string" ? (call.input[key] as string) : "");
-  const lines = Array.isArray(hunks)
-    ? hunks.flatMap((hunk) => {
-        const body = field(hunk, "lines");
-        return Array.isArray(body) ? body.map(String) : [];
-      })
-    : [...text("old_string").split("\n").map((line) => `-${line}`), ...text("new_string").split("\n").map((line) => `+${line}`)];
+  if (Array.isArray(hunks)) {
+    return hunks.flatMap((hunk) => {
+      const body = field(hunk, "lines");
+      return Array.isArray(body) ? body.map(String) : [];
+    });
+  }
+  return [...text("old_string").split("\n").map((line) => `-${line}`), ...text("new_string").split("\n").map((line) => `+${line}`)];
+}
+
+export function EditDiff({ call, width, limit }: { call: ToolCall; width: number; limit: number }) {
+  const lines = patchLines(call);
   const added = lines.filter((line) => line.startsWith("+")).length;
   const removed = lines.filter((line) => line.startsWith("-")).length;
-  const shown = lines.slice(0, OUTPUT_LINES * 2);
-  const path = text("file_path");
+  const shown = lines.slice(0, limit);
+  const path = typeof call.input.file_path === "string" ? call.input.file_path : "";
   return (
     <Frame label={path.split("/").pop() ?? path} note={`+${added} −${removed}`} width={width}>
       {shown.map((line, i) => (
@@ -166,8 +173,24 @@ function Todos({ call }: { call: ToolCall }) {
   );
 }
 
+/** What you answered, under the question row. */
+function QuestionAnswers({ call }: { call: ToolCall }) {
+  const answers = field(call.output, "answers") ?? call.input.answers;
+  if (typeof answers !== "object" || answers === null) return null;
+  return (
+    <Box flexDirection="column">
+      {Object.entries(answers as Record<string, unknown>).map(([question, answer]) => (
+        <Text key={question}>
+          <Text dimColor>{`${question} `}</Text>
+          <Text color={ACCENT}>{`→ ${String(answer)}`}</Text>
+        </Text>
+      ))}
+    </Box>
+  );
+}
+
 /** The first `limit` lines, and a note saying how many there were or how many were left out. */
-function clip(text: string, limit: number) {
+export function clip(text: string, limit: number) {
   const lines = text.replace(/\n+$/, "").split("\n");
   const hidden = lines.length - limit;
   return {

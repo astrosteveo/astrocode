@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// astrocode: Claude Code's engine with our own front end, in the terminal or the browser.
+// astrocode: Claude Code's engine with our own terminal front end.
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -11,8 +11,6 @@ Options:
   -c, --continue       Continue the most recent session here
   -r, --resume <id>    Resume a session by id
   -m, --model <model>  Model to use, such as opus or haiku (default: Claude Code's)
-      --web            Open the browser front end instead of the terminal one
-      --port <port>    Port for --web (default: 4317)
   -h, --help           Show this help`;
 
 const { values, positionals } = (() => {
@@ -23,8 +21,6 @@ const { values, positionals } = (() => {
         continue: { type: "boolean", short: "c" },
         resume: { type: "string", short: "r" },
         model: { type: "string", short: "m" },
-        web: { type: "boolean" },
-        port: { type: "string" },
         help: { type: "boolean", short: "h" },
       },
     });
@@ -39,13 +35,10 @@ if (values.help) {
   process.exit(0);
 }
 
-const cwd = resolve(positionals[0] ?? process.cwd());
-const model = values.model ?? (process.env.ASTROCODE_MODEL || undefined);
-
-if (values.web) {
-  const { startWeb } = await import("./server");
-  startWeb({ cwd, model, port: Number(values.port ?? process.env.ASTROCODE_PORT ?? 4317) });
-} else {
-  const { startTerminal } = await import("../tui/main");
-  await startTerminal({ cwd, model, resume: values.resume, continue: values.continue });
-}
+const { startTerminal } = await import("../tui/main");
+await startTerminal({
+  cwd: resolve(positionals[0] ?? process.cwd()),
+  model: values.model ?? (process.env.ASTROCODE_MODEL || undefined),
+  resume: values.resume,
+  continue: values.continue,
+});

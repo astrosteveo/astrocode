@@ -1,7 +1,6 @@
-// The words on a permission prompt, shared by the web page and the terminal app so both
-// promise exactly what "always allow" does.
+// The words on a permission prompt, including exactly what "always allow" does.
 import type { PermissionMode, PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
-import type { PermissionRequest } from "../protocol";
+import type { PermissionRequest } from "../events";
 import { shortPath, toolLabel } from "./tools";
 
 const TITLES: Record<string, string> = {

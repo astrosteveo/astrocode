@@ -1,5 +1,6 @@
 import {
   query,
+  type AccountInfo,
   type CanUseTool,
   type PermissionMode,
   type PermissionResult,
@@ -7,7 +8,7 @@ import {
   type Query,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { Decision, PermissionRequest, ServerEvent } from "./protocol";
+import type { Answers, Decision, PermissionRequest, Question, SessionEvent } from "./events";
 import { AsyncQueue } from "./queue";
 
 export type SessionOptions = {
@@ -21,13 +22,13 @@ export type SessionOptions = {
   continue?: boolean;
   /** Where Claude Code's own stderr goes. Defaults to this process's stderr. */
   onStderr?: (data: string) => void;
-  emit: (event: ServerEvent) => void;
+  emit: (event: SessionEvent) => void;
 };
 
-/** One running Claude Code process. A session starts a new run after a reset or a crash. */
+/** One running Claude Code process. A session starts a new run after a reset, a resume or a crash. */
 type Run = { query: Query; inbox: AsyncQueue<SDKUserMessage>; closing: boolean };
 
-type Pending = { run: Run; request: PermissionRequest; resolve: (result: PermissionResult) => void };
+type Waiting<T> = { run: Run; value: T; resolve: (result: PermissionResult) => void };
 
 /**
  * One Claude Code session, driven through the Agent SDK in streaming-input mode.
@@ -38,13 +39,16 @@ type Pending = { run: Run; request: PermissionRequest; resolve: (result: Permiss
  */
 export class AgentSession {
   private run: Run | null = null;
-  private pending = new Map<string, Pending>();
+  private permissions = new Map<string, Waiting<PermissionRequest>>();
+  private questions = new Map<string, Waiting<Record<string, unknown>>>();
   private sessionId: string | undefined;
   private mode: PermissionMode = "default";
+  private model: string | undefined;
   private resumeFrom: string | undefined;
   private continueLast: boolean;
 
   constructor(private readonly options: SessionOptions) {
+    this.model = options.model;
     this.resumeFrom = options.resume;
     this.continueLast = options.continue ?? false;
   }
@@ -64,17 +68,15 @@ export class AgentSession {
       prompt: inbox,
       options: {
         cwd: this.options.cwd,
-        model: this.options.model,
+        model: this.model,
         resume: this.sessionId ?? this.resumeFrom,
         continue: this.sessionId === undefined && this.resumeFrom === undefined && this.continueLast ? true : undefined,
         // Without an explicit mode, Claude Code starts in the mode from your settings, which
-        // can skip our prompts. Start by asking; the page can switch modes, bypass included.
+        // can skip our prompts. Start by asking; Shift+Tab can switch modes, bypass included.
         permissionMode: this.mode,
         allowDangerouslySkipPermissions: true,
         includePartialMessages: true,
         systemPrompt: { type: "preset", preset: "claude_code" },
-        // There's no question UI yet, so Claude asks its questions in plain text instead.
-        disallowedTools: ["AskUserQuestion"],
         canUseTool: (toolName, input, context) => this.ask(run, toolName, input, context),
         stderr: this.options.onStderr ?? ((data) => process.stderr.write(`[claude] ${data}`)),
         env: topLevelEnv(),
@@ -83,7 +85,7 @@ export class AgentSession {
     run = { query: q, inbox, closing: false };
     this.run = run;
     void this.pump(run);
-    void this.announceAccount(run);
+    void this.announce(run);
   }
 
   send(text: string) {
@@ -93,7 +95,31 @@ export class AgentSession {
   }
 
   decide(id: string, decision: Decision) {
-    this.settle(id, decision);
+    const waiting = this.permissions.get(id);
+    if (!waiting) return;
+    this.permissions.delete(id);
+    const request = waiting.value;
+    if (decision === "deny") {
+      // Like saying no in Claude Code: the turn stops and Claude waits for you.
+      waiting.resolve({ behavior: "deny", message: "The user declined this action. Wait for them to say how to proceed.", interrupt: true });
+    } else {
+      waiting.resolve({
+        behavior: "allow",
+        updatedInput: request.input,
+        updatedPermissions: decision === "always" ? request.alwaysAllow : undefined,
+      });
+    }
+    this.options.emit({ kind: "resolved", id, outcome: decision });
+  }
+
+  /** Answers Claude's questions, or dismisses them with `null`. */
+  answer(id: string, answers: Answers | null) {
+    const waiting = this.questions.get(id);
+    if (!waiting) return;
+    this.questions.delete(id);
+    if (answers) waiting.resolve({ behavior: "allow", updatedInput: { ...waiting.value, answers } });
+    else waiting.resolve({ behavior: "deny", message: "The user dismissed the questions without answering." });
+    this.options.emit({ kind: "resolved", id, outcome: answers ? "answered" : "cancelled" });
   }
 
   async interrupt() {
@@ -106,6 +132,12 @@ export class AgentSession {
     this.options.emit({ kind: "mode", mode });
   }
 
+  async setModel(model: string) {
+    await this.run?.query.setModel(model);
+    this.model = model;
+    this.options.emit({ kind: "model", model });
+  }
+
   /** Stops Claude Code and forgets the conversation, so the next start begins a new one. */
   reset() {
     this.close();
@@ -114,20 +146,39 @@ export class AgentSession {
     this.continueLast = false;
   }
 
+  /** Switches to a saved conversation. */
+  resume(sessionId: string) {
+    this.reset();
+    this.resumeFrom = sessionId;
+    this.start();
+  }
+
   close() {
     const run = this.run;
     if (!run) return;
     this.run = null;
     run.closing = true;
-    this.cancelPending(run, false);
+    this.cancelWaiting(run, false);
     run.inbox.close();
     run.query.close();
   }
 
   private ask(run: Run, toolName: string, input: Record<string, unknown>, context: Parameters<CanUseTool>[2]) {
     return new Promise<PermissionResult>((resolve) => {
+      const id = context.toolUseID;
+      if (toolName === "AskUserQuestion") {
+        const questions = parseQuestions(input.questions);
+        if (!questions) {
+          resolve({ behavior: "deny", message: "astrocode couldn't read these questions. Ask them in plain text instead." });
+          return;
+        }
+        this.questions.set(id, { run, value: input, resolve });
+        context.signal.addEventListener("abort", () => this.answer(id, null), { once: true });
+        this.options.emit({ kind: "question", request: { id, questions } });
+        return;
+      }
       const request: PermissionRequest = {
-        id: context.toolUseID,
+        id,
         toolName,
         input,
         title: context.title,
@@ -138,35 +189,28 @@ export class AgentSession {
         defaultToNo: context.defaultToNo,
         fromSubagent: context.agentID !== undefined,
       };
-      this.pending.set(request.id, { run, request, resolve });
-      context.signal.addEventListener("abort", () => this.settle(request.id, "cancelled"), { once: true });
+      this.permissions.set(id, { run, value: request, resolve });
+      context.signal.addEventListener("abort", () => this.cancel(id), { once: true });
       this.options.emit({ kind: "permission", request });
     });
   }
 
-  private settle(id: string, decision: Decision | "cancelled", announce = true) {
-    const pending = this.pending.get(id);
-    if (!pending) return;
-    this.pending.delete(id);
-    const { request, resolve } = pending;
-    if (decision === "allow" || decision === "always") {
-      resolve({
-        behavior: "allow",
-        updatedInput: request.input,
-        updatedPermissions: decision === "always" ? request.alwaysAllow : undefined,
-      });
-    } else if (decision === "deny") {
-      // Like saying no in Claude Code: the turn stops and Claude waits for you.
-      resolve({ behavior: "deny", message: "The user declined this action. Wait for them to say how to proceed.", interrupt: true });
-    } else {
-      resolve({ behavior: "deny", message: "The request was cancelled." });
-    }
-    if (announce) this.options.emit({ kind: "permission_resolved", id, decision });
+  /** Settles a permission prompt Claude Code no longer needs, such as after an interrupt. */
+  private cancel(id: string, announce = true) {
+    const waiting = this.permissions.get(id);
+    if (!waiting) return;
+    this.permissions.delete(id);
+    waiting.resolve({ behavior: "deny", message: "The request was cancelled." });
+    if (announce) this.options.emit({ kind: "resolved", id, outcome: "cancelled" });
   }
 
-  private cancelPending(run: Run, announce: boolean) {
-    for (const [id, pending] of [...this.pending]) {
-      if (pending.run === run) this.settle(id, "cancelled", announce);
+  private cancelWaiting(run: Run, announce: boolean) {
+    for (const [id, waiting] of [...this.permissions]) if (waiting.run === run) this.cancel(id, announce);
+    for (const [id, waiting] of [...this.questions]) {
+      if (waiting.run !== run) continue;
+      this.questions.delete(id);
+      waiting.resolve({ behavior: "deny", message: "The request was cancelled." });
+      if (announce) this.options.emit({ kind: "resolved", id, outcome: "cancelled" });
     }
   }
 
@@ -177,29 +221,80 @@ export class AgentSession {
         if ("session_id" in message && message.session_id) this.sessionId = message.session_id;
         if (message.type === "system" && message.subtype === "init") this.mode = message.permissionMode;
         this.options.emit({ kind: "sdk", message });
+        if (message.type === "result") void this.reportContext(run);
       }
     } catch (error) {
       if (!run.closing) this.options.emit({ kind: "notice", tone: "error", text: `Claude Code stopped: ${messageOf(error)}` });
     } finally {
       if (this.run === run) this.run = null;
-      this.cancelPending(run, !run.closing);
+      this.cancelWaiting(run, !run.closing);
     }
   }
 
-  private async announceAccount(run: Run) {
+  /** The account, models and slash commands Claude Code reports when it starts. */
+  private async announce(run: Run) {
     try {
-      const { account } = await run.query.initializationResult();
+      const init = await run.query.initializationResult();
       if (run.closing) return;
       this.options.emit({
-        kind: "account",
-        subscriptionType: account.subscriptionType,
-        apiKeySource: account.apiKeySource,
-        apiProvider: account.apiProvider,
+        kind: "ready",
+        plan: planOf(init.account),
+        models: init.models.map((model) => ({ value: model.value, name: model.displayName, description: model.description })),
+        commands: init.commands.map((command) => ({
+          name: command.name,
+          description: command.description,
+          argumentHint: command.argumentHint ?? "",
+        })),
       });
+      // A model chosen at launch is known now; Claude Code's own default arrives with the first reply.
+      if (this.model) this.options.emit({ kind: "model", model: this.model });
+      await this.reportContext(run);
     } catch {
       // A failed start is reported by pump().
     }
   }
+
+  private async reportContext(run: Run) {
+    try {
+      const usage = await run.query.getContextUsage();
+      if (run.closing) return;
+      this.options.emit({ kind: "context", percentage: usage.percentage, tokens: usage.totalTokens, max: usage.maxTokens });
+    } catch {
+      // Context usage is a nicety; the session goes on without it.
+    }
+  }
+}
+
+/** "Claude Max", "API key", or the cloud provider in use. */
+function planOf(account: AccountInfo) {
+  if (account.apiProvider && account.apiProvider !== "firstParty") return account.apiProvider;
+  if (account.apiKeySource && account.apiKeySource !== "none") return "API key";
+  return account.subscriptionType;
+}
+
+/** AskUserQuestion's questions, checked, since the model writes them. */
+function parseQuestions(value: unknown): Question[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const questions: Question[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) return null;
+    const { question, header, multiSelect, options } = item as Record<string, unknown>;
+    if (typeof question !== "string" || !Array.isArray(options) || options.length === 0) return null;
+    questions.push({
+      question,
+      header: typeof header === "string" ? header : "",
+      multiSelect: multiSelect === true,
+      options: options.map((option) => {
+        const { label, description, preview } = (option ?? {}) as Record<string, unknown>;
+        return {
+          label: String(label ?? ""),
+          description: typeof description === "string" ? description : "",
+          preview: typeof preview === "string" ? preview : undefined,
+        };
+      }),
+    });
+  }
+  return questions;
 }
 
 /** What a running Claude Code session sets for the processes it starts, marking them as its children. */

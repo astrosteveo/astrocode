@@ -2,30 +2,24 @@
   "name": "astrocode",
   "version": "0.1.0",
   "private": true,
-  "description": "A personal front end for Claude, built on the Claude Agent SDK",
+  "description": "astrocode: Claude Code's engine with our own terminal front end, on the Claude Agent SDK",
   "type": "module",
   "bin": {
     "astrocode": "src/cli.ts"
   },
   "scripts": {
     "start": "bun src/cli.ts",
-    "web": "bun src/cli.ts --web",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.301",
-    "@fontsource-variable/recursive": "^5.3.0",
     "cli-highlight": "^2.1.11",
     "ink": "8.0.0",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1",
-    "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "react": "^19.3.1"
   },
   "devDependencies": {
     "@types/bun": "^1.4.3",
     "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
     "typescript": "^7.0.2"
   }
 }

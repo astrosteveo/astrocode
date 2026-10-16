@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import { useRef, useState } from "react";
-import type { Decision as Choice, PermissionRequest } from "../src/protocol";
+import type { Decision as Choice, PermissionRequest } from "../src/events";
 import { alwaysLabel, permissionNote, permissionTitle } from "../src/view/permissions";
 import { plural, shortPath } from "../src/view/tools";
 import { printable } from "./markdown";
