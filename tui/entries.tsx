@@ -4,7 +4,7 @@
 import { Box, Text } from "ink";
 import { compact, duration } from "../src/view/format";
 import type { Item, Live } from "../src/view/state";
-import { cellWidth, wrapSpans, type Span } from "./markdown";
+import { cellWidth } from "./markdown";
 import { Markdown } from "./markdown-view";
 import { FullOutput, OutputBody } from "./output";
 import { GUTTER, LIVE, Railed, type Rail } from "./rail";
@@ -32,23 +32,7 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
     case "prompt":
       return (
         <Railed node="●" color={PALETTE.gold} rail={rail}>
-          {promptRows(item.text, inner.width).map((row, i) => (
-            <Text key={i} bold color={PALETTE.star}>
-              {row.map((run, n) =>
-                run.style === "code" ? (
-                  <Text key={n} color={PALETTE.tealLight} backgroundColor={PALETTE.raised}>
-                    {run.text}
-                  </Text>
-                ) : run.style === "link" ? (
-                  <Text key={n} color={PALETTE.sky} backgroundColor={PALETTE.raised}>
-                    {run.text}
-                  </Text>
-                ) : (
-                  run.text
-                ),
-              )}
-            </Text>
-          ))}
+          <Markdown text={item.text} width={inner.width} yours />
         </Railed>
       );
     case "shell":
@@ -107,25 +91,6 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
         </Railed>
       );
   }
-}
-
-/**
- * Your message as you typed it, but for `code` in backticks, drawn as Claude's inline code is, and
- * attached images, as `link` runs. Only code: an asterisk or underscore you typed is more often a
- * glob or a name than emphasis.
- */
-function promptRows(text: string, width: number): Span[][] {
-  return text.split("\n").flatMap((line) => {
-    const runs: Span[] = [];
-    let at = 0;
-    for (const match of line.matchAll(/(`+)(.+?)\1|\[Image #\d+\]/g)) {
-      if (match.index > at) runs.push({ text: line.slice(at, match.index), style: "plain" });
-      runs.push(match[2] === undefined ? { text: match[0], style: "link" } : { text: match[2].trim(), style: "code" });
-      at = match.index + match[0].length;
-    }
-    if (at < line.length || runs.length === 0) runs.push({ text: line.slice(at), style: "plain" });
-    return wrapSpans(runs, width);
-  });
 }
 
 /** `╰── 42s   1.2k tokens`: how long the turn took and what Claude wrote, closing the rail. */

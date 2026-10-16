@@ -21,7 +21,7 @@ export type Block =
   | { kind: 'quote'; callout: Callout | null; title: string; text: string }
   | { kind: 'rule' }
 
-export type Span = { text: string; style: 'plain' | 'code' | 'bold' | 'italic' | 'strike' | 'link' | 'url' | 'command' }
+export type Span = { text: string; style: 'plain' | 'code' | 'bold' | 'italic' | 'strike' | 'link' | 'url' | 'command' | 'image' }
 
 const FENCE = /^( {0,3})(`{3,}|~{3,})\s*([^\s`]*)/
 const HEADING = /^ {0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/
@@ -33,8 +33,12 @@ const CALLOUT = /^\[!(note|tip|important|warning|caution)\]\s*(.*)$/i
 const TABLE_DIVIDER = /^ {0,3}\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/
 const NUMERIC = /^[~≈<>+\-−$€£]*\s*[\d.,]+\s*(%|x|ms|s|m|h|k|kb|mb|gb|tb)?$/i
 
+/**
+ * Inline markdown. Asterisks hug what they emphasize, so `ls *.ts and *.js` and `2 ** 3 ** 4` stay
+ * as typed; underscores don't open or close inside a word. `[Image #n]` is an attached image.
+ */
 const INLINE =
-  /(`+)(.+?)\1|\*\*(.+?)\*\*|__(.+?)__|~~(.+?)~~|\*(?!\s)(.+?)\*|(?<![\w])_(?!\s)(.+?)_(?![\w])|\[([^\]]+)\]\(([^)\s]+)\)/g
+  /(`+)(.+?)\1|\*\*(?!\s)(.+?)(?<!\s)\*\*|__(.+?)__|~~(.+?)~~|\*(?![\s*])(.+?)(?<![\s*])\*|(?<![\w])_(?!\s)(.+?)_(?![\w])|\[([^\]]+)\]\(([^)\s]+)\)|(\[Image #\d+\])/g
 
 /** Terminal color and cursor codes, and the other escape sequences a tool or process prints. */
 export const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g
@@ -213,7 +217,7 @@ export const lastCells = (text: string, room: number) => {
 }
 
 /**
- * A line's inline markdown as styled runs: code, bold, italic, strike, link text. Inside bold,
+ * A line's inline markdown as styled runs: code, bold, italic, strike, link text, images. Inside bold,
  * italic, strike and link text, code stays code and a link stays a link; emphasis inside emphasis
  * takes the outer style, so its markers never show.
  */
@@ -224,9 +228,11 @@ export const spans = (text: string): Span[] => {
     if (match.index > at) {
       out.push({ text: text.slice(at, match.index), style: 'plain' })
     }
-    const [, , code, bold, boldU, strike, italic, italicU, link, url] = match
+    const [, , code, bold, boldU, strike, italic, italicU, link, url, image] = match
     if (code !== undefined) {
       out.push({ text: code.trim(), style: 'code' })
+    } else if (image !== undefined) {
+      out.push({ text: image, style: 'image' })
     } else {
       const [inner, style]: [string, Span['style']] =
         bold !== undefined || boldU !== undefined
@@ -237,7 +243,7 @@ export const spans = (text: string): Span[] => {
               ? [(italic ?? italicU)!, 'italic']
               : [link!, 'link']
       for (const run of spans(inner)) {
-        out.push(run.style === 'code' || run.style === 'link' || run.style === 'url' ? run : { text: run.text, style })
+        out.push(run.style === 'code' || run.style === 'link' || run.style === 'url' || run.style === 'image' ? run : { text: run.text, style })
       }
       if (style === 'link' && url !== undefined && url !== link) {
         out.push({ text: ` (${url})`, style: 'url' })
