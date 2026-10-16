@@ -9,8 +9,10 @@ Our own version of `claude`: a terminal front end (Ink 8, React 19, Bun) for Cla
 - `src/events.ts`: what the session tells the interface
 - `src/history.ts`: saved sessions and replayed conversations
 - `src/plugins.ts`: plugins and marketplaces, through `claude plugin … --json`
-- `src/view/`: the reducer (`state.ts`), tool summaries, permission wording and formatting
-- `tui/`: the Ink components. `app.tsx` lays them out in scrollback (the default) or full screen (`screen.tsx`). `plugins.tsx` is `/plugins`; `files.ts` lists files for the message box's `@` menu.
+- `src/settings.ts`: what astrocode remembers between sessions
+- `src/shell.ts` runs `!` commands; `src/memory.ts` adds `#` notes to a CLAUDE.md
+- `src/view/`: the reducer (`state.ts`), the to-do list (`todos.ts`), tool summaries, permission wording and formatting
+- `tui/`: the Ink components. `app.tsx` lays them out in scrollback (the default) or full screen (`screen.tsx`). `plugins.tsx` is `/plugins`; `files.ts` lists files for the message box's `@` menu, `images.ts` reads pasted images and `editor.ts` opens `$EDITOR` for Ctrl+G.
 - `tui/transcript.tsx`, `tui/mouse.ts`, `tui/selection.ts`, `tui/clipboard.ts`: full screen's transcript as lines, the mouse, and copying
 
 ## Commands
@@ -21,7 +23,8 @@ Our own version of `claude`: a terminal front end (Ink 8, React 19, Bun) for Cla
 ## Rules
 
 - Take SDK types from `node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts` and `sdk-tools.d.ts` (tool inputs and outputs), and Ink's API from `node_modules/ink/readme.md`. Don't guess them.
-- Keep `permissionMode` explicit in `src/session.ts`. Without it, Claude Code starts in the mode from the user's settings (`bypassPermissions` here), and no permission prompt ever shows.
+- Keep `permissionMode` explicit in `src/session.ts`. Without it, Claude Code starts in the mode from the user's settings (`bypassPermissions` here), and no permission prompt ever shows. astrocode starts in the mode last picked in astrocode, else `auto`, Claude Code's own default when nothing is set, whose classifier asks through `canUseTool` when it can't decide. Where auto isn't available, Claude Code starts in `default` instead and says so in `initializationResult()`'s `current_permission_mode`, which isn't in the SDK's types.
+- The model, effort and mode the user picks are remembered in astrocode's own `$XDG_CONFIG_HOME/astrocode/settings.json` (`~/.config/…`), not in Claude Code's settings, so `claude` keeps its own. Plan mode and `max` effort are for one session only, as in Claude Code, and so are `-m`, `-e` and their env vars. A mode Claude Code switches to by itself, such as on leaving plan mode, isn't a pick.
 - "Always allow" applies only `narrowest()` of Claude Code's suggestions. The full list can include `setMode: acceptEdits`, which silently turns off every later edit prompt. The option's label comes from `alwaysLabel()`.
 - AskUserQuestion arrives through `canUseTool`, even in bypass mode, and is answered with `updatedInput: { ...input, answers }`. Answers are keyed by question text, and a multi-select answer joins its labels with ", ".
 - `src/view/state.ts` must stay a pure reducer. A resumed conversation is replayed through it as one `history` event.
@@ -34,6 +37,13 @@ Our own version of `claude`: a terminal front end (Ink 8, React 19, Bun) for Cla
 - The message box keeps its text in a ref, because keys can arrive faster than React re-renders. So does `/plugins` with where you are in it: two quick ↓ then Enter must act on the row they reached.
 - The SDK can only load and reload plugins. Installing, removing and turning them on or off run Claude Code's own `claude plugin … --json` with the binary the SDK ships (`claudeBinary()`), and then `reloadPlugins()` refreshes the session and the `/` menu. `claude plugin enable` and `disable` accept any id, installed or not, and write it into settings, so offer them only for installed plugins. Never pass `-y`: a plugin that installs by running a command must be confirmed by a person in `claude` itself.
 - `@path` mentions need nothing from astrocode but the menu: Claude Code expands them when the message arrives, quoted (`@"a b.md"`) when the path has a space. Don't send messages with `client_composed`, which turns that off.
+- Images go with a message as image blocks before its text. The box shows each as `[Image #n]`; the images themselves live in the `Store`, by number, and go with any message that still mentions them. Ctrl+V reads the clipboard with `wl-paste` or `xclip`; a paste that's nothing but an image file's path, as dropping a file pastes, attaches the file.
+- Every message is sent with its own `uuid`, which Claude Code keeps as the transcript entry's. Rewinding goes back to it: `rewindFiles(uuid)` for the files (`enableFileCheckpointing` is on; only Edit and Write are tracked, not Bash), and a restart with `resumeSessionAt` set to the entry before it for the conversation. Only a dry run lists the files a rewind changes, so the picker asks for one first.
+- `!` commands and `#` notes reach Claude through `note()`: a user message with `shouldQuery: false`, which goes with the next message. A `!` command is saved as Claude Code saves its own, `<bash-input>` then `<bash-stdout>`/`<bash-stderr>`, and replayed from that. Claude Code answers each such message with a result of no turns; the reducer ignores those while not busy.
+- Claude Code sends `system/init` before every input, not once. Per-process state, such as the background tasks, resets on `ready`.
+- Ctrl+B asks `backgroundTasks()` about each running tool call by id. Asked about none in particular it says yes even when nothing moved, and a command can only move once it has run for a moment. What runs in the background comes from `background_tasks_changed`, which replaces the whole set.
+- The pinned to-do list is folded from TaskCreate, TaskUpdate and TaskList (TodoWrite in older Claude Code). Claude Code leaves those tools out for current models unless `CLAUDE_CODE_ENABLE_TODO_TOOLS` is set, and `claude` does too; astrocode doesn't set it.
+- Ctrl+G hands the terminal to the editor with Ink's `suspendTerminal()`, which puts raw mode, the kitty protocol and the alternate screen back afterwards. The mouse isn't Ink's, so it's stopped and started around it.
 - The permission and question prompts ignore Enter, Space and digits for `GRACE_MS` after they appear. Don't remove that. Scripted tests must wait longer than that before pressing keys.
 - Full screen (`-f`, `ASTROCODE_FULLSCREEN=1`, `/fullscreen`, `/config fullscreen=true|false`) runs in Ink's alternate screen. `/fullscreen` unmounts Ink and renders again in the other layout, so whatever must survive the switch, such as the sent-message history, lives in the `Store`, not in component state.
 - Full screen draws the transcript as lines with Ink's `renderToString`, kept per item object; the reducer replaces items rather than changing them. `renderToString` shares Ink's reconciler, so it can't run during a render or a commit: `useTranscript` draws in a microtask after the commit. Anything drawn there can't use hooks.
@@ -50,5 +60,6 @@ Our own version of `claude`: a terminal front end (Ink 8, React 19, Bun) for Cla
   - Mouse: send SGR reports as bytes with `send-keys -H` (`ESC [ < button ; x ; y M` to press, `m` to release; 32 added to the button for a drag, 64 and 65 for the wheel; 1-based cells). `tmux display -p '#{mouse_sgr_flag} #{alternate_on}'` shows whether reporting and the alternate screen are on. With `set -g set-clipboard on`, a copy lands in `tmux show-buffer`.
   - vhs can't send mouse events. To screenshot full screen, have vhs attach to the tmux session and drive the app from a background script.
   - Take color screenshots with vhs: `Set Theme "Catppuccin Mocha"`, relative screenshot paths that don't start with a digit, and `/clear` between scenes, since vhs reads the top of the buffer.
-  - Start with `env -i HOME=… PATH=…` so this session's own environment doesn't leak in.
+  - Start with `env -i HOME=… PATH=…` so this session's own environment doesn't leak in, and with `XDG_CONFIG_HOME` set to a throwaway folder so test picks don't land in the user's settings.
+  - Test Ctrl+V with a fake `wl-paste` early in `PATH` and `WAYLAND_DISPLAY` set to anything, never the user's own clipboard. A file drop is a bracketed paste of its path: `tmux set-buffer` then `paste-buffer -p`.
   - Plugin changes write to Claude Code's real settings and plugin folders. Test them with `CLAUDE_CONFIG_DIR` set to a throwaway folder and a local marketplace (`claude plugin validate` checks one). That run isn't signed in, but `/plugins` and `reloadPlugins()` don't need it.

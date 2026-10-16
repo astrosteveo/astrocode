@@ -4,6 +4,7 @@
 // result on a panel under them.
 import { Box, Text } from "ink";
 import type { ToolCall } from "../src/view/state";
+import type { Todo } from "../src/view/todos";
 import { bashOutput, field, plural, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
 import { cellWidth, printable, printableColored } from "./markdown";
 import { fit, onPanel, Panel } from "./markdown-view";
@@ -88,9 +89,15 @@ function Detail({ call, width }: { call: ToolCall; width: number }) {
 
 export function BashOutput({ call, width, limit }: { call: ToolCall; width: number; limit: number }) {
   const structured = bashOutput(call.output);
-  const fallback = /^\(\w+ completed with no output\)$/.test(call.result?.trim() ?? "") ? "" : (call.result ?? "");
-  const stdout = clip(printableColored(structured?.stdout ?? fallback), limit);
-  const stderr = clip(printable(structured?.stderr ?? ""), limit);
+  return <ShellOutput stdout={structured?.stdout ?? call.result ?? ""} stderr={structured?.stderr ?? ""} width={width} limit={limit} />;
+}
+
+/** What a command printed, on a panel, with what it printed as errors on one of its own. */
+export function ShellOutput({ stdout: out, stderr: err, width, limit }: { stdout: string; stderr: string; width: number; limit: number }) {
+  // Claude Code's words for a command that printed nothing.
+  const said = /^\(\w+ completed with no output\)$/.test(out.trim()) ? "" : out;
+  const stdout = clip(printableColored(said), limit);
+  const stderr = clip(printable(err), limit);
   if (!stdout.text && !stderr.text) return null;
   return (
     <Box flexDirection="column">
@@ -143,7 +150,11 @@ export function EditDiff({ call, width, limit }: { call: ToolCall; width: number
 }
 
 function Todos({ call }: { call: ToolCall }) {
-  const todos = Array.isArray(call.input.todos) ? call.input.todos : [];
+  return <TodoList todos={Array.isArray(call.input.todos) ? call.input.todos : []} />;
+}
+
+/** To-dos as Claude wrote them: done ones struck through, the one under way bright. */
+export function TodoList({ todos }: { todos: unknown[] }) {
   return (
     <Box flexDirection="column">
       {todos.map((todo, i) => {
@@ -165,6 +176,29 @@ function Todos({ call }: { call: ToolCall }) {
         }
         return <Text key={i}>{`○ ${content}`}</Text>;
       })}
+    </Box>
+  );
+}
+
+/**
+ * Claude's latest to-dos, held above the message box while it works through them. The rows shown
+ * start just before the first one not yet done.
+ */
+export function PinnedTodos({ todos, rows }: { todos: Todo[]; rows: number }) {
+  const done = todos.filter((todo) => todo.status === "completed").length;
+  const next = todos.findIndex((todo) => todo.status !== "completed");
+  const start = Math.max(0, Math.min(next === -1 ? todos.length : next - 1, todos.length - rows));
+  const shown = todos.slice(start, start + rows);
+  const hidden = todos.length - shown.length;
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Text>
+        <Text color={PALETTE.haze}>To-dos</Text>
+        <Text color={PALETTE.dust}>{`  ${done} of ${todos.length} done${hidden ? `, ${hidden} not shown` : ""}   ctrl+t hides`}</Text>
+      </Text>
+      <Box paddingLeft={2}>
+        <TodoList todos={shown} />
+      </Box>
     </Box>
   );
 }

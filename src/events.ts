@@ -48,6 +48,9 @@ export function isEffort(value: string): value is EffortLevel {
 
 export type ModelChoice = { value: string; name: string; description: string; efforts?: EffortLevel[] };
 
+/** An image going with a message, as an image block takes it. */
+export type ImageAttachment = { mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string };
+
 export type CommandInfo = { name: string; description: string; argumentHint: string };
 
 export type SessionEvent =
@@ -55,7 +58,11 @@ export type SessionEvent =
   | { kind: "ready"; plan?: string; models: ModelChoice[]; commands: CommandInfo[] }
   /** The slash commands changed, after plugins were reloaded. */
   | { kind: "commands"; commands: CommandInfo[] }
-  | { kind: "prompt"; text: string }
+  /** A message you sent. `uuid` is its id in the transcript, which rewinding goes back to. */
+  | { kind: "prompt"; text: string; uuid?: string }
+  /** A command you ran with `!`, before and after it finishes. */
+  | { kind: "shell"; id: string; command: string }
+  | { kind: "shell-done"; id: string; stdout: string; stderr: string; code: number | null }
   | { kind: "sdk"; message: SDKMessage }
   | { kind: "permission"; request: PermissionRequest }
   | { kind: "question"; request: QuestionRequest }

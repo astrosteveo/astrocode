@@ -3,6 +3,7 @@ import { render } from "ink";
 import { homedir } from "node:os";
 import { loadHistory, savedSessions, sessionTitle } from "../src/history";
 import { AgentSession } from "../src/session";
+import { loadSettings } from "../src/settings";
 import { App } from "./app";
 import { gitInfo } from "./git";
 import { Mouse, MouseContext } from "./mouse";
@@ -26,8 +27,18 @@ export async function startTerminal(options: TerminalOptions) {
   }
 
   const store = new Store(options.cwd, homedir());
+  // The model, effort and mode you last picked, unless this run's options say otherwise.
+  const saved = await loadSettings();
   // Claude Code's own stderr would scribble over the screen; failures still arrive as notices.
-  const session = new AgentSession({ cwd: options.cwd, model: options.model, effort: options.effort, resume, emit: store.emit, onStderr: () => {} });
+  const session = new AgentSession({
+    cwd: options.cwd,
+    model: options.model ?? saved.model,
+    effort: options.effort ?? saved.effort,
+    mode: saved.mode,
+    resume,
+    emit: store.emit,
+    onStderr: () => {},
+  });
   // So would process warnings, which print straight to stderr. The SDK warns on every start in
   // bypass mode that canUseTool won't run, but Claude's questions still come through it.
   process.removeAllListeners("warning");

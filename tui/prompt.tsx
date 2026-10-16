@@ -5,11 +5,12 @@
 import { Box, Text, useInput, usePaste, type DOMElement } from "ink";
 import { useEffect, useReducer, useRef, type ReactNode, type RefObject } from "react";
 import wrapAnsi from "wrap-ansi";
-import type { CommandInfo } from "../src/events";
+import type { CommandInfo, ImageAttachment } from "../src/events";
 import { ChoiceRow } from "./choice";
 import { baseName, fileMatches, projectFiles } from "./files";
 import { cellWidth, takeCells } from "./markdown";
 import { Panel } from "./markdown-view";
+import { clipboardImage, imageLabel, pastedImageFile } from "./images";
 import { hit, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
 
@@ -17,6 +18,8 @@ type Props = {
   /** Off while a prompt or picker above has the keyboard. */
   active: boolean;
   busy: boolean;
+  /** A command run with `!` is still going: Esc stops it. */
+  running: boolean;
   width: number;
   /** The project, whose files `@` offers. */
   cwd: string;
@@ -29,7 +32,23 @@ type Props = {
   onCtrlC: () => void;
   onExit: () => void;
   onOpenOutput: () => void;
+  /** Text to put in the box in place of what's there, such as a message rewound to or edited in $EDITOR. */
+  prefill: { text: string } | null;
+  /** Keeps an image for the message and gives its number for `[Image #n]`. */
+  onAttach: (image: ImageAttachment) => number;
+  onNotice: (tone: "info" | "error", text: string) => void;
+  /** Ctrl+G: the message in your editor. */
+  onEdit: (text: string) => void;
+  /** Ctrl+B: what Claude waits on moves to the background. */
+  onBackground: () => void;
+  /** Ctrl+T: the to-do list shown or hidden. */
+  onToggleTodos: () => void;
+  /** Esc twice on an empty box, while Claude isn't working. */
+  onRewind: () => void;
 };
+
+/** Two presses of Esc this close together are a double press. */
+const DOUBLE_ESC_MS = 600;
 
 /** Rows a menu shows at once. */
 const MENU_ROWS = 6;
@@ -49,6 +68,7 @@ export function Prompt(props: Props) {
   const files = useRef<string[] | null>(null);
   const area = useRef<DOMElement>(null);
   const menuBox = useRef<DOMElement>(null);
+  const lastEscape = useRef(0);
   const [, redraw] = useReducer((n: number) => n + 1, 0);
 
   const set = (text: string, cursor: number) => {
@@ -137,7 +157,48 @@ export function Prompt(props: Props) {
     set(text.slice(0, at.start) + written + gap + after, at.start + written.length + gap.length);
   };
 
-  usePaste((pasted) => insert(pasted.replace(/\r\n?/g, "\n")), { isActive: active });
+  useEffect(() => {
+    if (!props.prefill) return;
+    recall.current = null;
+    set(props.prefill.text, props.prefill.text.length);
+  }, [props.prefill]);
+
+  /** An image goes in as `[Image #n]`, with a space after it when text follows. */
+  const insertImage = (image: ImageAttachment) => {
+    const { text, cursor } = buffer.current;
+    const label = imageLabel(props.onAttach(image));
+    const before = cursor > 0 && !/\s/.test(text[cursor - 1] ?? "") ? " " : "";
+    insert(`${before}${label} `);
+  };
+
+  const pasteImage = () =>
+    void clipboardImage().then(
+      (image) => {
+        if (image === null) props.onNotice("info", "There's no image on the clipboard. Paste text with your terminal's own paste, often Ctrl+Shift+V.");
+        else if (typeof image === "string") props.onNotice("error", image);
+        else insertImage(image);
+      },
+      (error: unknown) => props.onNotice("error", error instanceof Error ? error.message : String(error)),
+    );
+
+  // A path to an image, as dropping a file on the terminal pastes, attaches the image.
+  usePaste(
+    (pasted) => {
+      const text = pasted.replace(/\r\n?/g, "\n");
+      void pastedImageFile(text, cwd).then(
+        (found) => {
+          if (!found) return insert(text);
+          if (typeof found.image === "string") {
+            props.onNotice("error", found.image);
+            return insert(text);
+          }
+          insertImage(found.image);
+        },
+        () => insert(text),
+      );
+    },
+    { isActive: active },
+  );
 
   useInput(
     (input, key) => {
@@ -168,8 +229,19 @@ export function Prompt(props: Props) {
         return;
       }
       if (key.ctrl && input === "o") return props.onOpenOutput();
+      if (key.ctrl && input === "v") return pasteImage();
+      if (key.ctrl && input === "g") return props.onEdit(text);
+      if (key.ctrl && input === "b") return props.onBackground();
+      if (key.ctrl && input === "t") return props.onToggleTodos();
       if (key.escape) {
-        if (busy) props.onInterrupt();
+        if (busy || props.running) return props.onInterrupt();
+        if (text) return;
+        const now = Date.now();
+        if (now - lastEscape.current < DOUBLE_ESC_MS) {
+          lastEscape.current = 0;
+          return props.onRewind();
+        }
+        lastEscape.current = now;
         return;
       }
       if (key.tab) {
@@ -250,7 +322,9 @@ export function Prompt(props: Props) {
   const { text, cursor } = buffer.current;
   const end = next(text, cursor);
   const under = text.slice(cursor, end);
-  const placeholder = busy ? "Claude is working. Type to queue a message" : "Message Claude, / for commands, @ for files";
+  const placeholder = busy ? "Claude is working. Type to queue a message" : "Message Claude, / for commands, @ for files, ! for a shell";
+  // `!` runs a command in your shell, and `#` adds a note to CLAUDE.md. The box says which.
+  const mode = text.startsWith("!") ? "shell" : text.startsWith("#") ? "memory" : undefined;
   const caret = (character: string) =>
     active ? (
       <Text backgroundColor={PALETTE.gold} color={PALETTE.ink}>
@@ -261,7 +335,7 @@ export function Prompt(props: Props) {
     );
   return (
     <Box flexDirection="column">
-      <Panel width={width} accent={active ? PALETTE.gold : undefined}>
+      <Panel width={width} accent={active ? PALETTE.gold : undefined} label={mode}>
         <Box>
           <Box flexShrink={0}>
             <Text color={active ? PALETTE.gold : PALETTE.dust}>{"❯ "}</Text>

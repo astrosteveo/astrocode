@@ -1,7 +1,8 @@
 // The status bar under the message box. On the left, the permission mode as a solid chip; on the
-// right, readings: the model, how full the context is, your plan's usage windows, the git branch
-// and the plan, as many as fit, most important first. In full screen, clicking the chip changes
-// the mode clicking the model switches it, and clicking the effort sets it.
+// right, readings: the model, what runs in the background, how full the context is, your plan's
+// usage windows, the git branch and the plan, as many as fit, most important first. In full
+// screen, clicking the chip changes the mode, clicking the model switches it, clicking the effort
+// sets it, and clicking the background count lists what's running.
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { Box, Text, type DOMElement } from "ink";
 import { useRef, type ReactNode } from "react";
@@ -39,9 +40,10 @@ type Props = {
   onMode?: () => void;
   onModel?: () => void;
   onEffort?: () => void;
+  onTasks?: () => void;
 };
 
-export function StatusBar({ state, mode, git, width, exitArmed, toast, onMode, onModel, onEffort }: Props) {
+export function StatusBar({ state, mode, git, width, exitArmed, toast, onMode, onModel, onEffort, onTasks }: Props) {
   const bar = useRef<DOMElement>(null);
   const chip = MODES[mode];
   // The chip's caps are half blocks, so it reads as a solid lozenge.
@@ -55,6 +57,10 @@ export function StatusBar({ state, mode, git, width, exitArmed, toast, onMode, o
   if (state.effort) {
     const text = `${state.effort} effort`;
     segments.push({ text, node: <Text color={PALETTE.haze}>{text}</Text>, onClick: onEffort });
+  }
+  if (state.tasks.length) {
+    const text = `◌ ${state.tasks.length} in background`;
+    segments.push({ text, node: <Text color={PALETTE.teal}>{text}</Text>, onClick: onTasks });
   }
   if (state.context) {
     const share = state.context.percentage / 100;

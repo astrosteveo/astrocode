@@ -11,10 +11,14 @@ Runs Claude in project-dir (default: the current folder), signed in as Claude Co
 Options:
   -c, --continue       Continue the most recent session here
   -r, --resume <id>    Resume a session by id
-  -m, --model <model>  Model to use, such as opus or haiku (default: Claude Code's)
-  -e, --effort <level> Effort: low, medium, high, xhigh or max (default: Claude Code's)
+  -m, --model <model>  Model to use, such as opus or haiku (or set ASTROCODE_MODEL)
+  -e, --effort <level> Effort: low, medium, high, xhigh or max (or set ASTROCODE_EFFORT)
   -f, --fullscreen     Use the whole terminal, with the mouse (or set ASTROCODE_FULLSCREEN=1)
-  -h, --help           Show this help`;
+  -h, --help           Show this help
+
+The model, effort and permission mode you last picked in astrocode carry over, from
+~/.config/astrocode/settings.json. --model and --effort apply to this run only. Without a
+pick, the model and effort are Claude Code's, and the mode is auto where it's available.`;
 
 const { values, positionals } = (() => {
   try {

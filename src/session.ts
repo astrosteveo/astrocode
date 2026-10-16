@@ -1,4 +1,5 @@
 import {
+  getSessionMessages,
   query,
   type AccountInfo,
   type CanUseTool,
@@ -8,10 +9,22 @@ import {
   type PermissionUpdate,
   type Query,
   type SDKUserMessage,
+  type SessionMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { Answers, CommandInfo, Decision, PermissionRequest, Question, SessionEvent } from "./events";
+import { randomUUID } from "node:crypto";
+import {
+  MODES,
+  type Answers,
+  type CommandInfo,
+  type Decision,
+  type ImageAttachment,
+  type PermissionRequest,
+  type Question,
+  type SessionEvent,
+} from "./events";
 import { AsyncQueue } from "./queue";
+import { field } from "./view/tools";
 
 export type SessionOptions = {
   /** The project Claude works in. */
@@ -20,6 +33,8 @@ export type SessionOptions = {
   model?: string;
   /** Leave unset to use Claude Code's default effort for the model. */
   effort?: EffortLevel;
+  /** Leave unset to start in auto mode. */
+  mode?: PermissionMode;
   /** A saved session to pick up instead of starting a new one. */
   resume?: string;
   /** Pick up the most recent session in `cwd`. */
@@ -46,15 +61,18 @@ export class AgentSession {
   private permissions = new Map<string, Waiting<PermissionRequest>>();
   private questions = new Map<string, Waiting<Record<string, unknown>>>();
   private sessionId: string | undefined;
-  private mode: PermissionMode = "default";
+  private mode: PermissionMode;
   private model: string | undefined;
   private effort: EffortLevel | undefined;
   private resumeFrom: string | undefined;
   private continueLast: boolean;
+  /** Where a rewound conversation picks up: the last message kept. Until something new is sent. */
+  private resumeAt: string | undefined;
 
   constructor(private readonly options: SessionOptions) {
     this.model = options.model;
     this.effort = options.effort;
+    this.mode = options.mode ?? "auto";
     this.resumeFrom = options.resume;
     this.continueLast = options.continue ?? false;
   }
@@ -77,12 +95,16 @@ export class AgentSession {
         model: this.model,
         effort: this.effort,
         resume: this.sessionId ?? this.resumeFrom,
+        resumeSessionAt: this.resumeAt,
         continue: this.sessionId === undefined && this.resumeFrom === undefined && this.continueLast ? true : undefined,
-        // Without an explicit mode, Claude Code starts in the mode from your settings, which
-        // can skip our prompts. Start by asking; Shift+Tab can switch modes, bypass included.
+        // Without an explicit mode, Claude Code starts in the mode from your settings, which can
+        // skip our prompts. Start in auto, Claude Code's own default, unless you picked another:
+        // its classifier allows what's safe and asks through canUseTool about the rest.
         permissionMode: this.mode,
         allowDangerouslySkipPermissions: true,
         includePartialMessages: true,
+        // Backups of the files Claude changes, so rewinding can put them back.
+        enableFileCheckpointing: true,
         systemPrompt: { type: "preset", preset: "claude_code" },
         canUseTool: (toolName, input, context) => this.ask(run, toolName, input, context),
         stderr: this.options.onStderr ?? ((data) => process.stderr.write(`[claude] ${data}`)),
@@ -95,10 +117,75 @@ export class AgentSession {
     void this.announce(run);
   }
 
-  send(text: string) {
+  /** Sends a message, with any images before its text. Its uuid is the one rewinding goes back to. */
+  send(text: string, images: ImageAttachment[] = []) {
     this.start();
-    this.options.emit({ kind: "prompt", text });
-    this.run?.inbox.push({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null });
+    this.resumeAt = undefined;
+    const uuid = randomUUID();
+    const content = images.length
+      ? [
+          ...images.map((image) => ({ type: "image" as const, source: { type: "base64" as const, media_type: image.mediaType, data: image.data } })),
+          { type: "text" as const, text },
+        ]
+      : text;
+    this.options.emit({ kind: "prompt", text, uuid });
+    this.run?.inbox.push({ type: "user", message: { role: "user", content }, parent_tool_use_id: null, uuid });
+  }
+
+  /**
+   * Adds to the conversation without starting a turn, as a command run with `!` does. It goes to
+   * Claude with the next message.
+   */
+  note(text: string) {
+    this.start();
+    this.run?.inbox.push({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null, shouldQuery: false });
+  }
+
+  /** What rewinding the files to how they were when `uuid` was sent would change, or does change. */
+  async rewindFiles(uuid: string, dryRun: boolean) {
+    this.start();
+    const run = this.run;
+    if (!run) throw new Error("Claude Code isn't running.");
+    return run.query.rewindFiles(uuid, { dryRun });
+  }
+
+  /**
+   * Takes the conversation back to before the message `uuid`: Claude Code starts again on the
+   * same session, picking up after the message before it. Returns the messages kept.
+   */
+  async rewindConversation(uuid: string): Promise<SessionMessage[]> {
+    const id = this.sessionId;
+    if (!id) throw new Error("There's no conversation to rewind yet.");
+    const messages = await getSessionMessages(id, { dir: this.options.cwd });
+    const at = messages.findIndex((message) => message.uuid === uuid);
+    if (at === -1) throw new Error("Claude Code hasn't saved that message, so the conversation can't go back to it.");
+    if (at === 0) {
+      // Back to before the first message: a new conversation.
+      this.reset();
+      this.start();
+      return [];
+    }
+    this.close();
+    this.resumeFrom = id;
+    this.resumeAt = messages[at - 1]?.uuid;
+    this.start();
+    return messages.slice(0, at);
+  }
+
+  /**
+   * Moves the commands and subagents Claude is waiting on to the background, as Ctrl+B does in
+   * Claude Code. Asked about each running tool call, Claude Code says which ones moved; asked
+   * about none in particular, it says yes even when nothing could.
+   */
+  async background(toolUseIds: string[]) {
+    const run = this.run;
+    if (!run) return 0;
+    const moved = await Promise.all(toolUseIds.map((id) => run.query.backgroundTasks(id).catch(() => false)));
+    return moved.filter(Boolean).length;
+  }
+
+  async stopTask(id: string) {
+    await this.run?.query.stopTask(id);
   }
 
   decide(id: string, decision: Decision) {
@@ -169,6 +256,7 @@ export class AgentSession {
     this.close();
     this.sessionId = undefined;
     this.resumeFrom = undefined;
+    this.resumeAt = undefined;
     this.continueLast = false;
   }
 
@@ -246,6 +334,8 @@ export class AgentSession {
         if (run.closing) break;
         if ("session_id" in message && message.session_id) this.sessionId = message.session_id;
         if (message.type === "system" && message.subtype === "init") this.mode = message.permissionMode;
+        // Claude Code changes modes too, such as when Claude leaves plan mode. A restart carries on in that one.
+        if (message.type === "system" && message.subtype === "status" && message.permissionMode) this.mode = message.permissionMode;
         this.options.emit({ kind: "sdk", message });
         if (message.type === "result") void this.reportContext(run);
       }
@@ -259,6 +349,7 @@ export class AgentSession {
 
   /** The account, models and slash commands Claude Code reports when it starts. */
   private async announce(run: Run) {
+    const asked = this.mode;
     try {
       const init = await run.query.initializationResult();
       if (run.closing) return;
@@ -273,6 +364,16 @@ export class AgentSession {
         })),
         commands: init.commands.map(commandInfo),
       });
+      // Where auto mode isn't available, as on some models, Claude Code starts by asking instead.
+      // `current_permission_mode` isn't in the SDK's types. A mode picked meanwhile stands.
+      const started = MODES.find((one) => one === field(init, "current_permission_mode"));
+      if (started && this.mode === asked) {
+        this.mode = started;
+        this.options.emit({ kind: "mode", mode: started });
+        if (asked === "auto" && started !== "auto") {
+          this.options.emit({ kind: "notice", tone: "info", text: "Auto mode isn't available with this model or account, so Claude asks first. Shift+Tab changes the mode." });
+        }
+      }
       // A model chosen at launch is known now; Claude Code's own default arrives with the first reply.
       if (this.model) this.options.emit({ kind: "model", model: this.model });
       // Claude Code doesn't report its default effort, so only a level chosen here is shown.

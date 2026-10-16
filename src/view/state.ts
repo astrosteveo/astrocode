@@ -29,7 +29,8 @@ export type ToolCall = {
 };
 
 export type Item =
-  | { kind: "prompt"; key: string; text: string }
+  /** `uuid` is the message's id in the transcript, where rewinding goes back to. */
+  | { kind: "prompt"; key: string; text: string; uuid?: string }
   | { kind: "text"; key: string; text: string }
   | { kind: "thinking"; key: string; text: string }
   | { kind: "tool"; key: string; call: ToolCall }
@@ -44,6 +45,8 @@ export type Item =
       replayed?: boolean;
     }
   | { kind: "notice"; key: string; tone: "info" | "error"; text: string }
+  /** A command you ran with `!`. */
+  | { kind: "shell"; key: string; id: string; command: string; status: "running" | "done" | "error"; stdout: string; stderr: string }
   /** A tool call's whole output, printed on request. */
   | { kind: "output"; key: string; call: ToolCall };
 
@@ -54,6 +57,9 @@ export type LiveBlock = { kind: "text" | "thinking" | "tool" | "other"; text: st
 
 /** Blocks before `finalized` have arrived as complete messages and are shown from `items` instead. */
 export type Live = { messageId: string; blocks: LiveBlock[]; finalized: number };
+
+/** Work Claude Code runs in the background, such as a command or a subagent moved there with Ctrl+B. */
+export type BackgroundTask = { id: string; description: string; type: string };
 
 /** A plan usage window, from Claude Code's rate-limit events. `utilization` is 0 to 1. */
 export type UsageWindow = { utilization: number; resetsAt: number };
@@ -69,6 +75,8 @@ export type State = {
   mode: PermissionMode;
   context?: { percentage: number; tokens: number; max: number };
   limits: { fiveHour?: UsageWindow; sevenDay?: UsageWindow };
+  /** What runs in the background right now. */
+  tasks: BackgroundTask[];
   items: Item[];
   /** Tool call id to its index in `items`. */
   tools: Record<string, number>;
@@ -85,7 +93,7 @@ export type State = {
 export type ViewEvent =
   | SessionEvent
   /** A saved conversation, replayed when resuming it. */
-  | { kind: "history"; events: SessionEvent[]; title?: string }
+  | { kind: "history"; events: SessionEvent[]; title?: string; notice?: string }
   /** Print a tool call's whole output into the transcript. */
   | { kind: "output"; id: string };
 
@@ -97,6 +105,7 @@ export function initialState(cwd: string, home: string): State {
     commands: [],
     mode: "default",
     limits: {},
+    tasks: [],
     items: [],
     tools: {},
     live: null,
@@ -111,11 +120,22 @@ export function initialState(cwd: string, home: string): State {
 export function reduce(state: State, event: ViewEvent): State {
   switch (event.kind) {
     case "ready":
-      return { ...state, plan: event.plan, models: event.models, commands: event.commands };
+      // A new Claude Code process, with nothing in the background yet.
+      return { ...state, plan: event.plan, models: event.models, commands: event.commands, tasks: [] };
     case "commands":
       return { ...state, commands: event.commands };
     case "prompt":
-      return { ...add(state, { kind: "prompt", text: event.text }), busy: true };
+      return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid }), busy: true };
+    case "shell":
+      return add(state, { kind: "shell", id: event.id, command: event.command, status: "running", stdout: "", stderr: "" });
+    case "shell-done": {
+      const index = state.items.findIndex((item) => item.kind === "shell" && item.id === event.id);
+      const item = state.items[index];
+      if (item?.kind !== "shell") return state;
+      const items = state.items.slice();
+      items[index] = { ...item, status: event.code === 0 ? "done" : "error", stdout: event.stdout, stderr: event.stderr };
+      return { ...state, items };
+    }
     case "sdk":
       return applySdk(state, event.message);
     case "permission":
@@ -146,6 +166,7 @@ export function reduce(state: State, event: ViewEvent): State {
       const replayed = closeTurns(event.events.reduce(reduce, state), state.items.length);
       const settled = { ...stopRunningTools(replayed), busy: false, live: null, turnTokens: 0 };
       const count = settled.items.length - state.items.length;
+      if (event.notice) return add(settled, { kind: "notice", tone: "info", text: event.notice });
       if (count === 0) return add(settled, { kind: "notice", tone: "info", text: "Resumed a session with nothing to show yet." });
       return add(settled, { kind: "notice", tone: "info", text: `Resumed ${event.title ? `“${event.title}”` : "the session"} above.` });
     }
@@ -163,6 +184,20 @@ function applySdk(state: State, message: SDKMessage): State {
       switch (message.subtype) {
         case "init":
           return { ...state, model: state.model ?? message.model, mode: message.permissionMode };
+        case "background_tasks_changed":
+          return {
+            ...state,
+            tasks: message.tasks
+              .filter((task) => !task.ambient)
+              .map((task) => ({ id: task.task_id, description: task.description, type: task.task_type })),
+          };
+        case "task_notification": {
+          // Only work that ran in the background: a subagent Claude waited on reports back as its tool call.
+          const task = state.tasks.find((one) => one.id === message.task_id);
+          if (!task || message.skip_transcript) return state;
+          const how = { completed: "finished", failed: "failed", stopped: "stopped" }[message.status];
+          return add(state, { kind: "notice", tone: message.status === "failed" ? "error" : "info", text: `Background task ${how}: ${task.description}` });
+        }
         case "status":
           return message.permissionMode ? { ...state, mode: message.permissionMode } : state;
         case "compact_boundary":
@@ -300,6 +335,8 @@ function applyUser(state: State, message: UserMessage): State {
 }
 
 function applyResult(state: State, message: SDKResultMessage): State {
+  // Claude Code answers a message that doesn't start a turn, such as a `!` command's, with a result of no turns.
+  if (!state.busy && message.num_turns === 0) return state;
   const settled = { ...stopRunningTools(state), busy: false, live: null, turnTokens: 0 };
   const turn = { kind: "turn" as const, durationMs: message.duration_ms, tokens: state.turnTokens };
   // Stop, Esc and Deny all end the turn early. The SDK reports that as an error, but it isn't one.

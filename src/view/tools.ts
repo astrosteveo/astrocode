@@ -88,6 +88,8 @@ function doneSummary(call: ToolCall) {
       break;
     }
     case "Bash": {
+      // Moved to the background with Ctrl+B, or started there: it reports back when it ends.
+      if (typeof field(output, "backgroundTaskId") === "string") return "in the background";
       const out = bashOutput(output);
       if (out !== null) return out.stdout + out.stderr === "" ? "no output" : plural(lineCount(out.stdout + out.stderr), "line");
       break;

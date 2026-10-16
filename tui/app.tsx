@@ -1,22 +1,31 @@
 // The terminal front end, in one of two layouts. By default finished entries are written once into
 // the terminal's own scrollback (Ink's <Static>), like `claude` does, and only the live part below
 // them is redrawn. In full screen the conversation scrolls in a viewport of its own, with the mouse.
-import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import type { EffortLevel, PermissionMode, RewindFilesResult } from "@anthropic-ai/claude-agent-sdk";
 import { Box, Static, useApp, useStdout, useWindowSize } from "ink";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { EFFORTS, isEffort, MODES, type CommandInfo, type ModelChoice } from "../src/events";
-import { loadHistory, savedSessions, type SavedSession } from "../src/history";
+import { randomUUID } from "node:crypto";
+import { useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { EFFORTS, isEffort, MODES, type CommandInfo, type ImageAttachment, type ModelChoice } from "../src/events";
+import { historyEvents, loadHistory, savedSessions, shellMessages, type SavedSession } from "../src/history";
+import { addMemory, memoryFiles, type MemoryFile } from "../src/memory";
 import type { AgentSession } from "../src/session";
+import { remember, type Remembered } from "../src/settings";
+import { runShell } from "../src/shell";
 import { ago, modelLabel } from "../src/view/format";
 import type { Item } from "../src/view/state";
-import { plural, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
+import { todoList } from "../src/view/todos";
+import { plural, shortPath, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
 import { Activity } from "./activity";
 import { Banner } from "./banner";
 import { copy } from "./clipboard";
 import { DecisionPrompt } from "./decision";
+import { editText } from "./editor";
 import { ItemView, LiveView } from "./entries";
 import { gitInfo, type GitInfo } from "./git";
+import { mentionedImages } from "./images";
+import { ANSI } from "./markdown";
 import { fit } from "./markdown-view";
+import { MouseContext } from "./mouse";
 import { Picker, type PickerItem } from "./picker";
 import { PluginManager } from "./plugins";
 import { Prompt } from "./prompt";
@@ -25,7 +34,7 @@ import { rails } from "./rail";
 import { Screen } from "./screen";
 import { StatusBar } from "./status";
 import type { Store } from "./store";
-import { STATUS } from "./tool-row";
+import { PinnedTodos, STATUS } from "./tool-row";
 
 type Overlay =
   | { kind: "model" }
@@ -33,7 +42,17 @@ type Overlay =
   | { kind: "resume"; sessions: SavedSession[] | null }
   | { kind: "output" }
   | { kind: "plugins" }
+  /** Your earlier messages, to go back to. */
+  | { kind: "rewind" }
+  /** What to put back for the message picked, once Claude Code has said what the files would change. */
+  | { kind: "rewind-how"; uuid: string; text: string; files: RewindFilesResult | null }
+  | { kind: "tasks" }
+  /** Where a note written with `#` goes. */
+  | { kind: "memory"; note: string; files: MemoryFile[] | null }
   | null;
+
+/** Kinds of background work, by Claude Code's task types. */
+const TASK_KINDS: Record<string, string> = { local_bash: "command", local_agent: "subagent", local_workflow: "workflow", monitor: "monitor" };
 
 const EFFORT_NOTES: Record<(typeof EFFORTS)[number], string> = {
   low: "Quick answers, least thinking",
@@ -48,11 +67,16 @@ const TOAST_MS = 2000;
 
 const HELP = [
   "Enter sends. Shift+Enter, Alt+Enter, or \\ then Enter starts a new line. Type / for commands.",
-  "Esc stops Claude. Shift+Tab changes the permission mode. ↑ and ↓ recall earlier messages.",
+  "Esc stops Claude. Esc twice on an empty box rewinds to an earlier message (/rewind).",
+  "Shift+Tab changes the permission mode. ↑ and ↓ recall earlier messages.",
+  "! runs a command in your shell and shows it to Claude. # adds a note to a CLAUDE.md.",
+  "Ctrl+V attaches the clipboard's image; a pasted or dropped image file attaches too. Ctrl+G edits the message in $EDITOR.",
+  "Ctrl+B moves a command or subagent Claude is waiting on to the background (/tasks). Ctrl+T shows or hides the to-dos.",
   "Ctrl+O opens a tool call's whole output. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
   "/fullscreen, or /config fullscreen=true|false, switches to full screen and back.",
+  "The model, effort and mode you pick are kept for next time, except plan mode and max effort.",
 ].join("\n");
 
 const FULLSCREEN_HELP = [
@@ -72,7 +96,8 @@ type Props = {
 
 export function App({ store, session, branch, fullscreen, onToggleFullscreen }: Props) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const { exit } = useApp();
+  const { exit, suspendTerminal } = useApp();
+  const mouse = useContext(MouseContext);
   const { write } = useStdout();
   const { columns, rows } = useWindowSize();
   const width = Math.max(24, columns);
@@ -86,6 +111,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [reveal, setReveal] = useState<{ key: string } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  /** Text for the message box, such as a rewound message or one edited in $EDITOR. */
+  const [prefill, setPrefill] = useState<{ text: string } | null>(null);
+  /** The pinned to-dos: shown while some are left (auto), or as Ctrl+T last set. */
+  const [todoMode, setTodoMode] = useState<"auto" | "on" | "off">("auto");
+  /** Commands run with `!` that haven't finished, to stop with Esc. */
+  const shells = useRef(new Map<string, AbortController>());
+  const editing = useRef(false);
 
   useEffect(() => {
     if (!exitArmed) return;
@@ -118,6 +150,20 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
 
   const report = (error: unknown) =>
     store.emit({ kind: "notice", tone: "error", text: error instanceof Error ? error.message : String(error) });
+  const notice = (tone: "info" | "error", text: string) => store.emit({ kind: "notice", tone, text });
+
+  const shellRunning = state.items.some((item) => item.kind === "shell" && item.status === "running");
+  const todos = todoList(state.items);
+  const todosLeft = todos?.some((todo) => todo.status !== "completed") ?? false;
+  const showTodos = Boolean(todos?.length) && (todoMode === "on" || (todoMode === "auto" && todosLeft));
+
+  /** The model, effort and mode you pick carry over to your next session. */
+  const keep = (choice: Remembered) =>
+    void remember(choice).catch((error: unknown) =>
+      report(`Couldn't remember that for next time: ${error instanceof Error ? error.message : String(error)}`),
+    );
+  const pickModel = (model: string) => void session.setModel(model).then(() => keep({ model }), report);
+  const pickEffort = (effort: EffortLevel) => void session.setEffort(effort).then(() => keep({ effort }), report);
 
   /** A new screen for a new or resumed session, scrollback included, as `claude` does. Full screen has no scrollback to clear. */
   const startOver = () => {
@@ -167,8 +213,116 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     setToast(lines > 1 ? `Copied ${plural(lines, "line")}` : `Copied ${plural([...text].length, "character")}`);
   };
 
+  /** A message, with the images it still mentions. */
+  const send = (text: string) => {
+    const images = mentionedImages(text).flatMap((n) => {
+      const image = store.images.get(n);
+      return image ? [image] : [];
+    }) satisfies ImageAttachment[];
+    session.send(text, images);
+  };
+
+  /** Runs a command with `!`, then adds it and what it printed to the conversation, as Claude Code does. */
+  const runCommand = (command: string) => {
+    if (!command) return;
+    const id = randomUUID();
+    const controller = new AbortController();
+    shells.current.set(id, controller);
+    store.emit({ kind: "shell", id, command });
+    void runShell(command, state.cwd, controller.signal).then((result) => {
+      shells.current.delete(id);
+      store.emit({ kind: "shell-done", id, ...result });
+      const stdout = result.stdout.replace(ANSI, "");
+      const stderr = result.stderr.replace(ANSI, "");
+      for (const message of shellMessages(command, stdout || stderr ? stdout : "(Bash completed with no output)", stderr)) session.note(message);
+    });
+  };
+
+  const stopShells = () => {
+    for (const controller of shells.current.values()) controller.abort();
+  };
+
+  /** Asks where a note written with `#` goes. */
+  const openMemory = (note: string) => {
+    if (!note) return;
+    setOverlay({ kind: "memory", note, files: null });
+    memoryFiles(state.cwd).then(
+      (files) => setOverlay((open) => (open?.kind === "memory" ? { ...open, files } : open)),
+      (error: unknown) => {
+        setOverlay(null);
+        report(error);
+      },
+    );
+  };
+
+  const saveMemory = (path: string, note: string) =>
+    void addMemory(path, note).then(() => {
+      notice("info", `Added to ${shortPath(path, state.cwd, state.home)}.`);
+      // Claude Code reads CLAUDE.md as a session starts, so this session hears of it from here.
+      session.note(`<user-memory-input>${note}</user-memory-input>`);
+    }, report);
+
+  const openRewind = () => {
+    if (state.busy) return notice("info", "Claude is working. Press Esc to stop it, then rewind.");
+    if (!state.items.some((item) => item.kind === "prompt" && item.uuid)) return notice("info", "There's no earlier message to go back to yet.");
+    setOverlay({ kind: "rewind" });
+  };
+
+  /** Asks Claude Code what putting the files back would change, before asking what to put back. */
+  const pickRewind = (uuid: string, text: string) => {
+    setOverlay({ kind: "rewind-how", uuid, text, files: null });
+    const show = (files: RewindFilesResult) => setOverlay((open) => (open?.kind === "rewind-how" && open.uuid === uuid ? { ...open, files } : open));
+    session.rewindFiles(uuid, true).then(show, (error: unknown) => show({ canRewind: false, error: error instanceof Error ? error.message : String(error) }));
+  };
+
+  /**
+   * Puts back the files, the conversation, or both, as they were when `uuid` was sent. `preview` is
+   * the dry run's answer: only a dry run lists the files.
+   */
+  const rewind = async (uuid: string, text: string, how: "code" | "conversation" | "both", preview: RewindFilesResult) => {
+    if (how !== "conversation") {
+      const restored = await session.rewindFiles(uuid, false);
+      if (!restored.canRewind) throw new Error(restored.error ?? "Claude Code couldn't put the files back.");
+    }
+    if (how !== "code") {
+      const kept = await session.rewindConversation(uuid);
+      startOver();
+      store.emit({ kind: "history", events: historyEvents(kept), notice: "Went back to before your message, which is in the box to change or send again." });
+      setPrefill({ text });
+    }
+    if (how !== "conversation") {
+      const files = preview.filesChanged?.length ?? 0;
+      notice("info", `Put ${plural(files, "file")} back as ${files === 1 ? "it was" : "they were"}.`);
+    }
+  };
+
+  /** Your message in $EDITOR, with the terminal handed over to it until it quits. */
+  const openEditor = (text: string) => {
+    if (editing.current) return;
+    editing.current = true;
+    void (async () => {
+      let edited: string | undefined;
+      let failure: unknown;
+      mouse?.stop();
+      const suspension = await suspendTerminal();
+      try {
+        edited = await editText(text);
+      } catch (error) {
+        failure = error;
+      } finally {
+        await suspension.resume();
+        mouse?.start();
+        editing.current = false;
+      }
+      if (failure !== undefined) report(failure);
+      else if (edited !== undefined) setPrefill({ text: edited });
+    })().catch(report);
+  };
+
   const submit = (text: string) => {
     store.sent.push(text);
+    if (text.startsWith("!")) return runCommand(text.slice(1).trim());
+    if (text.startsWith("#")) return openMemory(text.slice(1).trim());
     const [command = "", ...rest] = text.trim().split(/\s+/);
     const argument = rest.join(" ");
     switch (command) {
@@ -186,12 +340,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       case "/resume":
         return argument ? resumeSession(argument) : openResume();
       case "/model":
-        if (argument) return void session.setModel(argument).catch(report);
+        if (argument) return pickModel(argument);
         return setOverlay({ kind: "model" });
       case "/effort":
         if (!argument) return setOverlay({ kind: "effort" });
         if (!isEffort(argument)) return store.emit({ kind: "notice", tone: "error", text: `Effort is one of ${EFFORTS.join(", ")}.` });
-        return void session.setEffort(argument).catch(report);
+        return pickEffort(argument);
       case "/output":
         return setOverlay({ kind: "output" });
       case "/plugins":
@@ -199,6 +353,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         return setOverlay({ kind: "plugins" });
       case "/fullscreen":
         return onToggleFullscreen();
+      case "/rewind":
+        return openRewind();
+      case "/tasks":
+        return setOverlay({ kind: "tasks" });
       case "/config": {
         // fullscreen= is astrocode's own key; Claude Code gets the rest.
         const ours = rest.filter((pair) => /^fullscreen=/i.test(pair));
@@ -216,7 +374,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         return;
       }
       default:
-        session.send(text);
+        send(text);
     }
   };
 
@@ -226,14 +384,32 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     const nextMode = MODES[(at + 1) % MODES.length] ?? "default";
     wanted.current = nextMode;
     setModeWanted(nextMode);
-    session.setMode(nextMode).catch((error: unknown) => {
-      wanted.current = null;
-      setModeWanted(null);
-      report(error);
-    });
+    session.setMode(nextMode).then(
+      () => keep({ mode: nextMode }),
+      (error: unknown) => {
+        wanted.current = null;
+        setModeWanted(null);
+        report(error);
+      },
+    );
+  };
+
+  /** Ctrl+B. A command becomes movable only once it has run for a moment, so it may need asking again. */
+  const background = () => {
+    const running = state.items.flatMap((item) => (item.kind === "tool" && item.call.status === "running" ? [item.call.id] : []));
+    if (!running.length) return;
+    session.background(running).then((moved) => {
+      if (!moved) notice("info", "Nothing Claude is waiting on can move to the background yet. Try Ctrl+B again in a moment.");
+    }, report);
+  };
+
+  const interrupt = () => {
+    stopShells();
+    if (state.busy) void session.interrupt().catch(report);
   };
 
   const onCtrlC = () => {
+    if (shellRunning) return stopShells();
     if (state.busy) return void session.interrupt().catch(report);
     if (exitArmed) return exit();
     setExitArmed(true);
@@ -250,6 +426,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     { name: "model", description: "Switch the model", argumentHint: "" },
     { name: "effort", description: "Set how hard Claude thinks", argumentHint: "[low|medium|high|xhigh|max]" },
     { name: "output", description: "Open a tool call's whole output (Ctrl+O)", argumentHint: "" },
+    { name: "rewind", description: "Go back to an earlier message, its files, or both (Esc Esc)", argumentHint: "" },
+    { name: "tasks", description: "What runs in the background, to stop (Ctrl+B moves work there)", argumentHint: "" },
     { name: "plugins", description: "Install, turn on or off, and remove plugins", argumentHint: "" },
     {
       name: "fullscreen",
@@ -278,7 +456,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
             onCancel={close}
             onPick={(item) => {
               close();
-              session.setModel(item.key).catch(report);
+              pickModel(item.key);
             }}
           />
         );
@@ -294,7 +472,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
             onCancel={close}
             onPick={(item) => {
               close();
-              if (isEffort(item.key)) session.setEffort(item.key).catch(report);
+              if (isEffort(item.key)) pickEffort(item.key);
             }}
           />
         );
@@ -336,6 +514,82 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
             }}
           />
         );
+      case "rewind":
+        return (
+          <Picker
+            title="Rewind to before"
+            width={width}
+            rows={listRows}
+            items={state.items
+              .flatMap((item) =>
+                item.kind === "prompt" && item.uuid
+                  ? [{ key: item.uuid, label: item.text.split("\n")[0] ?? "", detail: item.text.includes("\n") ? item.text : undefined }]
+                  : [],
+              )
+              .reverse()}
+            empty="There's no earlier message to go back to yet."
+            onCancel={close}
+            // A message longer than its first line has the whole of it as its detail.
+            onPick={(item) => pickRewind(item.key, item.detail ?? item.label)}
+          />
+        );
+      case "rewind-how": {
+        const { files, uuid, text } = overlay;
+        const changed = files?.canRewind ? (files.filesChanged?.length ?? 0) : 0;
+        const changes = changed ? `${plural(changed, "file")}  +${files?.insertions ?? 0} −${files?.deletions ?? 0}` : undefined;
+        const why = files && !files.canRewind && files.error ? `The files can't be put back: ${files.error}` : undefined;
+        const items = [
+          ...(changes ? [{ key: "both", label: "Restore code and conversation", note: changes }] : []),
+          { key: "conversation", label: "Restore conversation", note: changes ? "Files stay as they are" : "No files to put back", detail: why },
+          ...(changes ? [{ key: "code", label: "Restore code", note: changes, detail: "The conversation stays as it is" }] : []),
+          { key: "cancel", label: "Never mind" },
+        ];
+        return (
+          <Picker
+            title={`Rewind to before “${fit(text.split("\n")[0] ?? "", width - 30, false)}”`}
+            width={width}
+            rows={listRows}
+            items={files ? items : null}
+            onCancel={close}
+            onPick={(item) => {
+              close();
+              if (files && (item.key === "code" || item.key === "conversation" || item.key === "both")) rewind(uuid, text, item.key, files).catch(report);
+            }}
+          />
+        );
+      }
+      case "tasks":
+        return (
+          <Picker
+            title="Background tasks · enter stops one"
+            width={width}
+            rows={listRows}
+            items={state.tasks.map((task) => ({ key: task.id, label: task.description, note: TASK_KINDS[task.type] ?? task.type }))}
+            empty="Nothing runs in the background. Ctrl+B moves a command or subagent Claude is waiting on there."
+            onCancel={close}
+            onPick={(item) => {
+              close();
+              session.stopTask(item.key).catch(report);
+            }}
+          />
+        );
+      case "memory":
+        return (
+          <Picker
+            title="Add the note to"
+            width={width}
+            rows={listRows}
+            items={
+              overlay.files?.map((file) => ({ key: file.path, label: file.label, note: shortPath(file.path, state.cwd, state.home), detail: file.note })) ??
+              null
+            }
+            onCancel={close}
+            onPick={(item) => {
+              close();
+              saveMemory(item.key, overlay.note);
+            }}
+          />
+        );
       case "plugins":
         return (
           <PluginManager
@@ -358,6 +612,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     <>
       <Activity state={state} width={width} />
       <Box marginTop={1} flexDirection="column">
+        {showTodos && todos ? <PinnedTodos todos={todos} rows={Math.max(3, Math.min(8, rows - 20))} /> : null}
         {question ? (
           <QuestionPrompt key={question.id} request={question} width={width} onAnswer={(answers) => session.answer(question.id, answers)} />
         ) : request ? (
@@ -368,16 +623,24 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         <Prompt
           active={!question && !request && !overlay}
           busy={state.busy}
+          running={shellRunning}
           width={width}
           cwd={state.cwd}
           history={store.sent}
           commands={[...commands, ...state.commands.filter((command) => !commands.some((own) => own.name === command.name))]}
           onSubmit={submit}
-          onInterrupt={() => void session.interrupt().catch(report)}
+          onInterrupt={interrupt}
           onCycleMode={cycleMode}
           onCtrlC={onCtrlC}
           onExit={exit}
           onOpenOutput={() => setOverlay({ kind: "output" })}
+          prefill={prefill}
+          onAttach={(image) => store.attach(image)}
+          onNotice={notice}
+          onEdit={openEditor}
+          onBackground={background}
+          onToggleTodos={() => setTodoMode(showTodos ? "off" : "on")}
+          onRewind={openRewind}
         />
         <StatusBar
           state={state}
@@ -389,6 +652,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           onMode={cycleMode}
           onModel={() => setOverlay({ kind: "model" })}
           onEffort={() => setOverlay({ kind: "effort" })}
+          onTasks={() => setOverlay({ kind: "tasks" })}
         />
       </Box>
     </>
@@ -484,6 +748,9 @@ function toolCalls(items: Item[], { cwd, home, width }: { cwd: string; home: str
 
 /** How many leading items are finished, so they can go into scrollback for good. */
 function settledCount(items: Item[], waiting: Set<string>) {
-  const index = items.findIndex((item) => item.kind === "tool" && (item.call.status === "running" || waiting.has(item.call.id)));
+  const index = items.findIndex(
+    (item) =>
+      (item.kind === "tool" && (item.call.status === "running" || waiting.has(item.call.id))) || (item.kind === "shell" && item.status === "running"),
+  );
   return index === -1 ? items.length : index;
 }

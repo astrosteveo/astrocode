@@ -1,3 +1,4 @@
+import type { ImageAttachment } from "../src/events";
 import { initialState, reduce, type State, type ViewEvent } from "../src/view/state";
 
 /**
@@ -9,6 +10,9 @@ export class Store {
   epoch = 0;
   /** What you've sent, oldest first, for ↑ in the message box. Kept through /clear, like a shell's history. */
   readonly sent: string[] = [];
+  /** Images attached in the message box, by the number its `[Image #n]` shows. */
+  readonly images = new Map<number, ImageAttachment>();
+  private nextImage = 1;
   private state: State;
   private listeners = new Set<() => void>();
 
@@ -35,6 +39,13 @@ export class Store {
   /** Starts the scrollback over with the same conversation, as when coming back from full screen. */
   redraw() {
     this.epoch += 1;
+  }
+
+  /** Keeps an image for the message being written, and gives its number. */
+  attach(image: ImageAttachment) {
+    const n = this.nextImage++;
+    this.images.set(n, image);
+    return n;
   }
 
   subscribe = (listener: () => void) => {

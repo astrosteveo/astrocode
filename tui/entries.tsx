@@ -4,12 +4,15 @@
 import { Box, Text } from "ink";
 import { compact, duration } from "../src/view/format";
 import type { Item, Live } from "../src/view/state";
-import { cellWidth, wrapText } from "./markdown";
+import { cellWidth, wrapSpans, type Span } from "./markdown";
 import { Markdown } from "./markdown-view";
 import { FullOutput, OutputBody } from "./output";
 import { GUTTER, LIVE, Railed, type Rail } from "./rail";
 import { PALETTE } from "./theme";
-import { DraftRow, toolNode, ToolRow } from "./tool-row";
+import { DraftRow, ShellOutput, toolNode, ToolRow } from "./tool-row";
+
+/** Lines of a `!` command's output the transcript keeps. */
+const SHELL_LINES = 12;
 
 export type ViewProps = { cwd: string; home: string; width: number };
 
@@ -29,11 +32,35 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
     case "prompt":
       return (
         <Railed node="●" color={PALETTE.gold} rail={rail}>
-          {wrapText(item.text, inner.width, true).map((row, i) => (
+          {promptRows(item.text, inner.width).map((row, i) => (
             <Text key={i} bold color={PALETTE.star}>
-              {row.map((run) => run.text).join("")}
+              {row.map((run, n) =>
+                run.style === "code" ? (
+                  <Text key={n} color={PALETTE.tealLight} backgroundColor={PALETTE.raised}>
+                    {run.text}
+                  </Text>
+                ) : run.style === "link" ? (
+                  <Text key={n} color={PALETTE.sky} backgroundColor={PALETTE.raised}>
+                    {run.text}
+                  </Text>
+                ) : (
+                  run.text
+                ),
+              )}
             </Text>
           ))}
+        </Railed>
+      );
+    case "shell":
+      return (
+        <Railed node="!" color={item.status === "error" ? PALETTE.rose : PALETTE.gold} rail={rail}>
+          <Text>
+            <Text bold color={PALETTE.star}>
+              {item.command}
+            </Text>
+            {item.status === "running" ? <Text color={PALETTE.haze}>{"  running"}</Text> : null}
+          </Text>
+          {item.status === "running" ? null : <ShellOutput stdout={item.stdout} stderr={item.stderr} width={inner.width} limit={SHELL_LINES} />}
         </Railed>
       );
     case "text":
@@ -80,6 +107,25 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
         </Railed>
       );
   }
+}
+
+/**
+ * Your message as you typed it, but for `code` in backticks, drawn as Claude's inline code is, and
+ * attached images, as `link` runs. Only code: an asterisk or underscore you typed is more often a
+ * glob or a name than emphasis.
+ */
+function promptRows(text: string, width: number): Span[][] {
+  return text.split("\n").flatMap((line) => {
+    const runs: Span[] = [];
+    let at = 0;
+    for (const match of line.matchAll(/(`+)(.+?)\1|\[Image #\d+\]/g)) {
+      if (match.index > at) runs.push({ text: line.slice(at, match.index), style: "plain" });
+      runs.push(match[2] === undefined ? { text: match[0], style: "link" } : { text: match[2].trim(), style: "code" });
+      at = match.index + match[0].length;
+    }
+    if (at < line.length || runs.length === 0) runs.push({ text: line.slice(at), style: "plain" });
+    return wrapSpans(runs, width);
+  });
 }
 
 /** `╰── 42s   1.2k tokens`: how long the turn took and what Claude wrote, closing the rail. */

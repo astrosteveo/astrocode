@@ -1,4 +1,4 @@
-import { getSessionInfo, getSessionMessages, listSessions, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { getSessionInfo, getSessionMessages, listSessions, type SDKMessage, type SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { SessionEvent } from "./events";
 
 export type SavedSession = { id: string; title: string; firstPrompt?: string; modified: number; branch?: string };
@@ -26,18 +26,52 @@ export async function sessionTitle(sessionId: string, cwd: string) {
  * through the same reducer as live ones.
  */
 export async function loadHistory(sessionId: string, cwd: string): Promise<SessionEvent[]> {
-  const messages = await getSessionMessages(sessionId, { dir: cwd });
+  return historyEvents(await getSessionMessages(sessionId, { dir: cwd }));
+}
+
+/** Saved messages as the events that would have drawn them. */
+export function historyEvents(messages: SessionMessage[]): SessionEvent[] {
   const events: SessionEvent[] = [];
   for (const saved of messages) {
     const base = { message: saved.message, parent_tool_use_id: saved.parent_tool_use_id, uuid: saved.uuid, session_id: saved.session_id };
     if (saved.type === "assistant") {
       events.push({ kind: "sdk", message: { type: "assistant", ...base } as SDKMessage });
     } else if (saved.type === "user") {
-      const typed = saved.parent_tool_use_id ? null : promptText(field(saved.message, "content"));
-      events.push(typed !== null ? { kind: "prompt", text: typed } : { kind: "sdk", message: { type: "user", ...base } as SDKMessage });
+      const content = field(saved.message, "content");
+      const shell = saved.parent_tool_use_id ? null : shellPart(content);
+      if (shell?.command !== undefined) {
+        events.push({ kind: "shell", id: saved.uuid, command: shell.command });
+        continue;
+      }
+      if (shell?.stdout !== undefined) {
+        // The output belongs to the command saved just before it.
+        const started = events.findLast((event) => event.kind === "shell");
+        if (started?.kind === "shell") events.push({ kind: "shell-done", id: started.id, stdout: shell.stdout, stderr: shell.stderr ?? "", code: shell.stderr ? 1 : 0 });
+        continue;
+      }
+      const typed = saved.parent_tool_use_id ? null : promptText(content);
+      events.push(typed !== null ? { kind: "prompt", text: typed, uuid: saved.uuid } : { kind: "sdk", message: { type: "user", ...base } as SDKMessage });
     }
   }
   return events;
+}
+
+/**
+ * A command run with `!` is saved as two messages, as Claude Code saves its own: the command in
+ * `<bash-input>`, then what it printed in `<bash-stdout>` and `<bash-stderr>`.
+ */
+function shellPart(content: unknown) {
+  if (typeof content !== "string") return null;
+  const tag = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(content)?.[1];
+  const command = tag("bash-input");
+  if (command !== undefined) return { command };
+  const stdout = tag("bash-stdout");
+  return stdout !== undefined ? { stdout, stderr: tag("bash-stderr") } : null;
+}
+
+/** How a command run with `!` goes into the conversation, the same way Claude Code's does. */
+export function shellMessages(command: string, stdout: string, stderr: string) {
+  return [`<bash-input>${command}</bash-input>`, `<bash-stdout>${stdout}</bash-stdout><bash-stderr>${stderr}</bash-stderr>`];
 }
 
 /** What you typed: a string, or text blocks with no tool results. */
