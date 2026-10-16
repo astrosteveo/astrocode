@@ -14,16 +14,19 @@ Options:
   -m, --model <model>  Model to use, such as opus or haiku (or set ASTROCODE_MODEL)
   -e, --effort <level> Effort: low, medium, high, xhigh or max (or set ASTROCODE_EFFORT)
   -f, --fullscreen     Use the whole terminal, with the mouse (or set ASTROCODE_FULLSCREEN=1)
+      --no-fullscreen  Use the terminal's own scrollback (or set ASTROCODE_FULLSCREEN=0)
   -h, --help           Show this help
 
-The model, effort and permission mode you last picked in astrocode carry over, from
-~/.config/astrocode/settings.json. --model and --effort apply to this run only. Without a
-pick, the model and effort are Claude Code's, and the mode is auto where it's available.`;
+The model, effort, permission mode and full screen you last picked in astrocode carry
+over, from ~/.config/astrocode/settings.json. --model, --effort and --fullscreen apply to
+this run only. Without a pick, the model and effort are Claude Code's, the mode is auto
+where it's available, and the layout is the terminal's own scrollback.`;
 
 const { values, positionals } = (() => {
   try {
     return parseArgs({
       allowPositionals: true,
+      allowNegative: true,
       options: {
         continue: { type: "boolean", short: "c" },
         resume: { type: "string", short: "r" },
@@ -57,5 +60,12 @@ await startTerminal({
   effort,
   resume: values.resume,
   continue: values.continue,
-  fullscreen: values.fullscreen ?? /^(1|true|yes|on)$/i.test(process.env.ASTROCODE_FULLSCREEN ?? ""),
+  fullscreen: values.fullscreen ?? fullscreenEnv(process.env.ASTROCODE_FULLSCREEN),
 });
+
+/** ASTROCODE_FULLSCREEN on or off; anything else leaves it to what was last picked. */
+function fullscreenEnv(value = "") {
+  if (/^(1|true|yes|on)$/i.test(value)) return true;
+  if (/^(0|false|no|off)$/i.test(value)) return false;
+  return undefined;
+}

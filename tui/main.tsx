@@ -3,7 +3,7 @@ import { render } from "ink";
 import { homedir } from "node:os";
 import { loadHistory, savedSessions, sessionTitle } from "../src/history";
 import { AgentSession } from "../src/session";
-import { loadSettings } from "../src/settings";
+import { loadSettings, saved as settingsSaved } from "../src/settings";
 import { App } from "./app";
 import { gitInfo } from "./git";
 import { Mouse, MouseContext } from "./mouse";
@@ -27,7 +27,7 @@ export async function startTerminal(options: TerminalOptions) {
   }
 
   const store = new Store(options.cwd, homedir());
-  // The model, effort and mode you last picked, unless this run's options say otherwise.
+  // The model, effort, mode and layout you last picked, unless this run's options say otherwise.
   const saved = await loadSettings();
   // Claude Code's own stderr would scribble over the screen; failures still arrive as notices.
   const session = new AgentSession({
@@ -61,7 +61,7 @@ export async function startTerminal(options: TerminalOptions) {
 
   // /fullscreen switches by starting the interface again in the other layout. The store and the
   // session carry on, so the conversation does too.
-  let fullscreen = Boolean(options.fullscreen);
+  let fullscreen = options.fullscreen ?? saved.fullscreen ?? false;
   for (;;) {
     let switching = false;
     // Ink asks the terminal about the kitty keyboard protocol as it starts, before its input hooks
@@ -104,6 +104,7 @@ export async function startTerminal(options: TerminalOptions) {
   }
 
   session.close();
+  await settingsSaved();
   if (session.id) console.log(`\nResume this conversation with: astrocode --resume ${session.id}`);
   process.exit(0);
 }

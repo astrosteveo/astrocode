@@ -76,7 +76,7 @@ const HELP = [
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
   "/fullscreen, or /config fullscreen=true|false, switches to full screen and back.",
-  "The model, effort and mode you pick are kept for next time, except plan mode and max effort.",
+  "The model, effort, mode and full screen you pick are kept for next time, except plan mode and max effort.",
 ].join("\n");
 
 const FULLSCREEN_HELP = [
@@ -157,13 +157,18 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   const todosLeft = todos?.some((todo) => todo.status !== "completed") ?? false;
   const showTodos = Boolean(todos?.length) && (todoMode === "on" || (todoMode === "auto" && todosLeft));
 
-  /** The model, effort and mode you pick carry over to your next session. */
+  /** The model, effort, mode and layout you pick carry over to your next session. */
   const keep = (choice: Remembered) =>
     void remember(choice).catch((error: unknown) =>
       report(`Couldn't remember that for next time: ${error instanceof Error ? error.message : String(error)}`),
     );
   const pickModel = (model: string) => void session.setModel(model).then(() => keep({ model }), report);
   const pickEffort = (effort: EffortLevel) => void session.setEffort(effort).then(() => keep({ effort }), report);
+  /** Full screen or scrollback, kept for next time even when it's the layout already showing. */
+  const pickLayout = (next: boolean) => {
+    keep({ fullscreen: next });
+    if (next !== fullscreen) onToggleFullscreen();
+  };
 
   /** A new screen for a new or resumed session, scrollback included, as `claude` does. Full screen has no scrollback to clear. */
   const startOver = () => {
@@ -352,7 +357,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       case "/plugin":
         return setOverlay({ kind: "plugins" });
       case "/fullscreen":
-        return onToggleFullscreen();
+        return pickLayout(!fullscreen);
       case "/rewind":
         return openRewind();
       case "/tasks":
@@ -370,8 +375,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         if (value !== "true" && value !== "false") {
           return store.emit({ kind: "notice", tone: "error", text: "fullscreen is true or false." });
         }
-        if ((value === "true") !== fullscreen) onToggleFullscreen();
-        return;
+        return pickLayout(value === "true");
       }
       default:
         send(text);
