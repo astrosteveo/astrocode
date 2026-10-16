@@ -1,8 +1,8 @@
-// Copied from nebula-ui (~/Projects/nebula/plugins/nebula-ui/hooks/markdown.ts). One change:
-// a link keeps its URL as a following `url` span, since a terminal can't hide it behind the text.
+// Began as a copy of nebula-ui's Markdown parser, and is astrocode's own now. A link keeps its URL
+// as a following `url` span, since a terminal can't hide it behind the text.
 
 /**
- * Splits a reply's markdown into the blocks nebula-ui draws itself (fences,
+ * Splits a reply's markdown into the blocks astrocode draws itself (fences,
  * headings, tables, quotes and callouts, rules) and runs of prose, which stay
  * with the engine's own Markdown renderer so lists, links and paragraphs keep
  * working. Also the text helpers the drawing shares: how many terminal cells a
@@ -212,7 +212,11 @@ export const lastCells = (text: string, room: number) => {
   return parts.slice(0, headCount(parts, room)).reverse().join('')
 }
 
-/** A line's inline markdown as styled runs: code, bold, italic, strike, link text. Not nested. */
+/**
+ * A line's inline markdown as styled runs: code, bold, italic, strike, link text. Inside bold,
+ * italic, strike and link text, code stays code and a link stays a link; emphasis inside emphasis
+ * takes the outer style, so its markers never show.
+ */
 export const spans = (text: string): Span[] => {
   const out: Span[] = []
   let at = 0
@@ -221,19 +225,23 @@ export const spans = (text: string): Span[] => {
       out.push({ text: text.slice(at, match.index), style: 'plain' })
     }
     const [, , code, bold, boldU, strike, italic, italicU, link, url] = match
-    const run: Span =
-      code !== undefined
-        ? { text: code.trim(), style: 'code' }
-        : bold !== undefined || boldU !== undefined
-          ? { text: (bold ?? boldU)!, style: 'bold' }
+    if (code !== undefined) {
+      out.push({ text: code.trim(), style: 'code' })
+    } else {
+      const [inner, style]: [string, Span['style']] =
+        bold !== undefined || boldU !== undefined
+          ? [(bold ?? boldU)!, 'bold']
           : strike !== undefined
-            ? { text: strike, style: 'strike' }
+            ? [strike, 'strike']
             : italic !== undefined || italicU !== undefined
-              ? { text: (italic ?? italicU)!, style: 'italic' }
-              : { text: link!, style: 'link' }
-    out.push(run)
-    if (run.style === 'link' && url !== undefined && url !== link) {
-      out.push({ text: ` (${url})`, style: 'url' })
+              ? [(italic ?? italicU)!, 'italic']
+              : [link!, 'link']
+      for (const run of spans(inner)) {
+        out.push(run.style === 'code' || run.style === 'link' || run.style === 'url' ? run : { text: run.text, style })
+      }
+      if (style === 'link' && url !== undefined && url !== link) {
+        out.push({ text: ` (${url})`, style: 'url' })
+      }
     }
     at = match.index + match[0].length
   }
