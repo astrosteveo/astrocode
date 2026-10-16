@@ -2,11 +2,12 @@
 // right, readings: the model, what runs in the background, how full the context is, your plan's
 // usage windows, the git branch and the plan, as many as fit, most important first. In full
 // screen, clicking the chip changes the mode, clicking the model switches it, clicking the effort
-// sets it, and clicking the background count lists what's running.
+// sets it, clicking "thinking off" turns it back on, and clicking the background count lists what's
+// running.
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { Box, Text, type DOMElement } from "ink";
 import { useRef, type ReactNode } from "react";
-import { modelLabel, resetTime } from "../src/view/format";
+import { canStopThinking, modelLabel, resetTime } from "../src/view/format";
 import type { State, UsageWindow } from "../src/view/state";
 import type { GitInfo } from "./git";
 import { cellWidth } from "./markdown";
@@ -40,10 +41,11 @@ type Props = {
   onMode?: () => void;
   onModel?: () => void;
   onEffort?: () => void;
+  onThinking?: () => void;
   onTasks?: () => void;
 };
 
-export function StatusBar({ state, mode, git, width, exitArmed, toast, onMode, onModel, onEffort, onTasks }: Props) {
+export function StatusBar({ state, mode, git, width, exitArmed, toast, onMode, onModel, onEffort, onThinking, onTasks }: Props) {
   const bar = useRef<DOMElement>(null);
   const chip = MODE_CHIPS[mode];
   // The chip's caps are half blocks, so it reads as a solid lozenge.
@@ -58,6 +60,8 @@ export function StatusBar({ state, mode, git, width, exitArmed, toast, onMode, o
     const text = `${state.effort} effort`;
     segments.push({ text, node: <Text color={PALETTE.haze}>{text}</Text>, onClick: onEffort });
   }
+  // Thinking is on unless turned off, so only off is worth a word, and only on a model that can stop.
+  if (state.thinking === false && canStopThinking(state)) segments.push({ text: "thinking off", node: <Text color={PALETTE.ember}>thinking off</Text>, onClick: onThinking });
   if (state.tasks.length) {
     const text = `◌ ${state.tasks.length} in background`;
     segments.push({ text, node: <Text color={PALETTE.teal}>{text}</Text>, onClick: onTasks });

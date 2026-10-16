@@ -6,6 +6,7 @@ import type { EffortLevel, PermissionMode } from "@anthropic-ai/claude-agent-sdk
 import { Box, Text, useInput, type DOMElement } from "ink";
 import { useRef, useState } from "react";
 import { MODES, type ModelChoice } from "../src/events";
+import type { TodoMode } from "../src/settings";
 import { isCurrentModel, modelLabel } from "../src/view/format";
 import { ChoiceRow } from "./choice";
 import { Dial, EFFORT_NOTES, effortOn, effortsOf } from "./effort";
@@ -15,7 +16,13 @@ import { hit, useMouse } from "./mouse";
 import { MODE_CHIPS } from "./status";
 import { PALETTE } from "./theme";
 
-export type ConfigValues = { model?: string; effort?: EffortLevel; mode: PermissionMode; fullscreen: boolean };
+export type ConfigValues = { model?: string; effort?: EffortLevel; thinking: boolean; mode: PermissionMode; todos: TodoMode; fullscreen: boolean };
+
+const TODOS: { mode: TodoMode; label: string; note: string }[] = [
+  { mode: "auto", label: "while some are left", note: "Pinned above the message box until every to-do is done" },
+  { mode: "on", label: "always", note: "Pinned above the message box, done or not" },
+  { mode: "off", label: "hidden", note: "Ctrl+T still shows it, for this session" },
+];
 
 const MODE_NOTES: Partial<Record<PermissionMode, string>> = {
   default: "Asks before edits and commands",
@@ -52,6 +59,7 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
   // With no level set yet, the model's own default comes before the lowest level.
   const track = [...(initial.effort === undefined ? [undefined] : []), ...levels];
   const modeAt = MODES.findIndex((mode) => mode === values.mode);
+  const todosAt = TODOS.findIndex((one) => one.mode === values.todos);
   const update = (change: Partial<ConfigValues>) => setValues((now) => ({ ...now, ...change }));
   const clamp = (at: number, length: number) => Math.max(0, Math.min(length - 1, at));
 
@@ -71,12 +79,28 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
       pips: effort ? { at: levels.indexOf(effort), of: levels.length } : undefined,
       step: levels.length ? (by) => update({ effort: track[clamp(track.indexOf(effort) + by, track.length)] }) : undefined,
     },
+    model?.thinkingOff === false
+      ? { label: "Thinking", value: "always on", changed: false, note: "This model always thinks, and effort sets how much" }
+      : {
+          label: "Thinking",
+          value: values.thinking ? "on" : "off",
+          changed: values.thinking !== initial.thinking,
+          note: values.thinking ? "Claude thinks first when it helps" : "Claude answers straight away, without thinking first",
+          step: () => update({ thinking: !values.thinking }),
+        },
     {
       label: "Mode",
       value: MODE_CHIPS[values.mode].label,
       changed: values.mode !== initial.mode,
       note: MODE_NOTES[values.mode] ?? "",
       step: (by) => update({ mode: MODES[clamp(modeAt + by, MODES.length)] }),
+    },
+    {
+      label: "To-do list",
+      value: TODOS[todosAt]?.label ?? "",
+      changed: values.todos !== initial.todos,
+      note: TODOS[todosAt]?.note ?? "",
+      step: (by) => update({ todos: TODOS[clamp(todosAt + by, TODOS.length)]?.mode }),
     },
     {
       label: "Full screen",
@@ -91,7 +115,9 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
     const changes: Partial<ConfigValues> = {};
     if (model && !isCurrentModel(initial.model, model)) changes.model = model.value;
     if (effort !== undefined && effort !== initial.effort) changes.effort = effort;
+    if (values.thinking !== initial.thinking) changes.thinking = values.thinking;
     if (values.mode !== initial.mode) changes.mode = values.mode;
+    if (values.todos !== initial.todos) changes.todos = values.todos;
     if (values.fullscreen !== initial.fullscreen) changes.fullscreen = values.fullscreen;
     onClose(changes);
   };

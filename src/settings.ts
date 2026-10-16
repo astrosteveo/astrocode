@@ -1,5 +1,5 @@
-// What astrocode remembers between sessions: the model, effort and permission mode you last picked,
-// and whether it runs full screen.
+// What astrocode remembers between sessions: the model, effort, thinking and permission mode you
+// last picked, whether it runs full screen, and when the to-do list shows.
 // They live in astrocode's own file, not Claude Code's settings, so `claude` keeps its own.
 import type { EffortLevel, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -7,7 +7,10 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { isEffort, MODES } from "./events";
 
-export type Remembered = { model?: string; effort?: EffortLevel; mode?: PermissionMode; fullscreen?: boolean };
+/** When the pinned to-do list shows: while some are left, always, or never. */
+export type TodoMode = "auto" | "on" | "off";
+
+export type Remembered = { model?: string; effort?: EffortLevel; thinking?: boolean; mode?: PermissionMode; fullscreen?: boolean; todos?: TodoMode };
 
 /** `$XDG_CONFIG_HOME/astrocode/settings.json`, which is `~/.config/astrocode/settings.json` unless set. */
 export function settingsPath() {
@@ -16,12 +19,14 @@ export function settingsPath() {
 
 /** What was remembered, leaving out anything missing or not understood. */
 export async function loadSettings(): Promise<Remembered> {
-  const { model, effort, mode, fullscreen } = await readSaved();
+  const { model, effort, thinking, mode, fullscreen, todos } = await readSaved();
   return lasting({
     model: typeof model === "string" && model ? model : undefined,
     effort: typeof effort === "string" && isEffort(effort) ? effort : undefined,
+    thinking: typeof thinking === "boolean" ? thinking : undefined,
     mode: MODES.find((one) => one === mode),
     fullscreen: typeof fullscreen === "boolean" ? fullscreen : undefined,
+    todos: todos === "auto" || todos === "on" || todos === "off" ? todos : undefined,
   });
 }
 
@@ -51,8 +56,8 @@ export function saved() {
 }
 
 /** Plan mode and max effort are for one session only, as in Claude Code, so they aren't remembered. */
-function lasting({ model, effort, mode, fullscreen }: Remembered): Remembered {
-  return { model, effort: effort === "max" ? undefined : effort, mode: mode === "plan" ? undefined : mode, fullscreen };
+function lasting({ model, effort, thinking, mode, fullscreen, todos }: Remembered): Remembered {
+  return { model, effort: effort === "max" ? undefined : effort, thinking, mode: mode === "plan" ? undefined : mode, fullscreen, todos };
 }
 
 async function readSaved(): Promise<Record<string, unknown>> {

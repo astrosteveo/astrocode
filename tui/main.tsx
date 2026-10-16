@@ -4,8 +4,10 @@ import { homedir } from "node:os";
 import { loadHistory, savedSessions, sessionTitle } from "../src/history";
 import { AgentSession } from "../src/session";
 import { loadSettings, saved as settingsSaved } from "../src/settings";
+import { loadStash, stashSaved } from "../src/stash";
 import { App } from "./app";
 import { gitInfo } from "./git";
+import { loadKeymap } from "./keys";
 import { Mouse, MouseContext } from "./mouse";
 import { Store } from "./store";
 
@@ -29,11 +31,18 @@ export async function startTerminal(options: TerminalOptions) {
   const store = new Store(options.cwd, homedir());
   // The model, effort, mode and layout you last picked, unless this run's options say otherwise.
   const saved = await loadSettings();
+  const stash = await loadStash(options.cwd);
+  if (stash) store.unstash(stash);
+  if (saved.todos) store.todos = saved.todos;
+  // Claude Code's keybindings.json, so keys you've changed in `claude` change here too.
+  const { keymap, problems } = await loadKeymap();
+  store.keymap = keymap;
   // Claude Code's own stderr would scribble over the screen; failures still arrive as notices.
   const session = new AgentSession({
     cwd: options.cwd,
     model: options.model ?? saved.model,
     effort: options.effort ?? saved.effort,
+    thinking: saved.thinking,
     mode: saved.mode,
     resume,
     emit: store.emit,
@@ -50,6 +59,7 @@ export async function startTerminal(options: TerminalOptions) {
   const git = await gitInfo(options.cwd);
 
   if (note) store.emit({ kind: "notice", tone: "info", text: note });
+  for (const problem of problems) store.emit({ kind: "notice", ...problem });
   if (resume) {
     const id = resume;
     Promise.all([loadHistory(id, options.cwd), sessionTitle(id, options.cwd)])
@@ -104,7 +114,7 @@ export async function startTerminal(options: TerminalOptions) {
   }
 
   session.close();
-  await settingsSaved();
+  await Promise.all([settingsSaved(), stashSaved()]);
   if (session.id) console.log(`\nResume this conversation with: astrocode --resume ${session.id}`);
   process.exit(0);
 }

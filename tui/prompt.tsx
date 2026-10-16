@@ -3,9 +3,9 @@
 // keys that arrive faster than React re-renders still see the latest text. In full screen, clicking
 // puts the cursor where you click, and clicking in a menu chooses.
 //
-// The keys are Claude Code's and the shell's: Ctrl+R searches what you've sent, Ctrl+_ undoes,
-// Ctrl+K, Ctrl+U, Ctrl+W and Alt+D cut and Ctrl+Y puts back, Alt+B and Alt+F move by words, and
-// Ctrl+X starts a two-key chord. Ctrl+S puts the message aside until Ctrl+S brings it back.
+// The keys are Claude Code's, from the keymap (`keys.ts`), and the shell's: Ctrl+K, Ctrl+U, Ctrl+W
+// and Alt+D cut and Ctrl+Y puts back, Alt+B and Alt+F move by words. Ctrl+S puts the message aside
+// until Ctrl+S brings it back.
 import { Box, Text, useInput, usePaste, type DOMElement } from "ink";
 import { useEffect, useReducer, useRef, type ReactNode, type RefObject } from "react";
 import wrapAnsi from "wrap-ansi";
@@ -16,6 +16,7 @@ import { baseName, fileMatches, projectFiles } from "./files";
 import { cellWidth, takeCells } from "./markdown";
 import { fit, Panel } from "./markdown-view";
 import { clipboardImage, imageLabel, pastedImageFile } from "./images";
+import { chordHint, keyFor, startsChord, strokeOf, type Action, type Keymap } from "./keys";
 import { hit, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
 
@@ -30,7 +31,8 @@ type Props = {
   cwd: string;
   history: string[];
   commands: CommandInfo[];
-  onSubmit: (text: string) => void;
+  /** `now`: Ctrl+Enter or Ctrl+X Ctrl+S, which stops what Claude is doing to send it straight away. */
+  onSubmit: (text: string, now?: boolean) => void;
   onInterrupt: () => void;
   onCycleMode: () => void;
   /** Ctrl+C on an empty box: the app stops Claude or gets ready to exit. */
@@ -50,6 +52,14 @@ type Props = {
   onToggleTodos: () => void;
   /** Esc twice on an empty box, while Claude isn't working. */
   onRewind: () => void;
+  /** Ctrl+Z: astrocode stops until the shell's `fg`. */
+  onSuspend: () => void;
+  /** What keys do: Claude Code's defaults with `~/.claude/keybindings.json` over them. */
+  keymap: Keymap;
+  /** chat:increaseEffort and chat:decreaseEffort, which have no key unless keybindings.json gives them one. */
+  onStepEffort: (by: -1 | 1) => void;
+  /** Alt+T: thinking on or off. */
+  onToggleThinking: () => void;
   /** Alt+P: the model and effort picker. */
   onModelPicker: () => void;
   /** Ctrl+X Ctrl+K: everything in the background stopped. */
@@ -65,14 +75,12 @@ const DOUBLE_ESC_MS = 600;
 /** Rows a menu shows at once. */
 const MENU_ROWS = 6;
 
-/** How long Ctrl+X waits for the chord's second key. */
-const CHORD_MS = 1500;
+/** How long a chord waits for its next key, as in Claude Code. */
+const CHORD_MS = 3000;
 
 /** Steps Ctrl+_ can undo. */
 const UNDO_STEPS = 200;
 
-/** The second keys of Ctrl+X chords, as Claude Code binds them. */
-const CHORDS = "ctrl+x, then ctrl+e editor · ctrl+b background · ctrl+k stop background";
 
 /**
  * What a menu offers: a slash command, a word its first argument can be, or a file or folder
@@ -106,8 +114,8 @@ export function Prompt(props: Props) {
   const killed = useRef("");
   /** Ctrl+R: what's typed to find, how many older matches to skip, and the box as it was. */
   const search = useRef<{ query: string; skip: number; before: { text: string; cursor: number } } | null>(null);
-  /** When Ctrl+X was pressed, while it waits for a second key. */
-  const chord = useRef(0);
+  /** The keys of a chord pressed so far, and when, while it waits for the next. */
+  const chord = useRef<{ keys: string; at: number } | null>(null);
   /** The stash as last set here, ahead of the re-render that brings the prop. */
   const stashed = useRef(props.stash);
   stashed.current = props.stash;
@@ -150,7 +158,8 @@ export function Prompt(props: Props) {
     const { text } = buffer.current;
     const kept = stashed.current;
     if (!text.trim() && kept === null) {
-      return props.onNotice("info", "Nothing to stash. Ctrl+S puts what you've written aside, and Ctrl+S again brings it back.");
+      const key = keyFor(props.keymap, "chat:stash") ?? "Stashing";
+      return props.onNotice("info", `Nothing to stash. ${key} puts what you've written aside, and ${key} again brings it back.`);
     }
     const next = text.trim() ? text : null;
     stashed.current = next;
@@ -212,10 +221,10 @@ export function Prompt(props: Props) {
     return true;
   };
 
-  const submit = (text: string) => {
+  const submit = (text: string, now = false) => {
     recall.current = null;
     set("", 0, "fresh");
-    props.onSubmit(text);
+    props.onSubmit(text, now);
   };
 
   const mentioning = mention !== null;
@@ -300,6 +309,70 @@ export function Prompt(props: Props) {
     { isActive: active },
   );
 
+  /** Waits for the rest of a chord after `keys`, with a hint of what can follow. */
+  const arm = (keys: string) => {
+    const at = Date.now();
+    chord.current = { keys, at };
+    setTimeout(() => {
+      if (chord.current?.at !== at) return;
+      chord.current = null;
+      redraw();
+    }, CHORD_MS);
+    redraw();
+  };
+
+  /** What a key bound in the keymap does. */
+  const perform = (action: Action) => {
+    const { text, cursor } = buffer.current;
+    switch (action) {
+      case "app:interrupt":
+        return text ? set("", 0) : props.onCtrlC();
+      case "app:exit":
+        return text ? undefined : props.onExit();
+      case "app:toggleTodos":
+        return props.onToggleTodos();
+      case "app:toggleTranscript":
+        return props.onOpenOutput();
+      case "history:search":
+        search.current = { query: "", skip: 0, before: buffer.current };
+        return redraw();
+      case "chat:killAgents":
+        return props.onStopTasks();
+      case "chat:cycleMode":
+        return props.onCycleMode();
+      case "chat:modelPicker":
+        return props.onModelPicker();
+      case "chat:increaseEffort":
+        return props.onStepEffort(1);
+      case "chat:decreaseEffort":
+        return props.onStepEffort(-1);
+      case "chat:thinkingToggle":
+        return props.onToggleThinking();
+      case "chat:submit":
+        // A backslash before the cursor makes it a new line instead.
+        if (text.slice(0, cursor).endsWith("\\")) return set(`${text.slice(0, cursor - 1)}\n${text.slice(cursor)}`, cursor);
+        return text.trim() ? submit(text) : undefined;
+      case "chat:sendNow":
+        return text.trim() ? submit(text, true) : undefined;
+      case "chat:newline":
+        return insert("\n");
+      case "chat:undo": {
+        const last = undo.current.pop();
+        return last ? set(last.text, last.cursor, "undo") : undefined;
+      }
+      case "chat:externalEditor":
+        return props.onEdit(text);
+      case "chat:stash":
+        return toggleStash();
+      case "chat:imagePaste":
+        return pasteImage();
+      case "chat:clearInput":
+        return set("", 0);
+      case "task:background":
+        return props.onBackground();
+    }
+  };
+
   useInput(
     (input, key) => {
       if (key.eventType === "release") return;
@@ -307,7 +380,7 @@ export function Prompt(props: Props) {
 
       if (search.current) {
         const open = search.current;
-        if (key.ctrl && input === "r") {
+        if (props.keymap.get(strokeOf(input, key) ?? "") === "history:search") {
           if (open.skip + 1 < found(open.query).length) open.skip += 1;
           return redraw();
         }
@@ -327,17 +400,19 @@ export function Prompt(props: Props) {
         return redraw();
       }
 
+      const pressed = strokeOf(input, key);
+      // The second key of a chord: it finishes the chord, goes on to a longer one, or is swallowed.
       if (chord.current) {
-        const armed = Date.now() - chord.current < CHORD_MS;
-        chord.current = 0;
+        const { keys, at } = chord.current;
+        chord.current = null;
         redraw();
-        if (armed && key.ctrl) {
-          if (input === "e") return props.onEdit(text);
-          if (input === "b") return props.onBackground();
-          if (input === "k") return props.onStopTasks();
-          if (input === "x") return;
+        if (Date.now() - at < CHORD_MS) {
+          const chordKeys = pressed ? `${keys} ${pressed}` : "";
+          const action = props.keymap.get(chordKeys);
+          if (action) return perform(action);
+          if (chordKeys && startsChord(props.keymap, chordKeys)) return arm(chordKeys);
+          return;
         }
-        if (armed) return;
       }
 
       if (matches.length > 0) {
@@ -357,45 +432,13 @@ export function Prompt(props: Props) {
         if (chosen && (key.tab || key.return) && !bare) return choose(chosen, key.tab);
       }
 
-      if (key.ctrl && input === "c") {
-        if (text) set("", 0);
-        else props.onCtrlC();
-        return;
+      if (pressed) {
+        const action = props.keymap.get(pressed);
+        if (action) return perform(action);
+        if (startsChord(props.keymap, pressed)) return arm(pressed);
       }
-      if (key.ctrl && input === "d") {
-        if (!text) props.onExit();
-        return;
-      }
-      if (key.ctrl && input === "o") return props.onOpenOutput();
-      if (key.ctrl && input === "v") return pasteImage();
-      if (key.ctrl && input === "g") return props.onEdit(text);
-      if (key.ctrl && input === "b") return props.onBackground();
-      if (key.ctrl && input === "t") return props.onToggleTodos();
-      if (key.ctrl && input === "s") return toggleStash();
-      if (key.meta && input === "p") return props.onModelPicker();
-      if (key.ctrl && input === "r") {
-        search.current = { query: "", skip: 0, before: buffer.current };
-        return redraw();
-      }
-      if (key.ctrl && input === "x") {
-        const at = Date.now();
-        chord.current = at;
-        setTimeout(() => {
-          if (chord.current !== at) return;
-          chord.current = 0;
-          redraw();
-        }, CHORD_MS);
-        return redraw();
-      }
-      if (key.ctrl && (input === "_" || input === "-")) {
-        const last = undo.current.pop();
-        if (last) set(last.text, last.cursor, "undo");
-        return;
-      }
-      if (key.ctrl && input === "l") return set("", 0);
+      if (key.ctrl && input === "z") return props.onSuspend();
       if (key.ctrl && input === "y") return killed.current ? insert(killed.current) : undefined;
-      // Ctrl+J is a new line: a line feed without the kitty protocol, Ctrl and j with it.
-      if ((key.ctrl && input === "j") || input === "\n") return insert("\n");
       if (key.escape) {
         if (busy || props.running) return props.onInterrupt();
         if (text) return;
@@ -407,15 +450,10 @@ export function Prompt(props: Props) {
         lastEscape.current = now;
         return;
       }
-      if (key.tab) {
-        if (key.shift) props.onCycleMode();
-        return;
-      }
+      if (key.tab) return;
       if (key.return) {
-        // Shift+Enter (with the kitty keyboard protocol), Alt+Enter, or a backslash before Enter: a new line.
-        if (key.shift || key.meta) return insert("\n");
-        if (text.slice(0, cursor).endsWith("\\")) return set(`${text.slice(0, cursor - 1)}\n${text.slice(cursor)}`, cursor);
-        if (text.trim()) submit(text);
+        // Shift+Enter (with the kitty keyboard protocol) or Alt+Enter: a new line, as in `claude`.
+        if (key.shift || key.meta) insert("\n");
         return;
       }
       if (key.backspace && key.meta) return cut(wordStart(text, cursor), cursor);
@@ -504,7 +542,8 @@ export function Prompt(props: Props) {
       character
     );
   const preview = props.stash === null ? "" : fit(props.stash.replace(/\s+/g, " ").trim(), 24, false);
-  const note = chord.current ? CHORDS : preview ? `stashed “${preview}”  ctrl+s` : undefined;
+  const stashKey = keyFor(props.keymap, "chat:stash");
+  const note = chord.current ? chordHint(props.keymap, chord.current.keys) : preview ? `stashed “${preview}”${stashKey ? `  ${stashKey}` : ""}` : undefined;
 
   if (search.current) {
     const { query, skip } = search.current;

@@ -69,6 +69,8 @@ export type State = {
   home: string;
   model?: string;
   effort?: EffortLevel;
+  /** False once thinking is turned off; unknown means Claude Code's default, which thinks. */
+  thinking?: boolean;
   plan?: string;
   models: ModelChoice[];
   commands: CommandInfo[];
@@ -158,6 +160,8 @@ export function reduce(state: State, event: ViewEvent): State {
       return { ...state, model: event.model };
     case "effort":
       return { ...state, effort: event.effort };
+    case "thinking":
+      return { ...state, thinking: event.on };
     case "context":
       return { ...state, context: { percentage: event.percentage, tokens: event.tokens, max: event.max } };
     case "notice":

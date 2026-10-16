@@ -46,7 +46,8 @@ export function isEffort(value: string): value is EffortLevel {
   return (EFFORTS as readonly string[]).includes(value);
 }
 
-export type ModelChoice = { value: string; name: string; description: string; efforts?: EffortLevel[] };
+/** `thinkingOff`: thinking can be turned off. Current models always think, and effort sets how much. */
+export type ModelChoice = { value: string; name: string; description: string; efforts?: EffortLevel[]; thinkingOff?: boolean };
 
 /** An image going with a message, as an image block takes it. */
 export type ImageAttachment = { mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string };
@@ -70,5 +71,7 @@ export type SessionEvent =
   | { kind: "mode"; mode: PermissionMode }
   | { kind: "model"; model: string }
   | { kind: "effort"; effort: EffortLevel }
+  /** Thinking turned on or off. Only reported once astrocode has set it. */
+  | { kind: "thinking"; on: boolean }
   | { kind: "context"; percentage: number; tokens: number; max: number }
   | { kind: "notice"; tone: "info" | "error"; text: string };

@@ -9,9 +9,10 @@ import { EFFORTS, isEffort, MODES, type CommandInfo, type ImageAttachment } from
 import { historyEvents, loadHistory, savedSessions, shellMessages, type SavedSession } from "../src/history";
 import { addMemory, memoryFiles, type MemoryFile } from "../src/memory";
 import type { AgentSession } from "../src/session";
-import { remember, settingsPath, type Remembered } from "../src/settings";
+import { remember, settingsPath, type Remembered, type TodoMode } from "../src/settings";
 import { runShell } from "../src/shell";
-import { ago, currentModel } from "../src/view/format";
+import { saveStash } from "../src/stash";
+import { ago, canStopThinking, currentModel } from "../src/view/format";
 import type { Item } from "../src/view/state";
 import { todoList } from "../src/view/todos";
 import { plural, shortPath, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
@@ -20,7 +21,7 @@ import { Banner } from "./banner";
 import { copy } from "./clipboard";
 import { ConfigMenu, type ConfigValues } from "./config";
 import { DecisionPrompt } from "./decision";
-import { EFFORT_NOTES } from "./effort";
+import { EFFORT_NOTES, effortsOf } from "./effort";
 import { editText } from "./editor";
 import { ItemView, LiveView } from "./entries";
 import { gitInfo, type GitInfo } from "./git";
@@ -66,16 +67,17 @@ const TOAST_MS = 2000;
 const HELP = [
   "Enter sends. Shift+Enter, Alt+Enter, Ctrl+J, or \\ then Enter starts a new line. Type / for commands.",
   "Esc stops Claude. Esc twice on an empty box rewinds to an earlier message (/rewind).",
-  "Shift+Tab changes the permission mode. Alt+P switches the model and its effort. ↑ and ↓ recall earlier messages; Ctrl+R searches them.",
+  "Shift+Tab changes the permission mode. Alt+P switches the model and its effort, Alt+T turns thinking off and on. ↑ and ↓ recall earlier messages; Ctrl+R searches them.",
   "Ctrl+S puts the message aside, and it stays there until Ctrl+S brings it back. Pressed with a message in the box, the two trade places.",
   "Ctrl+_ undoes. Ctrl+K, Ctrl+U, Ctrl+W and Alt+D cut, Ctrl+Y puts back what they cut. Alt+B and Alt+F move by words. Ctrl+L clears the box.",
   "! runs a command in your shell and shows it to Claude. # adds a note to a CLAUDE.md.",
   "Ctrl+V attaches the clipboard's image; a pasted or dropped image file attaches too. Ctrl+G or Ctrl+X Ctrl+E edits the message in $EDITOR.",
   "Ctrl+B moves a command or subagent Claude is waiting on to the background (/tasks); Ctrl+X Ctrl+K stops everything there. Ctrl+T shows or hides the to-dos.",
+  "Ctrl+Enter or Ctrl+X Ctrl+S sends now, stopping what Claude is doing. Ctrl+Z suspends astrocode until the shell's fg.",
   "Ctrl+O opens a tool call's whole output. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
-  "/config changes the model, effort, mode and full screen, and keeps them for next time, except plan mode and max effort. /fullscreen switches layouts.",
+  "/config changes the model, effort, thinking, mode, to-do list and full screen, and keeps them for next time, except plan mode and max effort. /fullscreen switches layouts.",
 ].join("\n");
 
 const FULLSCREEN_HELP = [
@@ -112,8 +114,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   const [toast, setToast] = useState<string | null>(null);
   /** Text for the message box, such as a rewound message or one edited in $EDITOR. */
   const [prefill, setPrefill] = useState<{ text: string } | null>(null);
-  /** The pinned to-dos: shown while some are left (auto), or as Ctrl+T last set. */
-  const [todoMode, setTodoMode] = useState<"auto" | "on" | "off">("auto");
+  /** The pinned to-dos: shown while some are left (auto), or as Ctrl+T or /config last set. */
+  const [todoMode, setTodoState] = useState(store.todos);
+  const setTodoMode = (mode: TodoMode) => {
+    store.todos = mode;
+    setTodoState(mode);
+  };
   /** The message put aside with Ctrl+S, kept in the store so it outlives a switch of layouts. */
   const [stash, setStash] = useState(store.stash);
   /** Commands run with `!` that haven't finished, to stop with Esc. */
@@ -180,10 +186,15 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         report(error);
       }
     };
-    const { model, effort, mode, fullscreen: layout } = changes;
+    const { model, effort, thinking, mode, todos, fullscreen: layout } = changes;
     if (model) await attempt(() => session.setModel(model), () => (kept.model = model));
     if (effort) await attempt(() => session.setEffort(effort), () => (kept.effort = effort));
+    if (thinking !== undefined) await attempt(() => session.setThinking(thinking), () => (kept.thinking = thinking));
     if (mode) await attempt(() => session.setMode(mode), () => (kept.mode = mode));
+    if (todos) {
+      setTodoMode(todos);
+      kept.todos = todos;
+    }
     if (layout !== undefined) kept.fullscreen = layout;
     if (!Object.keys(kept).length) return;
     try {
@@ -194,6 +205,32 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       report(`Couldn't save the settings: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (layout !== undefined && layout !== fullscreen) onToggleFullscreen();
+  };
+
+  /** chat:increaseEffort and chat:decreaseEffort: the next level up or down that the model takes. */
+  const stepEffort = (by: -1 | 1) => {
+    const levels = effortsOf(currentModel(state));
+    if (!levels.length) return notice("info", "This model doesn't take an effort level.");
+    // With no level set, Claude Code's default is taken as high, the usual default.
+    const at = state.effort ? levels.indexOf(state.effort) : levels.indexOf("high");
+    const next = levels[Math.max(0, Math.min(levels.length - 1, (at === -1 ? Math.floor(levels.length / 2) : at) + by))];
+    if (!next || next === state.effort) return;
+    session.setEffort(next).then(() => {
+      setToast(`${next} effort`);
+      keep({ effort: next });
+    }, report);
+  };
+
+  /** Alt+T. Remembered like the model and effort, and shown in the status bar while it's off. */
+  const toggleThinking = () => {
+    if (!canStopThinking(state)) {
+      return notice("info", `${currentModel(state)?.name ?? "This model"} always thinks, and effort sets how much (Alt+P). Older models can turn thinking off.`);
+    }
+    const on = state.thinking === false;
+    session.setThinking(on).then(() => {
+      setToast(on ? "Thinking on" : "Thinking off");
+      keep({ thinking: on });
+    }, report);
   };
 
   const stopAllTasks = () => {
@@ -364,7 +401,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     })().catch(report);
   };
 
-  const submit = (text: string) => {
+  const submit = (text: string, now = false) => {
     store.sent.push(text);
     if (text.startsWith("!")) return runCommand(text.slice(1).trim());
     if (text.startsWith("#")) return openMemory(text.slice(1).trim());
@@ -404,7 +441,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         return setOverlay({ kind: "tasks" });
       case "/config": {
         if (!rest.length) {
-          return setOverlay({ kind: "config", initial: { model: state.model, effort: state.effort, mode: wanted.current ?? state.mode, fullscreen } });
+          return setOverlay({
+            kind: "config",
+            initial: { model: state.model, effort: state.effort, thinking: state.thinking ?? true, mode: wanted.current ?? state.mode, todos: todoMode, fullscreen },
+          });
         }
         // fullscreen= is astrocode's own key; Claude Code gets the rest.
         const ours = rest.filter((pair) => /^fullscreen=/i.test(pair));
@@ -418,8 +458,59 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         return pickLayout(value === "true");
       }
       default:
+        // Sent now, Claude stops what it's doing and takes this instead of finishing first.
+        // It waits for the stopped turn to close, so the turn's last words don't land after it.
+        if (now && state.busy) return void session.interrupt().then(idle).then(() => send(text), report);
         send(text);
     }
+  };
+
+  /** Resolves once Claude isn't working, or after a few seconds if Claude Code never says so. */
+  const idle = () =>
+    new Promise<void>((resolve) => {
+      if (!store.getSnapshot().busy) return resolve();
+      const done = () => {
+        off();
+        clearTimeout(timer);
+        resolve();
+      };
+      const off = store.subscribe(() => {
+        if (!store.getSnapshot().busy) done();
+      });
+      const timer = setTimeout(done, 5000);
+    });
+
+  /** Ctrl+Z, as in a shell: astrocode stops, and the shell's `fg` brings it back. */
+  const suspend = () => {
+    if (editing.current) return;
+    editing.current = true;
+    void (async () => {
+      mouse?.stop();
+      const suspension = await suspendTerminal();
+      const started = Date.now();
+      let resumed = false;
+      try {
+        await new Promise<void>((resolve) => {
+          const done = () => {
+            resumed = true;
+            resolve();
+          };
+          process.once("SIGCONT", done);
+          // A shell without job control can't bring astrocode back, so the kernel drops the
+          // signal; then nothing stops and astrocode carries on after a moment.
+          setTimeout(() => {
+            process.off("SIGCONT", done);
+            resolve();
+          }, 500);
+          process.kill(process.pid, "SIGTSTP");
+        });
+      } finally {
+        await suspension.resume();
+        mouse?.start();
+        editing.current = false;
+      }
+      if (!resumed && Date.now() - started < 1000) notice("info", "Ctrl+Z needs a shell with job control to come back to, and this terminal has none.");
+    })().catch(report);
   };
 
   const cycleMode = () => {
@@ -473,7 +564,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     { name: "rewind", description: "Go back to an earlier message, its files, or both (Esc Esc)", argumentHint: "" },
     { name: "tasks", description: "What runs in the background, to stop (Ctrl+B moves work there)", argumentHint: "" },
     { name: "plugins", description: "Install, turn on or off, and remove plugins", argumentHint: "" },
-    { name: "config", description: "astrocode's settings: model, effort, mode and full screen", argumentHint: "" },
+    { name: "config", description: "astrocode's settings: model, effort, thinking, mode, to-dos and full screen", argumentHint: "" },
     {
       name: "fullscreen",
       description: fullscreen ? "Go back to the terminal's own scrollback" : "Use the whole terminal, with the mouse",
@@ -698,12 +789,25 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           onBackground={background}
           onToggleTodos={() => setTodoMode(showTodos ? "off" : "on")}
           onRewind={openRewind}
+          onSuspend={suspend}
+          onToggleThinking={toggleThinking}
+          keymap={store.keymap}
+          onStepEffort={stepEffort}
           onModelPicker={() => setOverlay({ kind: "model" })}
           onStopTasks={stopAllTasks}
           stash={stash}
           onStash={(text) => {
             store.stash = text;
             setStash(text);
+            const images = Object.fromEntries(
+              mentionedImages(text ?? "").flatMap((n) => {
+                const image = store.images.get(n);
+                return image ? [[n, image] as const] : [];
+              }),
+            );
+            saveStash(state.cwd, text ? { text, images } : null).catch((error: unknown) =>
+              report(`Couldn't keep the stash for next time: ${error instanceof Error ? error.message : String(error)}`),
+            );
           }}
         />
         <StatusBar
@@ -716,6 +820,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           onMode={cycleMode}
           onModel={() => setOverlay({ kind: "model" })}
           onEffort={() => setOverlay({ kind: "effort" })}
+          onThinking={toggleThinking}
           onTasks={() => setOverlay({ kind: "tasks" })}
         />
       </Box>

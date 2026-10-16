@@ -17,6 +17,11 @@ export function currentModel(state: { model?: string; models: ModelChoice[] }) {
   return state.models.find((model) => isCurrentModel(state.model, model));
 }
 
+/** Whether thinking can be turned off on the model running. Unknown models are given the benefit of the doubt. */
+export function canStopThinking(state: { model?: string; models: ModelChoice[] }) {
+  return currentModel(state)?.thinkingOff ?? true;
+}
+
 export function duration(ms: number) {
   const seconds = Math.max(1, Math.round(ms / 1000));
   if (seconds < 60) return `${seconds}s`;

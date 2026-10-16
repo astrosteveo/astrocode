@@ -35,7 +35,9 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | Esc | Stop Claude. Twice on an empty box: rewind to an earlier message |
 | Shift+Tab | Change the permission mode: ask first, accept edits, plan, auto, bypass permissions |
 | Alt+P | Switch the model (↑↓) and its effort (←→) in one picker |
-| Ctrl+S | Put the message aside. It stays stashed, whatever you send meanwhile, until Ctrl+S brings it back; with a message in the box, the two trade places |
+| Alt+T | Turn thinking off or on, on models that can stop thinking. Current models always think, and effort sets how much |
+| Ctrl+S | Put the message aside. It stays stashed, whatever you send meanwhile and even after you quit, until Ctrl+S brings it back; with a message in the box, the two trade places |
+| Ctrl+Enter, or Ctrl+X Ctrl+S | Send now: stop what Claude is doing and send this instead of queueing it. Ctrl+Enter needs a terminal with the kitty keyboard protocol |
 | ↑ ↓ | Earlier messages, or move between lines |
 | Ctrl+R | Search what you've sent: type to find, Ctrl+R for older matches, Enter keeps it, Esc cancels |
 | Ctrl+_ | Undo, a word at a time |
@@ -48,7 +50,10 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | Ctrl+X Ctrl+K | Stop everything in the background |
 | Ctrl+T | Show or hide the to-do list |
 | Ctrl+O | Pick a tool call and print its whole output |
+| Ctrl+Z | Suspend astrocode; `fg` in your shell brings it back |
 | Ctrl+C | Clear the box, stop Claude, or exit when pressed twice |
+
+Keys you change in Claude Code's `~/.claude/keybindings.json` change in astrocode too, in its `Global` and `Chat` contexts: rebind, unbind with `null`, or add chords such as `ctrl+k ctrl+s`. astrocode has these of Claude Code's actions: `app:interrupt`, `app:exit`, `app:toggleTodos`, `app:toggleTranscript`, `history:search`, `chat:submit`, `chat:sendNow`, `chat:newline`, `chat:undo`, `chat:stash`, `chat:modelPicker`, `chat:increaseEffort`, `chat:decreaseEffort`, `chat:thinkingToggle`, `chat:cycleMode`, `chat:externalEditor`, `chat:imagePaste`, `chat:clearInput`, `chat:killAgents` and `task:background`. The file is read as astrocode starts, and it says which actions it doesn't have. Esc, the arrows and the editing keys (Ctrl+A, Ctrl+K, Alt+B and the like) aren't actions, in Claude Code either, but a binding can take their key.
 
 ## Commands
 
@@ -60,7 +65,7 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | `/clear` | Start a new session on a clean screen |
 | `/output` | Same as Ctrl+O |
 | `/plugins` | Manage plugins: turn them on or off, install, update and uninstall them, and add or remove marketplaces |
-| `/config` | astrocode's settings: model, effort, permission mode and full screen. ↑↓ chooses, ←→ changes, Esc puts the changes into effect and saves them, Ctrl+C throws them away |
+| `/config` | astrocode's settings: model, effort, thinking, permission mode, when the to-do list shows, and full screen. ↑↓ chooses, ←→ changes, Esc puts the changes into effect and saves them, Ctrl+C throws them away |
 | `/fullscreen` | Switch to full screen, or back to the terminal's scrollback |
 | `/help`, `/exit` | Keys and commands, quit |
 
@@ -115,7 +120,7 @@ Full screen uses the terminal's alternate screen, so the conversation isn't in y
 
 ## Settings
 
-`/config`, and the model, effort, mode and layout you pick anywhere else, are kept for next time in `~/.config/astrocode/settings.json` (under `$XDG_CONFIG_HOME` if it's set), not in Claude Code's settings, so `claude` keeps its own. Plan mode and max effort are for one session only, as in Claude Code.
+`/config`, and the model, effort, thinking, mode and layout you pick anywhere else, are kept for next time in `~/.config/astrocode/settings.json` (under `$XDG_CONFIG_HOME` if it's set), not in Claude Code's settings, so `claude` keeps its own. Plan mode and max effort are for one session only, as in Claude Code. A stashed message is kept per project in `~/.local/state/astrocode/stash/` (under `$XDG_STATE_HOME` if it's set), with its images.
 
 | Variable | Default | What it does |
 | :-- | :-- | :-- |
@@ -140,7 +145,7 @@ Keep it for your own use. Anthropic's [terms for Claude Code](https://code.claud
 - `src/history.ts` lists saved sessions and loads a saved conversation.
 - `src/plugins.ts` lists and changes plugins and marketplaces through `claude plugin`, with the Claude Code binary the SDK ships.
 - `src/view/` holds the reducer that turns events into what's on screen (live and replayed alike), plus tool summaries, permission wording and formatting.
-- `tui/` is the Ink front end. `tui/theme.ts` holds the palette, `tui/rail.tsx` the rail, and `tui/markdown-view.tsx` the panels and Markdown drawing; `tui/markdown.ts`, the Markdown parser, is copied from nebula-ui. `tui/plugins.tsx` is `/plugins`, and `tui/files.ts` finds files for `@`. `tui/screen.tsx` is full screen: `tui/transcript.tsx` draws the conversation as lines, `tui/mouse.ts` reads the mouse, and `tui/selection.ts` and `tui/clipboard.ts` copy.
+- `tui/` is the Ink front end. `tui/theme.ts` holds the palette, `tui/rail.tsx` the rail, and `tui/markdown-view.tsx` the panels and Markdown drawing; `tui/markdown.ts` is the Markdown parser. `tui/plugins.tsx` is `/plugins`, and `tui/files.ts` finds files for `@`. `tui/screen.tsx` is full screen: `tui/transcript.tsx` draws the conversation as lines, `tui/mouse.ts` reads the mouse, and `tui/selection.ts` and `tui/clipboard.ts` copy.
 
 ## Not built yet
 

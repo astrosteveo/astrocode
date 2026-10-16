@@ -33,6 +33,8 @@ export type SessionOptions = {
   model?: string;
   /** Leave unset to use Claude Code's default effort for the model. */
   effort?: EffortLevel;
+  /** False starts with thinking off. Leave unset for Claude Code's default, which thinks. */
+  thinking?: boolean;
   /** Leave unset to start in auto mode. */
   mode?: PermissionMode;
   /** A saved session to pick up instead of starting a new one. */
@@ -43,6 +45,9 @@ export type SessionOptions = {
   onStderr?: (data: string) => void;
   emit: (event: SessionEvent) => void;
 };
+
+/** Thinking turned back on in a Claude Code that started without it: Claude Code's own largest default budget. */
+const THINKING_BUDGET = 31_999;
 
 /** One running Claude Code process. A session starts a new run after a reset, a resume or a crash. */
 type Run = { query: Query; inbox: AsyncQueue<SDKUserMessage>; closing: boolean };
@@ -64,6 +69,9 @@ export class AgentSession {
   private mode: PermissionMode;
   private model: string | undefined;
   private effort: EffortLevel | undefined;
+  private thinking: boolean | undefined;
+  /** Whether the running Claude Code started with thinking off, which a null budget can't undo. */
+  private startedWithoutThinking = false;
   private resumeFrom: string | undefined;
   private continueLast: boolean;
   /** Where a rewound conversation picks up: the last message kept. Until something new is sent. */
@@ -72,6 +80,7 @@ export class AgentSession {
   constructor(private readonly options: SessionOptions) {
     this.model = options.model;
     this.effort = options.effort;
+    this.thinking = options.thinking;
     this.mode = options.mode ?? "auto";
     this.resumeFrom = options.resume;
     this.continueLast = options.continue ?? false;
@@ -94,6 +103,7 @@ export class AgentSession {
         cwd: this.options.cwd,
         model: this.model,
         effort: this.effort,
+        thinking: this.thinking === false ? { type: "disabled" } : undefined,
         resume: this.sessionId ?? this.resumeFrom,
         resumeSessionAt: this.resumeAt,
         continue: this.sessionId === undefined && this.resumeFrom === undefined && this.continueLast ? true : undefined,
@@ -112,6 +122,7 @@ export class AgentSession {
       },
     });
     run = { query: q, inbox, closing: false };
+    this.startedWithoutThinking = this.thinking === false;
     this.run = run;
     void this.pump(run);
     void this.announce(run);
@@ -239,6 +250,17 @@ export class AgentSession {
   }
 
   /**
+   * Turns thinking on or off for the rest of the session. A budget of 0 turns it off, and any other
+   * turns it back on (adaptive, on models that decide for themselves). Null goes back to how Claude
+   * Code started, which is on unless it started with thinking off.
+   */
+  async setThinking(on: boolean) {
+    await this.run?.query.setMaxThinkingTokens(on ? (this.startedWithoutThinking ? THINKING_BUDGET : null) : 0);
+    this.thinking = on;
+    this.options.emit({ kind: "thinking", on });
+  }
+
+  /**
    * Loads plugins again after they're installed, removed, or turned on or off, and passes on the
    * slash commands that come with them. Without a running Claude Code there's nothing to reload:
    * the next start loads them.
@@ -361,6 +383,8 @@ export class AgentSession {
           name: model.displayName,
           description: model.description,
           efforts: model.supportsEffort ? (model.supportedEffortLevels ?? undefined) : undefined,
+          // Not in the SDK's types. Claude Code ignores a request to stop thinking on a model without it.
+          thinkingOff: field(model, "supportsThinkingOff") === true,
         })),
         commands: init.commands.map(commandInfo),
       });
@@ -378,6 +402,7 @@ export class AgentSession {
       if (this.model) this.options.emit({ kind: "model", model: this.model });
       // Claude Code doesn't report its default effort, so only a level chosen here is shown.
       if (this.effort) this.options.emit({ kind: "effort", effort: this.effort });
+      if (this.thinking !== undefined) this.options.emit({ kind: "thinking", on: this.thinking });
       await this.reportContext(run);
     } catch {
       // A failed start is reported by pump().
