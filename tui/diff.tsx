@@ -269,7 +269,8 @@ function markChanges(old: Cell[], next: Cell[]) {
 function mark(cells: Cell[], words: string[], kept: boolean[]) {
   const space = (i: number) => /^\s+$/.test(words[i] ?? "");
   // A space between two changed words is part of the change, so a changed phrase is one run of tint.
-  const isChanged = (i: number) => !kept[i] && (!space(i) || (i > 0 && i < words.length - 1 && !kept[i - 1] && !kept[i + 1]));
+  // A space matched to one on the other line still counts, since spaces match anywhere.
+  const isChanged = (i: number) => (space(i) ? i > 0 && i < words.length - 1 && !kept[i - 1] && !kept[i + 1] : !kept[i]);
   const changed: boolean[] = [];
   words.forEach((word, i) => {
     for (let k = 0; k < word.length; k++) changed.push(isChanged(i));
@@ -299,6 +300,8 @@ function wrap(cells: Cell[], width: number): Cell[][] {
     if (used + cell.width > width && row.length > (rows.length > 1 ? indent : 0)) {
       const space = row.findLastIndex((one) => one.text === " ");
       const carried = space >= row.length / 2 ? row.splice(space + 1) : [];
+      // The space a row breaks at isn't part of a change on either row.
+      if (carried.length || row.at(-1)?.text === " ") row[row.length - 1] = { ...row.at(-1)!, changed: row.at(-1)!.text === " " ? false : row.at(-1)!.changed };
       rows.push([...pad(), ...carried]);
       used = rows.at(-1)!.reduce((sum, one) => sum + one.width, 0);
     }
