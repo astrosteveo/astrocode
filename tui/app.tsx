@@ -65,7 +65,7 @@ const TASK_KINDS: Record<string, string> = { local_bash: "command", local_agent:
 const TOAST_MS = 2000;
 
 const HELP = [
-  "Enter sends. Shift+Enter, Alt+Enter, Ctrl+J, or \\ then Enter starts a new line. Type / for commands.",
+  "Enter sends. Shift+Enter, Alt+Enter, Ctrl+J, or \\ then Enter starts a new line. Type / for commands; partway through a message, choosing one writes it in.",
   "Esc stops Claude. Esc twice on an empty box rewinds to an earlier message (/rewind).",
   "Shift+Tab changes the permission mode. Alt+P switches the model and its effort, Alt+T turns thinking off and on. ↑ and ↓ recall earlier messages; Ctrl+R searches them.",
   "Ctrl+S puts the message aside, and it stays there until Ctrl+S brings it back. Pressed with a message in the box, the two trade places.",
@@ -770,6 +770,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         )}
         <Prompt
           active={!question && !request && !overlay}
+          fullscreen={fullscreen}
           busy={state.busy}
           running={shellRunning}
           width={width}

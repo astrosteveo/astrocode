@@ -1,12 +1,13 @@
 // The message box: a small multi-line editor with a menu for slash commands and one for `@` file
-// mentions, on a panel whose top edge turns gold while it has your keys. The text lives in a ref so
+// mentions, on a panel whose top edge turns gold while it has your keys. The menu unfolds up out of
+// the box and folds back down into it, so the box itself never moves. The text lives in a ref so
 // keys that arrive faster than React re-renders still see the latest text. In full screen, clicking
 // puts the cursor where you click, and clicking in a menu chooses.
 //
 // The keys are Claude Code's, from the keymap (`keys.ts`), and the shell's: Ctrl+K, Ctrl+U, Ctrl+W
 // and Alt+D cut and Ctrl+Y puts back, Alt+B and Alt+F move by words. Ctrl+S puts the message aside
 // until Ctrl+S brings it back.
-import { Box, Text, useInput, usePaste, type DOMElement } from "ink";
+import { Box, Text, useAnimation, useInput, usePaste, type DOMElement } from "ink";
 import { useEffect, useReducer, useRef, type ReactNode, type RefObject } from "react";
 import wrapAnsi from "wrap-ansi";
 import type { CommandInfo, ImageAttachment } from "../src/events";
@@ -23,6 +24,8 @@ import { PALETTE } from "./theme";
 type Props = {
   /** Off while a prompt or picker above has the keyboard. */
   active: boolean;
+  /** Full screen, where the menu covers the transcript; in scrollback it makes room for itself. */
+  fullscreen: boolean;
   busy: boolean;
   /** A command run with `!` is still going: Esc stops it. */
   running: boolean;
@@ -75,6 +78,9 @@ const DOUBLE_ESC_MS = 600;
 /** Rows a menu shows at once. */
 const MENU_ROWS = 6;
 
+/** How long the menu takes to unfold out of the box or fold back into it. */
+const FOLD_MS = 120;
+
 /** How long a chord waits for its next key, as in Claude Code. */
 const CHORD_MS = 3000;
 
@@ -84,10 +90,11 @@ const UNDO_STEPS = 200;
 
 /**
  * What a menu offers: a slash command, a word its first argument can be, or a file or folder
- * (ending in `/`) for an `@` mention.
+ * (ending in `/`) for an `@` mention. An `inline` command is one typed partway through a message,
+ * which choosing writes in rather than runs.
  */
 type Suggestion =
-  | { kind: "command"; command: CommandInfo }
+  | { kind: "command"; command: CommandInfo; inline: boolean }
   | { kind: "argument"; command: CommandInfo; value: string }
   | { kind: "file"; path: string };
 
@@ -183,16 +190,30 @@ export function Prompt(props: Props) {
   };
 
   const searching = search.current !== null;
-  const mention = active && !searching && buffer.current.text !== menu.current.closedFor ? mentionAt(buffer.current.text, buffer.current.cursor) : null;
+  const open = active && !searching && buffer.current.text !== menu.current.closedFor;
+  const mention = open ? mentionAt(buffer.current.text, buffer.current.cursor) : null;
+  // In `!` and `#` mode a `/` starts a path, not a command.
+  const inline = open && !modeOf(buffer.current.text) ? commandAt(buffer.current.text, buffer.current.cursor) : null;
   const matches: Suggestion[] = searching ? [] : [
-    ...menuMatches(buffer.current.text, commands, menu.current.closedFor).map((command) => ({ kind: "command" as const, command })),
-    ...(active && buffer.current.text !== menu.current.closedFor
-      ? argumentMatches(buffer.current.text, commands).map((match) => ({ kind: "argument" as const, ...match }))
-      : []),
+    ...menuMatches(buffer.current.text, commands, menu.current.closedFor).map((command) => ({ kind: "command" as const, command, inline: false })),
+    ...(open ? argumentMatches(buffer.current.text, commands).map((match) => ({ kind: "argument" as const, ...match })) : []),
+    ...(inline ? inlineMatches(commands, inline.typed).map((command) => ({ kind: "command" as const, command, inline: true })) : []),
     ...(mention && files.current ? fileMatches(files.current, mention.typed).map((path) => ({ kind: "file" as const, path })) : []),
   ];
   const focus = Math.min(menu.current.index, Math.max(0, matches.length - 1));
   const menuStart = Math.min(Math.max(0, focus - MENU_ROWS + 1), Math.max(0, matches.length - MENU_ROWS));
+
+  // The menu as it last showed, which is what folds away once it closes.
+  const shownMenu = useRef<{ matches: Suggestion[]; focus: number; start: number } | null>(null);
+  const showing = active && matches.length > 0;
+  if (showing) shownMenu.current = { matches, focus, start: menuStart };
+  // Whatever takes the keys, such as the picker a command opens, takes the menu's place at once.
+  const unfolded = useFold(showing ? menuHeight(matches.length) : 0, !active);
+  // Scrollback can't draw over what's above the live part, so the menu gets rows of its own there,
+  // as many as it has needed. Ink redraws the live part from its top row, so giving rows back pulls
+  // the box up: they stay until the message is sent, or until something else takes the keys.
+  const room = useRef(0);
+  room.current = props.fullscreen || !active ? 0 : Math.max(room.current, unfolded, showing ? menuHeight(matches.length) : 0);
 
   /** Steps through earlier messages; past the newest one is what you were typing. */
   const recallHistory = (step: -1 | 1) => {
@@ -223,6 +244,7 @@ export function Prompt(props: Props) {
 
   const submit = (text: string, now = false) => {
     recall.current = null;
+    room.current = 0;
     set("", 0, "fresh");
     props.onSubmit(text, now);
   };
@@ -243,10 +265,20 @@ export function Prompt(props: Props) {
 
   /**
    * A suggestion from the menu. A command that takes arguments, or Tab, completes it to type them
-   * after; otherwise it runs. An argument does the same for the command it follows. A file replaces the `@` mention it was found for. A folder leaves the
-   * menu open on what's in it.
+   * after; otherwise it runs. An argument does the same for the command it follows. A command
+   * partway through a message replaces the `/word` it was found for. A file replaces the `@`
+   * mention it was found for. A folder leaves the menu open on what's in it.
    */
   const choose = (chosen: Suggestion, complete: boolean) => {
+    if (chosen.kind === "command" && chosen.inline) {
+      const { text, cursor } = buffer.current;
+      const at = commandAt(text, cursor);
+      if (!at) return;
+      const written = `/${chosen.command.name}`;
+      const after = text.slice(at.end);
+      const gap = after.startsWith(" ") ? "" : " ";
+      return set(text.slice(0, at.start) + written + gap + after, at.start + written.length + gap.length);
+    }
     if (chosen.kind === "command") {
       const completed = `/${chosen.command.name}`;
       if (complete || chosen.command.argumentHint) return set(`${completed} `, completed.length + 1);
@@ -571,35 +603,70 @@ export function Prompt(props: Props) {
     );
   }
 
+  const folding = shownMenu.current;
   return (
     <Box flexDirection="column">
-      <Panel width={width} accent={active ? PALETTE.gold : undefined} label={mode} note={note}>
-        <Box>
-          <Box flexShrink={0}>
-            <Text color={active ? PALETTE.gold : PALETTE.dust}>
-              {onMarker ? caret(marker) : marker}{" "}
-            </Text>
-          </Box>
-          <Box ref={area} flexGrow={1} flexShrink={1}>
-            {text === "" ? (
-              <Text>
-                {active && !onMarker ? caret(" ") : null}
-                {mode ? null : <Text color={PALETTE.haze}>{placeholder}</Text>}
+      {room.current > 0 ? <Box height={room.current} flexShrink={0} /> : null}
+      <Box flexDirection="column">
+        <Panel width={width} accent={active ? PALETTE.gold : undefined} label={mode} note={note} behind={unfolded > 0 ? PALETTE.surface : undefined}>
+          <Box>
+            <Box flexShrink={0}>
+              <Text color={active ? PALETTE.gold : PALETTE.dust}>
+                {onMarker ? caret(marker) : marker}{" "}
               </Text>
-            ) : (
-              <Text color={PALETTE.star}>
-                {text.slice(0, cursor)}
-                {active && !onMarker ? caret(under && under !== "\n" ? under : " ") : under === "\n" ? "" : under}
-                {under === "\n" ? "\n" : ""}
-                {text.slice(end)}
-              </Text>
-            )}
+            </Box>
+            <Box ref={area} flexGrow={1} flexShrink={1}>
+              {text === "" ? (
+                <Text>
+                  {active && !onMarker ? caret(" ") : null}
+                  {mode ? null : <Text color={PALETTE.haze}>{placeholder}</Text>}
+                </Text>
+              ) : (
+                <Text color={PALETTE.star}>
+                  {text.slice(0, cursor)}
+                  {active && !onMarker ? caret(under && under !== "\n" ? under : " ") : under === "\n" ? "" : under}
+                  {under === "\n" ? "\n" : ""}
+                  {text.slice(end)}
+                </Text>
+              )}
+            </Box>
           </Box>
-        </Box>
-      </Panel>
-      {active && matches.length > 0 ? <SuggestionMenu matches={matches} focus={focus} start={menuStart} width={width} rows={menuBox} /> : null}
+        </Panel>
+        {unfolded > 0 && folding ? (
+          // It runs into the box's top edge, and only its lowest `unfolded` rows show.
+          <Box position="absolute" bottom="100%" left={0} width={width} height={unfolded} overflow="hidden" flexDirection="column" justifyContent="flex-end">
+            <Box flexShrink={0} flexDirection="column">
+              <SuggestionMenu matches={folding.matches} focus={folding.focus} start={folding.start} width={width} rows={menuBox} />
+            </Box>
+          </Box>
+        ) : null}
+      </Box>
     </Box>
   );
+}
+
+/** Rows the menu takes for this many matches: its top edge, the rows that fit, and the line of keys. */
+function menuHeight(count: number) {
+  return Math.min(MENU_ROWS, count) + 2;
+}
+
+/**
+ * Rows of the menu showing, eased toward `target` over FOLD_MS whenever it changes, or at once
+ * with `snap`.
+ */
+function useFold(target: number, snap: boolean) {
+  const fold = useRef({ from: 0, to: 0, at: 0 });
+  const now = Date.now();
+  const at = ({ from, to, at }: typeof fold.current) => {
+    const t = Math.min(1, (now - at) / FOLD_MS);
+    return Math.round(from + (to - from) * (1 - (1 - t) ** 2));
+  };
+  if (snap) fold.current = { from: target, to: target, at: now };
+  else if (target !== fold.current.to) fold.current = { from: at(fold.current), to: target, at: now };
+  const shown = at(fold.current);
+  // Only for the redraws: each one works out where the fold has got to.
+  useAnimation({ interval: 16, isActive: shown !== target });
+  return shown;
 }
 
 /** A match from Ctrl+R, with the first place the search found in gold. */
@@ -623,10 +690,17 @@ type MenuProps = { matches: Suggestion[]; focus: number; start: number; width: n
 function SuggestionMenu({ matches, focus, start, width, rows }: MenuProps) {
   const names = Math.min(24, Math.max(...matches.map((match) => (match.kind === "command" ? cellWidth(match.command.name) + 1 : 0))));
   const inner = width - 2;
-  const kind = matches[0]?.kind;
+  const first = matches[0];
+  const kind = first?.kind;
   const files = kind === "file";
   const what = files ? "matches" : kind === "argument" ? "choices" : "commands";
-  const keys = files ? "tab or enter attaches   esc closes" : kind === "argument" ? "tab completes   enter runs   esc closes" : "tab completes   enter runs";
+  const keys = files
+    ? "tab or enter attaches   esc closes"
+    : first?.kind === "command" && first.inline
+      ? "tab or enter writes it in   esc closes"
+      : kind === "argument"
+        ? "tab completes   enter runs   esc closes"
+        : "tab completes   enter runs";
   const row = (match: Suggestion, isFocused: boolean): ReactNode => {
     const color = isFocused ? PALETTE.star : PALETTE.tealLight;
     if (match.kind === "file") {
@@ -659,7 +733,7 @@ function SuggestionMenu({ matches, focus, start, width, rows }: MenuProps) {
     );
   };
   return (
-    <Panel width={width} note={matches.length > MENU_ROWS ? `${matches.length} ${what}` : undefined}>
+    <Panel width={width} note={matches.length > MENU_ROWS ? `${matches.length} ${what}` : undefined} open>
       <Box ref={rows} flexDirection="column">
         {matches.slice(start, start + MENU_ROWS).map((match, i) => (
           <ChoiceRow key={match.kind === "file" ? match.path : match.kind === "argument" ? match.value : match.command.name} selected={start + i === focus} width={inner}>
@@ -680,6 +754,26 @@ function mentionAt(text: string, cursor: number) {
   const typed = /(?:^|\s)@([^\s"]*)$/.exec(text.slice(0, cursor))?.[1];
   if (typed === undefined) return null;
   return { start: cursor - typed.length - 1, end: cursor + (/^\S*/.exec(text.slice(cursor))?.[0].length ?? 0), typed };
+}
+
+/**
+ * The `/command` the cursor is in partway through a message, if any: from its `/` to the end of the
+ * word, and what's typed before the cursor. The `/` starts a word after the first, as an `@` does.
+ */
+function commandAt(text: string, cursor: number) {
+  const typed = /\s\/([^\s/"]*)$/.exec(text.slice(0, cursor))?.[1];
+  if (typed === undefined) return null;
+  return { start: cursor - typed.length - 1, end: cursor + (/^\S*/.exec(text.slice(cursor))?.[0].length ?? 0), typed };
+}
+
+/**
+ * Commands for a `/word` partway through a message: only names that start with it, so a path such
+ * as `/usr/lib` closes the menu by its third letter or so instead of offering what contains it.
+ */
+function inlineMatches(commands: CommandInfo[], typed: string) {
+  const wanted = typed.toLowerCase();
+  const found = commands.filter((command) => command.name.toLowerCase().startsWith(wanted));
+  return found.length === 1 && found[0]?.name.toLowerCase() === wanted ? [] : found;
 }
 
 /** Commands for a `/word` being typed: names that start with it first, then ones that contain it. */

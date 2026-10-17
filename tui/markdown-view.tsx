@@ -177,7 +177,9 @@ function Styled({ run, yours = false }: { run: Span; yours?: boolean }) {
 /**
  * A panel: a filled surface with soft edges, a half row of it above and below the content. A
  * label and a note sit in the top edge, on the left and the right. A panel that has your keys
- * gets a gold hairline (`accent`) for its top edge instead.
+ * gets a gold hairline (`accent`) for its top edge instead. One panel can run into another below
+ * it: the upper one is `open`, with no bottom edge, and the lower one's top edge is drawn on the
+ * upper one's surface (`behind`).
  */
 export function Panel({
   label = "",
@@ -186,6 +188,8 @@ export function Panel({
   accent,
   background = PALETTE.surface,
   paddingX = 1,
+  open = false,
+  behind,
   children,
 }: {
   label?: string;
@@ -194,6 +198,8 @@ export function Panel({
   accent?: string;
   background?: string;
   paddingX?: number;
+  open?: boolean;
+  behind?: string;
   children: ReactNode;
 }) {
   const room = Math.max(0, width - 2);
@@ -204,7 +210,7 @@ export function Panel({
   const line = accent ? "▁" : "▄";
   return (
     <Box flexDirection="column" width={width}>
-      <Text>
+      <Text backgroundColor={behind}>
         <Text color={edge}>{line}</Text>
         <Text color={PALETTE.haze}>{left}</Text>
         <Text color={edge}>{line.repeat(fill)}</Text>
@@ -214,7 +220,7 @@ export function Panel({
       <Box backgroundColor={background} paddingX={paddingX} width={width} flexDirection="column">
         {children}
       </Box>
-      <Text color={background}>{"▀".repeat(width)}</Text>
+      {open ? null : <Text color={background}>{"▀".repeat(width)}</Text>}
     </Box>
   );
 }
