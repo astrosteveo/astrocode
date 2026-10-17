@@ -85,6 +85,9 @@ function palette(page: string | undefined, text: string | undefined) {
 export const TINT = {
   added: mix(PALETTE.surface, PALETTE.teal, 0.16),
   removed: mix(PALETTE.surface, PALETTE.rose, 0.16),
+  /** The words of a changed line that changed. */
+  addedWords: mix(PALETTE.surface, PALETTE.teal, 0.34),
+  removedWords: mix(PALETTE.surface, PALETTE.rose, 0.34),
 };
 
 /** A share's color: calm, getting full, nearly out. */

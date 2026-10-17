@@ -68,7 +68,7 @@ function Output({ call, width }: { call: ToolCall; width: number }) {
   const language = path.includes(".") ? (path.split(".").pop() ?? "") : "";
   switch (call.name) {
     case "Edit":
-      return <Diff lines={editLines(call)} width={width} limit={MAX_LINES} />;
+      return <Diff lines={editLines(call)} width={width} limit={MAX_LINES} path={path} />;
     case "Write":
       return <Source label={path.split("/").pop() ?? "file"} source={String(call.input.content ?? "")} language={language} width={width} />;
     case "Read": {

@@ -115,7 +115,7 @@ function Details({ request, cwd, home, width, note }: Pick<Props, "request" | "c
       return (
         <>
           <Text color={PALETTE.star}>{shortPath(text("file_path"), cwd, home)}</Text>
-          <Diff lines={diffLines(text("old_string"), text("new_string"))} width={width} limit={PREVIEW_LINES * 2} framed={false} />
+          <Diff lines={diffLines(text("old_string"), text("new_string"))} width={width} limit={PREVIEW_LINES * 2} path={text("file_path")} framed={false} />
         </>
       );
     case "Write":

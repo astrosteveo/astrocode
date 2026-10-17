@@ -26,7 +26,7 @@ const PICTURE = /^\u{10EEEE}/u;
 const WORD = /[\p{L}\p{N}_\-./~:@#%+=?&$]/u;
 
 /** The backgrounds a panel's rows are drawn on, as red, green and blue. */
-const PANELS = [PALETTE.surface, TINT.added, TINT.removed].map((hex) => rgb(hex).join(";"));
+const PANELS = [PALETTE.surface, TINT.added, TINT.removed, TINT.addedWords, TINT.removedWords].map((hex) => rgb(hex).join(";"));
 
 /** Gold, your color, with the text dark on it. */
 const SELECTED = `\x1b[48;2;${rgb(PALETTE.gold).join(";")}m\x1b[38;2;${rgb(PALETTE.ink).join(";")}m`;

@@ -88,7 +88,7 @@ function Detail({ call, width }: { call: ToolCall; width: number }) {
   if (call.status !== "done") return null;
   switch (call.name) {
     case "Edit":
-      return <Diff lines={editLines(call)} width={width} limit={OUTPUT_LINES * 2} />;
+      return <Diff lines={editLines(call)} width={width} limit={OUTPUT_LINES * 2} path={String(call.input.file_path ?? "")} />;
     case "TodoWrite":
       return <Todos call={call} />;
     case "AskUserQuestion":
