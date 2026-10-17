@@ -76,6 +76,9 @@ export type Item =
       detail?: string;
       /** The end of a turn from a saved conversation, which doesn't record how long it took. */
       replayed?: boolean;
+      /** The files the turn's edits and writes changed, and the commands Claude ran, in order. */
+      files?: string[];
+      commands?: string[];
     }
   | { kind: "notice"; key: string; tone: "info" | "error"; text: string }
   | ShellItem
@@ -445,7 +448,7 @@ function applyResult(state: State, message: SDKResultMessage): State {
   // Claude Code answers a message that doesn't start a turn, such as a `!` command's, with a result of no turns.
   if (!state.busy && message.num_turns === 0) return state;
   const settled = { ...stopRunningTools(state), busy: false, live: null, turnTokens: 0 };
-  const turn = { kind: "turn" as const, durationMs: message.duration_ms, tokens: state.turnTokens };
+  const turn = { kind: "turn" as const, durationMs: message.duration_ms, tokens: state.turnTokens, ...turnWork(state.items) };
   // Stop, Esc and Deny all end the turn early. The SDK reports that as an error, but it isn't one.
   if (message.terminal_reason === "aborted_streaming" || message.terminal_reason === "aborted_tools") {
     return add(settled, { ...turn, outcome: "stopped" });
@@ -458,6 +461,21 @@ function applyResult(state: State, message: SDKResultMessage): State {
     outcome: "failed",
     detail: message.errors.filter((error) => !error.startsWith("[ede_diagnostic]")).join("\n") || undefined,
   });
+}
+
+/** What the turn now ending did: the files it changed and the commands it ran, since your last message. */
+function turnWork(items: Item[]) {
+  const start = items.findLastIndex((item) => item.kind === "prompt");
+  const files: string[] = [];
+  const commands: string[] = [];
+  for (const item of items.slice(start + 1)) {
+    if (item.kind !== "tool" || item.call.status !== "done") continue;
+    const { name, input } = item.call;
+    const path = typeof input.file_path === "string" ? input.file_path : typeof input.notebook_path === "string" ? input.notebook_path : "";
+    if ((name === "Edit" || name === "Write" || name === "NotebookEdit" || name === "MultiEdit") && path && !files.includes(path)) files.push(path);
+    if (name === "Bash" && typeof input.command === "string") commands.push(input.command);
+  }
+  return { files, commands };
 }
 
 /**

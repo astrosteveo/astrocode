@@ -7,9 +7,10 @@ import { alwaysLabel, permissionNote, permissionTitle } from "../src/view/permis
 import { plural, shortPath } from "../src/view/tools";
 import { ChoiceRow } from "./choice";
 import { printable } from "./markdown";
+import { Diff, diffLines } from "./diff";
 import { Panel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
-import { PALETTE, TINT } from "./theme";
+import { PALETTE } from "./theme";
 
 /** Keys pressed this soon after the prompt appears were meant for something else, so Enter, digits and clicks wait. */
 const GRACE_MS = 500;
@@ -114,20 +115,7 @@ function Details({ request, cwd, home, width, note }: Pick<Props, "request" | "c
       return (
         <>
           <Text color={PALETTE.star}>{shortPath(text("file_path"), cwd, home)}</Text>
-          {preview(text("old_string"))
-            .split("\n")
-            .map((line, i) => (
-              <Box key={`d${i}`} width={width} backgroundColor={TINT.removed}>
-                <Text color={PALETTE.rose}>{`- ${line}`}</Text>
-              </Box>
-            ))}
-          {preview(text("new_string"))
-            .split("\n")
-            .map((line, i) => (
-              <Box key={`a${i}`} width={width} backgroundColor={TINT.added}>
-                <Text color={PALETTE.teal}>{`+ ${line}`}</Text>
-              </Box>
-            ))}
+          <Diff lines={diffLines(text("old_string"), text("new_string"))} width={width} limit={PREVIEW_LINES * 2} framed={false} />
         </>
       );
     case "Write":

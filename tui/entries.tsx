@@ -6,9 +6,10 @@ import type { ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
 import { compact, duration } from "../src/view/format";
 import { runOfCall, runOfShell } from "../src/view/runs";
+import { plural, shortPath } from "../src/view/tools";
 import type { Item, Live } from "../src/view/state";
 import { cellWidth } from "./markdown";
-import { Markdown } from "./markdown-view";
+import { fit, Markdown } from "./markdown-view";
 import { FullOutput, OutputBody } from "./output";
 import { hyperlink } from "./links";
 import { ImageView, isReady, Pictures } from "./pictures";
@@ -29,16 +30,21 @@ type ItemProps = {
   waiting?: boolean;
   /** A tool call or a `!` command opened in full screen, with its whole output under its row. */
   expanded?: boolean;
-  /** A message of yours carries the mark the terminal jumps to, in scrollback. */
-  marked?: boolean;
+  /**
+   * Written into the terminal's own scrollback, where the mouse is the terminal's: a message of
+   * yours carries the mark the terminal jumps to, and the files tool calls act on are links.
+   */
+  scrollback?: boolean;
+  /** Claude's code blocks get a `copy` a click acts on, in full screen. */
+  copyable?: boolean;
 } & ViewProps;
 
-export function ItemView({ item, rail, detailed = false, waiting = false, expanded = false, marked = false, ...view }: ItemProps) {
+export function ItemView({ item, rail, detailed = false, waiting = false, expanded = false, scrollback = false, copyable = false, ...view }: ItemProps) {
   const inner = { ...view, width: view.width - GUTTER };
   switch (item.kind) {
     case "prompt":
       return (
-        <Railed node={marked ? hyperlink(PROMPT_LINK, "●") : "●"} color={PALETTE.gold} rail={rail}>
+        <Railed node={scrollback ? hyperlink(PROMPT_LINK, "●") : "●"} color={PALETTE.gold} rail={rail}>
           <Message text={item.text} images={item.images} width={inner.width} rows={view.pictureRows} />
         </Railed>
       );
@@ -51,7 +57,7 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
     case "text":
       return (
         <Railed node="◆" color={PALETTE.teal} rail={rail}>
-          <Markdown text={item.text} width={inner.width} />
+          <Markdown text={item.text} width={inner.width} copyable={copyable} />
         </Railed>
       );
     case "thinking":
@@ -72,7 +78,7 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
       }
       return (
         <Railed node={glyph} color={color} rail={rail}>
-          <ToolRow call={item.call} waiting={waiting} detailed={detailed && !expanded} {...inner} />
+          <ToolRow call={item.call} waiting={waiting} detailed={detailed && !expanded} fileLink={scrollback} {...inner} />
           {expanded ? <OutputBody call={item.call} width={inner.width} pictureRows={view.pictureRows} /> : null}
         </Railed>
       );
@@ -96,7 +102,7 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
     case "turn":
       return (
         <Railed node="╰─" color={PALETTE.dust} rail={rail}>
-          <TurnEnd item={item} />
+          <TurnEnd item={item} expanded={expanded} cwd={view.cwd} home={view.home} width={inner.width} />
         </Railed>
       );
     case "notice":
@@ -144,8 +150,11 @@ function Message({ text, images = {}, width, rows }: { text: string; images?: Re
   return <>{parts}</>;
 }
 
-/** `╰── 42s   1.2k tokens`: how long the turn took and what Claude wrote, closing the rail. */
-function TurnEnd({ item }: { item: Extract<Item, { kind: "turn" }> }) {
+/**
+ * `╰── 42s   1.2k tokens   2 files · 3 commands`: how long the turn took, what Claude wrote and
+ * what it did, closing the rail. Opened in full screen, the files and commands are listed under it.
+ */
+function TurnEnd({ item, expanded, cwd, home, width }: { item: Extract<Item, { kind: "turn" }>; expanded: boolean; cwd: string; home: string; width: number }) {
   const tokens = item.tokens > 0 ? `   ${compact(item.tokens)} tokens` : "";
   const said = {
     finished: { text: `${duration(item.durationMs)}${tokens}`, color: PALETTE.haze },
@@ -153,15 +162,46 @@ function TurnEnd({ item }: { item: Extract<Item, { kind: "turn" }> }) {
     failed: { text: `failed after ${duration(item.durationMs)}`, color: PALETTE.rose },
   }[item.outcome];
   if (item.replayed) return <Text color={PALETTE.dust}>─</Text>;
+  const work = turnWork(item);
   return (
     <Box flexDirection="column">
       <Text>
         <Text color={PALETTE.dust}>─ </Text>
         <Text color={said.color}>{said.text}</Text>
+        {work ? <Text color={PALETTE.dust}>{`   ${work}`}</Text> : null}
       </Text>
       {item.detail ? <Text color={PALETTE.rose}>{item.detail}</Text> : null}
+      {expanded ? (
+        <Box flexDirection="column" marginTop={1}>
+          {item.files?.map((file) => (
+            <Text key={`f${file}`} wrap="truncate-end">
+              <Text color={PALETTE.haze}>{"changed  "}</Text>
+              <Text color={PALETTE.star}>{fit(shortPath(file, cwd, home), width - 9, true)}</Text>
+            </Text>
+          ))}
+          {item.commands?.map((command, i) => (
+            <Text key={`c${i}`} wrap="truncate-end">
+              <Text color={PALETTE.haze}>{"ran      "}</Text>
+              <Text color={PALETTE.dust}>{"$ "}</Text>
+              <Text>{firstLine(command)}</Text>
+            </Text>
+          ))}
+        </Box>
+      ) : null}
     </Box>
   );
+}
+
+/** What a turn did, counted: `2 files · 3 commands`, or empty when it changed and ran nothing. */
+export function turnWork(item: Extract<Item, { kind: "turn" }>) {
+  const files = item.files?.length ?? 0;
+  const commands = item.commands?.length ?? 0;
+  return [files ? `${plural(files, "file")} changed` : "", commands ? plural(commands, "command") : ""].filter(Boolean).join(" · ");
+}
+
+function firstLine(text: string) {
+  const [first = ""] = text.split("\n");
+  return text.includes("\n") ? `${first} …` : first;
 }
 
 /**

@@ -2,7 +2,7 @@
 // top edge while it has your keys. Type to filter. In full screen, click an item to pick it; the
 // wheel moves through the list.
 import { Box, Text, useInput, type DOMElement } from "ink";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChoiceRow } from "./choice";
 import { Panel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
@@ -25,11 +25,13 @@ type Props = {
   width: number;
   rows?: number;
   empty?: string;
+  /** More about the focused item, in place of its `detail`, such as the end of a saved session. */
+  preview?: (item: PickerItem) => ReactNode;
   onPick: (item: PickerItem) => void;
   onCancel: () => void;
 };
 
-export function Picker({ title, items, width, rows = 8, empty = "Nothing here yet.", onPick, onCancel }: Props) {
+export function Picker({ title, items, width, rows = 8, empty = "Nothing here yet.", preview, onPick, onCancel }: Props) {
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState(0);
   const panel = useRef<DOMElement>(null);
@@ -115,7 +117,9 @@ export function Picker({ title, items, width, rows = 8, empty = "Nothing here ye
             })
           )}
         </Box>
-        {focused?.detail ? (
+        {focused && preview ? (
+          <Box marginTop={1}>{preview(focused)}</Box>
+        ) : focused?.detail ? (
           <Box marginTop={1}>
             <Text color={PALETTE.haze}>{focused.detail}</Text>
           </Box>

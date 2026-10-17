@@ -5,7 +5,7 @@ import { renderToString } from "ink";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { State } from "../src/view/state";
 import { Banner } from "./banner";
-import { ItemView, LiveView } from "./entries";
+import { ItemView, LiveView, turnWork } from "./entries";
 import { imagesOf, wantPictures } from "./pictures";
 import { GUTTER, rails } from "./rail";
 
@@ -18,7 +18,7 @@ export type Row = {
   line: number;
   /** The entry's first line of content, which for a tool call is its row. */
   head: boolean;
-  /** A click here opens or closes the entry: any row of a tool call or a `!` command. */
+  /** A click here opens or closes the entry: any row of a tool call, a `!` command, or a turn's closer that did work. */
   hot: boolean;
   /** The entry is open, with its whole output under its first row. */
   open: boolean;
@@ -88,11 +88,12 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting }:
   state.items.forEach((item, i) => {
     const rail = placed[i]!;
     const isWaiting = item.kind === "tool" && waiting.has(item.call.id);
-    const opens = item.kind === "tool" || item.kind === "shell";
+    // A turn that changed files or ran commands opens to list them.
+    const opens = item.kind === "tool" || item.kind === "shell" || (item.kind === "turn" && turnWork(item) !== "");
     const isOpen = opens && expanded.has(item.key);
     const pictures = imagesOf(item).length ? pictureRows : "";
     const lines = draw(item, `${width}|${pictures}|${isWaiting}|${isOpen}|${rail.spaced}${rail.joined}${rail.through}`, width, () => (
-      <ItemView item={item} rail={rail} detailed waiting={isWaiting} expanded={isOpen} {...view} />
+      <ItemView item={item} rail={rail} detailed waiting={isWaiting} expanded={isOpen} copyable {...view} />
     ));
     const head = rail.spaced ? 1 : 0;
     add(item.key, lines, head, GUTTER, opens, isOpen);

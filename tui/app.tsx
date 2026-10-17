@@ -30,7 +30,7 @@ import { ItemView, LiveView } from "./entries";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
 import { keyFor, keyLabel } from "./keys";
-import { openLink } from "./links";
+import { copiedBy, openLink } from "./links";
 import { ANSI } from "./markdown";
 import { fit } from "./markdown-view";
 import { ModelPicker } from "./model-picker";
@@ -42,6 +42,7 @@ import { Prompt } from "./prompt";
 import { QuestionPrompt } from "./question";
 import { GUTTER, rails } from "./rail";
 import { Screen } from "./screen";
+import { SessionPreview } from "./session-preview";
 import { StatusBar } from "./status";
 import type { Store } from "./store";
 import { RUNNING_STATUS, TaskView } from "./tasks";
@@ -95,6 +96,7 @@ const FULLSCREEN_HELP = [
   "Ctrl+F finds text in the conversation: Enter or ↑ goes to the match before, ↓ to the one after. Alt+↑ and Alt+↓ jump between your messages, Alt+Shift+↑ and Alt+Shift+↓ between tool calls and commands.",
   "Drag to copy, double-click to copy a word, triple-click to copy a line.",
   "Click a tool call or a command to open it (a running one shows its live output), an option to choose it, the mode, the model or the effort to change it.",
+  "Click copy on a code block to copy it, and a turn's closing line to list the files it changed and the commands it ran.",
   "Hold Shift to select with the terminal's own selection instead.",
 ].join("\n");
 
@@ -367,8 +369,14 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     setToast(lines > 1 ? `Copied ${plural(lines, "line")}` : `Copied ${plural([...text].length, "character")}`);
   };
 
-  /** A link clicked in full screen, opened in the desktop's browser. */
+  /** A link clicked in full screen, opened in the desktop's browser, or a code block's `copy`. */
   const openAddress = (url: string) => {
+    const code = copiedBy(url);
+    if (code !== undefined) {
+      copy(code);
+      const lines = code.split("\n").length;
+      return setToast(`Copied ${plural(lines, "line")} of code`);
+    }
     void openLink(url).then((opened) => {
       if (opened) setToast(`Opening ${url.replace(/^https?:\/\/([^/?#]+).*$/is, "$1")}`);
       else notice("error", `Couldn't open ${url}: there's no xdg-open here, or no desktop for it to open on.`);
@@ -721,6 +729,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
               })) ?? null
             }
             empty="There are no saved sessions in this folder yet."
+            preview={(item) => <SessionPreview id={item.key} cwd={state.cwd} width={width - 4} />}
             onCancel={close}
             onPick={(item) => {
               close();
@@ -973,7 +982,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         {(entry) => (
           <Box key={entry.key} flexDirection="column">
             {"item" in entry ? (
-              <ItemView item={entry.item} rail={entry.rail} detailed marked {...view} />
+              <ItemView item={entry.item} rail={entry.rail} detailed scrollback {...view} />
             ) : (
               <Banner cwd={state.cwd} home={state.home} branch={branch} width={width} />
             )}

@@ -3,6 +3,7 @@
 // screen's lines keep which cells belong to which address. In full screen the mouse is
 // astrocode's, so a click on a link opens it here.
 import { spawn } from "node:child_process";
+import { hostname } from "node:os";
 
 /**
  * An address in running text: up to a space or a quote, ending before a full stop, comma or
@@ -21,6 +22,29 @@ export const isWebLink = (url: string) => /^https?:\/\/[^\s\x00-\x1f\x7f]+$/i.te
 export const hyperlink = (url: string, text: string = url) => `\x1b]8;;${url}\x07${text}\x1b]8;;\x07`;
 
 const SGR = /(\x1b\[[0-9;]*m)/;
+
+/**
+ * Text a click copies, such as a code block's, by the address of the link that copies it. The
+ * link is astrocode's own and only ever drawn in full screen, where a click is astrocode's; the
+ * text stays here, since an address that held it could run past what a terminal takes.
+ */
+const copyable = new Map<string, string>();
+
+/** The address of a link that copies `text`. */
+export function copyLink(text: string) {
+  const url = `astrocode:copy:${Bun.hash(text).toString(36)}`;
+  copyable.set(url, text);
+  return url;
+}
+
+/** What a link made by `copyLink()` copies, or undefined for any other link. */
+export const copiedBy = (url: string) => copyable.get(url);
+
+/**
+ * A file's address for a link, with this machine's name, as kitty and others want so they open it
+ * only when it's on the machine they run on.
+ */
+export const fileUrl = (path: string) => `file://${hostname()}${encodeURI(path).replace(/[?#]/g, encodeURIComponent)}`;
 
 /** What a tool or process printed, its web addresses made links. Color codes stay as they are. */
 export function linked(text: string) {

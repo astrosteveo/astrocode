@@ -11,7 +11,8 @@ import { Markdown, fit, onPanel, Panel } from "./markdown-view";
 import { isReady, Pictures } from "./pictures";
 import { ShellCard } from "./shell-card";
 import { PALETTE } from "./theme";
-import { clip, EditDiff } from "./tool-row";
+import { clip } from "./tool-row";
+import { Diff, editLines } from "./diff";
 
 /** The most lines printed for one output; scrollback can hold this much without trouble. */
 const MAX_LINES = 2000;
@@ -67,7 +68,7 @@ function Output({ call, width }: { call: ToolCall; width: number }) {
   const language = path.includes(".") ? (path.split(".").pop() ?? "") : "";
   switch (call.name) {
     case "Edit":
-      return <EditDiff call={call} width={width} limit={MAX_LINES} />;
+      return <Diff lines={editLines(call)} width={width} limit={MAX_LINES} />;
     case "Write":
       return <Source label={path.split("/").pop() ?? "file"} source={String(call.input.content ?? "")} language={language} width={width} />;
     case "Read": {

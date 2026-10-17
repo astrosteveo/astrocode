@@ -21,7 +21,7 @@ import {
   type Callout,
   type Span,
 } from "./markdown";
-import { hyperlink } from "./links";
+import { copyLink, hyperlink } from "./links";
 import { PALETTE } from "./theme";
 
 const CALLOUTS: Record<Callout, { color: string; title: string }> = {
@@ -50,17 +50,18 @@ const VOICES: Record<Voice, { text: { bold?: boolean; italic?: boolean; color?: 
   thinking: { text: { italic: true, color: PALETTE.haze }, accent: PALETTE.haze },
 };
 
-export function Markdown({ text, width, voice = "claude" }: { text: string; width: number; voice?: Voice }) {
+/** `copyable`: code blocks get a `copy` a click acts on, in full screen, where the mouse is astrocode's. */
+export function Markdown({ text, width, voice = "claude", copyable = false }: { text: string; width: number; voice?: Voice; copyable?: boolean }) {
   return (
     <Box flexDirection="column" rowGap={1}>
       {parse(text).map((block, i) => (
-        <BlockView key={i} block={block} width={width} voice={voice} />
+        <BlockView key={i} block={block} width={width} voice={voice} copyable={copyable} />
       ))}
     </Box>
   );
 }
 
-function BlockView({ block, width, voice }: { block: Block; width: number; voice: Voice }) {
+function BlockView({ block, width, voice, copyable }: { block: Block; width: number; voice: Voice; copyable: boolean }) {
   switch (block.kind) {
     case "prose":
       return <Prose text={block.text} width={width} voice={voice} />;
@@ -68,7 +69,12 @@ function BlockView({ block, width, voice }: { block: Block; width: number; voice
       const source = block.source.replace(/\n$/, "");
       const lines = source.split("\n").length;
       return (
-        <Panel label={block.language} note={lines >= LINE_COUNT_FROM ? plural(lines, "line") : undefined} width={width}>
+        <Panel
+          label={block.language}
+          note={lines >= LINE_COUNT_FROM ? plural(lines, "line") : undefined}
+          action={copyable ? { text: "copy", href: copyLink(source) } : undefined}
+          width={width}
+        >
           <Text>{onPanel(highlightCode(source, block.language))}</Text>
         </Panel>
       );
@@ -206,10 +212,13 @@ export function Panel({
   paddingX = 1,
   open = false,
   behind,
+  action,
   children,
 }: {
   label?: string;
   note?: string;
+  /** A word on the top edge, after the note, that's a link a click acts on, such as a code block's `copy`. */
+  action?: { text: string; href: string };
   width: number;
   accent?: string;
   background?: string;
@@ -221,7 +230,8 @@ export function Panel({
   const room = Math.max(0, width - 2);
   const left = label ? ` ${takeCells(label, Math.max(1, room - 2))[0]} ` : "";
   const right = note && cellWidth(left) + cellWidth(note) + 3 <= room ? ` ${note} ` : "";
-  const fill = Math.max(0, room - cellWidth(left) - cellWidth(right));
+  const act = action && cellWidth(left) + cellWidth(right) + cellWidth(action.text) + 4 <= room ? action : undefined;
+  const fill = Math.max(0, room - cellWidth(left) - cellWidth(right) - (act ? cellWidth(act.text) + 1 + (right ? 0 : 1) : 0));
   const edge = accent ?? background;
   const line = accent ? "▁" : "▄";
   return (
@@ -231,6 +241,7 @@ export function Panel({
         <Text color={PALETTE.haze}>{left}</Text>
         <Text color={edge}>{line.repeat(fill)}</Text>
         <Text color={PALETTE.dust}>{right}</Text>
+        {act ? <Text color={PALETTE.haze}>{`${right ? "" : " "}${hyperlink(act.href, act.text)} `}</Text> : null}
         <Text color={edge}>{line}</Text>
       </Text>
       <Box backgroundColor={background} paddingX={paddingX} width={width} flexDirection="column">

@@ -3,10 +3,12 @@
 // and a word on the result, set against the right edge. Finished rows keep what matters from the
 // result on a panel under them. Bash calls are cards of their own (`shell-card.tsx`).
 import { Box, Text } from "ink";
+import { resolve } from "node:path";
 import type { ToolCall } from "../src/view/state";
 import type { Todo } from "../src/view/todos";
 import { field, plural, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
-import { linked } from "./links";
+import { Diff, editLines } from "./diff";
+import { fileUrl, hyperlink, linked } from "./links";
 import { cellWidth, printable, printableColored } from "./markdown";
 import { fit, onPanel, Panel } from "./markdown-view";
 import { isReady, Pictures } from "./pictures";
@@ -27,14 +29,15 @@ export const PATHLIKE = new Set(["Read", "Edit", "Write", "NotebookEdit", "WebFe
 const OUTPUT_LINES = 12;
 
 /** `pictureRows`: how tall a picture the result carried may be. */
-type Props = { call: ToolCall; waiting?: boolean; cwd: string; home: string; width: number; pictureRows: number; detailed?: boolean };
+/** `fileLink`: the file the call acts on is a link the terminal opens, in scrollback. */
+type Props = { call: ToolCall; waiting?: boolean; cwd: string; home: string; width: number; pictureRows: number; detailed?: boolean; fileLink?: boolean };
 
 /** The node a tool call shows on the rail. */
 export function toolNode(call: ToolCall, waiting: boolean) {
   return STATUS[waiting ? "waiting" : call.status];
 }
 
-export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, detailed = false }: Props) {
+export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, detailed = false, fileLink = false }: Props) {
   const status = waiting ? "waiting" : call.status;
   const name = toolLabel(call.name);
   const summary = toolSummary(call, waiting);
@@ -42,7 +45,9 @@ export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, 
     status === "error" ? PALETTE.rose : status === "denied" || status === "stopped" ? PALETTE.ember : status === "waiting" ? PALETTE.gold : PALETTE.haze;
   const room = width - cellWidth(name) - 2 - (summary ? cellWidth(summary) + 2 : 0);
   const whole = toolTarget(call, cwd, home);
-  const target = fit(whole, room, PATHLIKE.has(call.name));
+  const fitted = fit(whole, room, PATHLIKE.has(call.name));
+  const file = typeof call.input.file_path === "string" ? call.input.file_path : typeof call.input.notebook_path === "string" ? call.input.notebook_path : "";
+  const target = fileLink && file && fitted ? hyperlink(fileUrl(resolve(cwd, file)), fitted) : fitted;
   return (
     <Box flexDirection="column" width={width}>
       <Box justifyContent="space-between" width={width}>
@@ -83,7 +88,7 @@ function Detail({ call, width }: { call: ToolCall; width: number }) {
   if (call.status !== "done") return null;
   switch (call.name) {
     case "Edit":
-      return <EditDiff call={call} width={width} limit={OUTPUT_LINES * 2} />;
+      return <Diff lines={editLines(call)} width={width} limit={OUTPUT_LINES * 2} />;
     case "TodoWrite":
       return <Todos call={call} />;
     case "AskUserQuestion":
@@ -126,40 +131,6 @@ export function ShellOutput({ stdout: out, stderr: err, failed, width, limit }: 
         </Panel>
       ) : null}
     </Box>
-  );
-}
-
-/** Claude Code's patch for the edit when it sent one, with context lines; else the replaced text. */
-export function patchLines(call: ToolCall) {
-  const hunks = field(call.output, "structuredPatch");
-  const text = (key: string) => (typeof call.input[key] === "string" ? (call.input[key] as string) : "");
-  if (Array.isArray(hunks)) {
-    return hunks.flatMap((hunk) => {
-      const body = field(hunk, "lines");
-      return Array.isArray(body) ? body.map(String) : [];
-    });
-  }
-  return [...text("old_string").split("\n").map((line) => `-${line}`), ...text("new_string").split("\n").map((line) => `+${line}`)];
-}
-
-/** An edit as a diff on a panel: added lines tinted teal, removed ones rose, the rest quiet. */
-export function EditDiff({ call, width, limit }: { call: ToolCall; width: number; limit: number }) {
-  const lines = patchLines(call);
-  const shown = lines.slice(0, limit);
-  return (
-    <Panel width={width} paddingX={0}>
-      {shown.map((line, i) => {
-        const kind = line.startsWith("+") ? "added" : line.startsWith("-") ? "removed" : "context";
-        return (
-          <Box key={i} backgroundColor={kind === "added" ? TINT.added : kind === "removed" ? TINT.removed : undefined} width={width}>
-            <Text color={kind === "added" ? PALETTE.teal : kind === "removed" ? PALETTE.rose : PALETTE.haze}>
-              {` ${printable(line) || " "}`}
-            </Text>
-          </Box>
-        );
-      })}
-      {lines.length > shown.length ? <Text color={PALETTE.haze}>{` ${plural(lines.length - shown.length, "more line")}`}</Text> : null}
-    </Panel>
   );
 }
 

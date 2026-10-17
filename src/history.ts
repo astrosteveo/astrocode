@@ -20,6 +20,27 @@ export async function sessionTitle(sessionId: string, cwd: string) {
   return info ? (info.customTitle ?? info.summary) : undefined;
 }
 
+/** The end of a saved conversation, for a glance at it before resuming: your last message, Claude's last words, and how many messages you sent. */
+export type SessionPreview = { prompts: number; lastPrompt?: string; lastReply?: string };
+
+export async function sessionPreview(sessionId: string, cwd: string): Promise<SessionPreview> {
+  const messages = await getSessionMessages(sessionId, { dir: cwd });
+  const preview: SessionPreview = { prompts: 0 };
+  for (const entry of messages) {
+    if (entry.parent_tool_use_id) continue;
+    const content = (entry.message as { content?: unknown } | undefined)?.content;
+    const texts = typeof content === "string" ? [content] : Array.isArray(content) ? content.flatMap((block) => (block?.type === "text" && typeof block.text === "string" ? [block.text] : [])) : [];
+    // Claude Code's own notes to Claude, such as a command's output or a reminder, are wrapped in tags.
+    const text = texts.join("\n").trim();
+    if (!text || (entry.type === "user" && text.startsWith("<"))) continue;
+    if (entry.type === "user") {
+      preview.prompts += 1;
+      preview.lastPrompt = text;
+    } else if (entry.type === "assistant") preview.lastReply = text;
+  }
+  return preview;
+}
+
 /**
  * A saved conversation as the events that would have drawn it, so a resumed session shows what
  * came before: what you typed becomes prompts, and Claude's messages and tool results replay
