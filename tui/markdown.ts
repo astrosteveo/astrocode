@@ -35,10 +35,11 @@ const NUMERIC = /^[~≈<>+\-−$€£]*\s*[\d.,]+\s*(%|x|ms|s|m|h|k|kb|mb|gb|tb)
 
 /**
  * Inline markdown. Asterisks hug what they emphasize, so `ls *.ts and *.js` and `2 ** 3 ** 4` stay
- * as typed; underscores don't open or close inside a word. `[Image #n]` is an attached image.
+ * as typed; underscores, single or double, don't open or close inside a word, so
+ * `mcp__server__tool` and `snake_case` stay as typed. `[Image #n]` is an attached image.
  */
 const INLINE =
-  /(`+)(.+?)\1|\*\*(?!\s)(.+?)(?<!\s)\*\*|__(.+?)__|~~(.+?)~~|\*(?![\s*])(.+?)(?<![\s*])\*|(?<![\w])_(?!\s)(.+?)_(?![\w])|\[([^\]]+)\]\(([^)\s]+)\)|(\[Image #\d+\])/g
+  /(`+)(.+?)\1|\*\*(?!\s)(.+?)(?<!\s)\*\*|(?<![\w])__(?!\s)(.+?)(?<!\s)__(?![\w])|~~(.+?)~~|\*(?![\s*])(.+?)(?<![\s*])\*|(?<![\w])_(?![\s_])(.+?)(?<![\s_])_(?![\w])|\[([^\]]+)\]\(([^)\s]+)\)|(\[Image #\d+\])/g
 
 /** Terminal color and cursor codes, and the other escape sequences a tool or process prints. */
 export const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g
@@ -231,6 +232,10 @@ export const spans = (text: string): Span[] => {
     const [, , code, bold, boldU, strike, italic, italicU, link, url, image] = match
     if (code !== undefined) {
       out.push({ text: code.trim(), style: 'code' })
+    } else if (boldU !== undefined && /^\w+$/.test(boldU)) {
+      // One name between double underscores is Python's `__init__` or `__name__`, not bold, though
+      // CommonMark would make it bold and eat its underscores. Bold of one word takes asterisks.
+      out.push({ text: match[0], style: 'plain' })
     } else if (image !== undefined) {
       out.push({ text: image, style: 'image' })
     } else {
