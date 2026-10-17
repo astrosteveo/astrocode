@@ -289,8 +289,8 @@ function mark(cells: Cell[], words: string[], kept: boolean[]) {
  * one empty row.
  */
 function wrap(cells: Cell[], width: number): Cell[][] {
-  // A comment's leader, such as ` * ` or `// `, counts as indentation, so its text lines up.
-  const lead = /^\s*(?:(?:\*|\/\/|#|--|;+)\s+)?/.exec(cells.map((cell) => cell.text).join(""))![0].length;
+  // A comment's leader, such as `/** `, ` * ` or `// `, counts as indentation, so its text lines up.
+  const lead = /^\s*(?:(?:\/\*\*?|\*|\/\/+|#+|--|;+)\s+)?/.exec(cells.map((cell) => cell.text).join(""))![0].length;
   const indent = Math.min(lead, Math.floor(width / 2));
   const pad = (): Cell[] => Array.from({ length: indent }, () => ({ text: " ", width: 1, bold: false, italic: false, changed: false }));
   const rows: Cell[][] = [[]];
