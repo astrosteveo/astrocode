@@ -9,7 +9,7 @@ import { isCurrentModel } from "../src/view/format";
 import { ChoiceRow } from "./choice";
 import { Dial, EFFORT_NOTES, effortOn, effortsOf } from "./effort";
 import { Panel } from "./markdown-view";
-import { hit, useMouse } from "./mouse";
+import { hit, useHover, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
 
 type Props = {
@@ -78,6 +78,7 @@ export function ModelPicker({ models, model, effort, width, rows, onPick, onCanc
     setSelected(start + (at?.y ?? 0));
     pick(choice);
   });
+  const hovered = useHover(list, (_, y) => (visible[y] ? { key: start + y, shape: "pointer" } : null));
 
   return (
     <Box ref={panel} flexDirection="column">
@@ -92,7 +93,7 @@ export function ModelPicker({ models, model, effort, width, rows, onPick, onCanc
             visible.map((choice, i) => {
               const isFocused = start + i === index;
               return (
-                <ChoiceRow key={choice.value} selected={isFocused} width={inner}>
+                <ChoiceRow key={choice.value} selected={isFocused} hovered={start + i === hovered} width={inner}>
                   <Text wrap="truncate-end">
                     <Text bold={isFocused} color={isFocused ? PALETTE.star : undefined}>
                       {choice.name}

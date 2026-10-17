@@ -24,7 +24,7 @@ import {
 import { ChoiceRow } from "./choice";
 import { cellWidth, takeCells } from "./markdown";
 import { Panel } from "./markdown-view";
-import { hit, useMouse } from "./mouse";
+import { hit, useHover, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
 
 const TABS = ["installed", "discover", "marketplaces"] as const;
@@ -225,6 +225,15 @@ export function PluginManager({ cwd, width, rows, onResult, onClose }: Props) {
     go({ selected: start + (at?.y ?? 0) });
     choose(row);
   });
+  const hovered = useHover(panel, (_x, _y, pointer) => {
+    if (working) return null;
+    const { open, actions, shown, start } = current();
+    const at = hit(list.current, pointer);
+    if (open) return at && actions[at.y] ? { key: `action:${at.y}`, shape: "pointer" } : null;
+    const overTab = TABS.find((_, i) => hit(tabs.current[i], pointer));
+    if (overTab) return { key: `tab:${overTab}`, shape: "pointer" };
+    return at && shown[start + at.y] ? { key: `row:${start + at.y}`, shape: "pointer" } : null;
+  });
 
   const { tab, filter, open, shown, index, start, focused, actions } = current();
   const visible = shown.slice(start, start + rows);
@@ -269,7 +278,7 @@ export function PluginManager({ cwd, width, rows, onResult, onClose }: Props) {
             {actions.map((action, i) => {
               const isFocused = i === open.selected;
               return (
-                <ChoiceRow key={action.label} selected={isFocused} width={inner}>
+                <ChoiceRow key={action.label} selected={isFocused} hovered={hovered === `action:${i}`} width={inner}>
                   <Text wrap="truncate-end">
                     <Text bold={isFocused} color={isFocused ? PALETTE.star : undefined}>
                       {action.label.padEnd(labels)}
@@ -309,7 +318,12 @@ export function PluginManager({ cwd, width, rows, onResult, onClose }: Props) {
                 tabs.current[i] = element;
               }}
             >
-              <Text color={name === tab ? PALETTE.gold : PALETTE.haze} bold={name === tab} underline={name === tab}>
+              <Text
+                color={name === tab ? PALETTE.gold : PALETTE.haze}
+                backgroundColor={name !== tab && hovered === `tab:${name}` ? PALETTE.hover : undefined}
+                bold={name === tab}
+                underline={name === tab}
+              >
                 {TAB_NAMES[name]}
               </Text>
               {counts[name] !== undefined ? <Text color={PALETTE.dust}>{` ${counts[name].toLocaleString("en-US")}`}</Text> : null}
@@ -331,7 +345,7 @@ export function PluginManager({ cwd, width, rows, onResult, onClose }: Props) {
             visible.map((row, i) => {
               const isFocused = start + i === index;
               return (
-                <ChoiceRow key={row.key} selected={isFocused} width={inner}>
+                <ChoiceRow key={row.key} selected={isFocused} hovered={hovered === `row:${start + i}`} width={inner}>
                   <RowView row={row} focused={isFocused} names={names} />
                 </ChoiceRow>
               );

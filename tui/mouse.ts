@@ -1,11 +1,12 @@
-// The mouse, in full screen. The terminal reports presses, drags, releases and the wheel as SGR
-// sequences (`ESC [ < button ; x ; y M`), which are lifted out of stdin before Ink reads it.
-// Components listen with `useMouse` and find what was clicked with `hit`.
+// The mouse, in full screen. The terminal reports presses, drags, releases, the wheel and plain
+// movement as SGR sequences (`ESC [ < button ; x ; y M`), which are lifted out of stdin before Ink
+// reads it. Components listen with `useMouse`, find what was clicked with `hit`, and learn what the
+// pointer is over with `useHover`, which also sets the pointer's shape where the terminal has one.
 import type { DOMElement } from "ink";
-import { createContext, useContext, useEffect, useEffectEvent } from "react";
+import { createContext, useContext, useEffect, useEffectEvent, useRef, useState, type RefObject } from "react";
 
 export type MouseEvent = {
-  type: "press" | "drag" | "release" | "wheel";
+  type: "press" | "drag" | "release" | "wheel" | "move";
   button: "left" | "middle" | "right" | "none";
   /** The screen cell, from 0 at the top left. */
   x: number;
@@ -23,9 +24,17 @@ export type MouseEvent = {
 
 type Listener = { handle: (event: MouseEvent) => void; fallback: boolean };
 
-/** Presses, releases and drags (1000, 1002), in SGR's decimal coordinates (1006). */
-const ENABLE = "\x1b[?1000h\x1b[?1002h\x1b[?1006h";
-const DISABLE = "\x1b[?1006l\x1b[?1002l\x1b[?1000l";
+/** Presses, releases, drags and plain movement (1000, 1002, 1003), in SGR's decimal coordinates (1006). */
+const ENABLE = "\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h";
+const DISABLE = "\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l";
+
+/**
+ * What the pointer looks like over something: a hand where a click acts, a text beam where a drag
+ * selects. Set with OSC 22, which kitty, foot, Ghostty and xterm understand and others ignore. It
+ * draws nothing, so it can go to the terminal between Ink's frames.
+ */
+export type Shape = "pointer" | "text";
+const shapeCode = (shape: Shape | "default") => `\x1b]22;${shape}\x1b\\`;
 const REPORT = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
 /** The start of a report cut off at the end of a chunk; the rest is in the next one. */
 const PARTIAL = /\x1b\[<[\d;]*$/;
@@ -39,6 +48,12 @@ export class Mouse {
   private carry = "";
   private last = { time: 0, x: -1, y: -1, clicks: 0 };
   private read: Stdin["read"] | null = null;
+  /** Where the pointer was last reported, and what's watching it. */
+  private pointer: { x: number; y: number } | null = null;
+  private watchers = new Set<() => void>();
+  /** The shape each hovered element wants, and the one the terminal shows. */
+  private shapes = new Map<object, Shape>();
+  private shown: Shape | "default" = "default";
 
   constructor(
     private readonly stdin: Stdin,
@@ -67,9 +82,38 @@ export class Mouse {
     this.carry = "";
     process.off("exit", this.stop);
     try {
-      this.stdout.write(DISABLE);
+      this.stdout.write(DISABLE + (this.shown === "default" ? "" : shapeCode("default")));
     } catch {}
+    this.shown = "default";
+    this.pointer = null;
   };
+
+  /** Where the pointer was last reported, or null before it has been. */
+  where() {
+    return this.pointer;
+  }
+
+  /** Calls `update` whenever the pointer moves. */
+  watch(update: () => void) {
+    this.watchers.add(update);
+    return () => {
+      this.watchers.delete(update);
+    };
+  }
+
+  /**
+   * What `owner` wants the pointer to look like, or null when it's not under the pointer. A hand
+   * wins over a text beam, as a link does over the text around it.
+   */
+  setShape(owner: object, shape: Shape | null) {
+    if (shape) this.shapes.set(owner, shape);
+    else this.shapes.delete(owner);
+    const wanted = [...this.shapes.values()];
+    const next = wanted.includes("pointer") ? "pointer" : wanted.length > 0 ? "text" : "default";
+    if (next === this.shown || !this.read) return;
+    this.shown = next;
+    this.stdout.write(shapeCode(next));
+  }
 
   listen(handle: (event: MouseEvent) => void, fallback = false) {
     const listener = { handle, fallback };
@@ -107,7 +151,7 @@ export class Mouse {
     }
     const button = (["left", "middle", "right", "none"] as const)[code & 3] ?? "none";
     if (released) return { ...base, type: "release", button };
-    if (code & 32) return { ...base, type: "drag", button };
+    if (code & 32) return { ...base, type: button === "none" ? "move" : "drag", button };
     let clicks = 1;
     if (button === "left") {
       const now = Date.now();
@@ -118,8 +162,14 @@ export class Mouse {
     return { ...base, type: "press", button, clicks };
   }
 
-  /** To each listener in turn, then to the fallbacks, which act on what nothing else used. */
+  /**
+   * To each listener in turn, then to the fallbacks, which act on what nothing else used. Plain
+   * movement only goes to what watches the pointer.
+   */
   private dispatch(event: MouseEvent) {
+    this.pointer = { x: event.x, y: event.y };
+    for (const update of this.watchers) update();
+    if (event.type === "move") return;
     for (const listener of this.listeners.filter((one) => !one.fallback)) listener.handle(event);
     for (const listener of this.listeners.filter((one) => one.fallback)) listener.handle(event);
   }
@@ -169,4 +219,38 @@ export function relative(element: DOMElement | null | undefined, event: { x: num
 export function hit(element: DOMElement | null | undefined, event: { x: number; y: number }) {
   const at = relative(element, event);
   return at?.inside ? { x: at.x, y: at.y } : null;
+}
+
+/**
+ * What the pointer is over in `element`, as `at` names it from the pointer's cell there (and on
+ * screen, for testing it against the element's parts with `hit`), or null. `at` returns a key for
+ * what's under the pointer and the pointer's shape over it, or null where nothing answers to the
+ * mouse. The component draws again only when the key changes. It's worked
+ * out again after each render too, since what's under a pointer that holds still can change.
+ */
+export function useHover<Key extends string | number>(
+  element: RefObject<DOMElement | null>,
+  at: (x: number, y: number, pointer: { x: number; y: number }) => { key: Key; shape: Shape } | null,
+  isActive = true,
+): Key | null {
+  const mouse = useContext(MouseContext);
+  const [hovered, setHovered] = useState<Key | null>(null);
+  const owner = useRef({}).current;
+  const update = useEffectEvent(() => {
+    const pointer = mouse?.where();
+    const cell = isActive && pointer ? relative(element.current, pointer) : null;
+    const found = pointer && cell?.inside ? at(cell.x, cell.y, pointer) : null;
+    mouse?.setShape(owner, found?.shape ?? null);
+    setHovered(found?.key ?? null);
+  });
+  useEffect(() => {
+    if (!mouse) return;
+    const stop = mouse.watch(update);
+    return () => {
+      stop();
+      mouse.setShape(owner, null);
+    };
+  }, [mouse]);
+  useEffect(() => update());
+  return isActive ? hovered : null;
 }

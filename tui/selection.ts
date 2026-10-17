@@ -3,7 +3,7 @@
 // gutter, a panel's padding and edges, and the hairline before a quote, so copying code brings
 // only the code. What's highlighted is what's copied.
 import { cellWidth } from "./markdown";
-import { PALETTE, rgb, TINT } from "./theme";
+import { PALETTE, rgb, sgr, TINT } from "./theme";
 
 /** A cell in the transcript: a row, and a column in cells. */
 export type Cell = { row: number; col: number };
@@ -92,6 +92,41 @@ export function highlight(line: string, from: number, to: number) {
     }
   }
   return selecting ? out + RESET : out;
+}
+
+/**
+ * `line` on `background` from cell `from` up to `to`, padded out to `to`, with its own colors kept:
+ * the band behind a row the pointer is over. The background goes back on after each of the line's
+ * own color codes, since a reset among them would end it.
+ */
+export function band(line: string, from: number, to: number, background: string) {
+  const on = sgr(background, true);
+  const off = "\x1b[49m";
+  let out = "";
+  let col = 0;
+  let inside = false;
+  for (const part of line.split(SGR)) {
+    if (SGR.test(part)) {
+      out += part + (inside ? on : "");
+      continue;
+    }
+    for (const { segment } of graphemes.segment(part)) {
+      if (!inside && col >= from && col < to) {
+        out += on;
+        inside = true;
+      } else if (inside && col >= to) {
+        out += off;
+        inside = false;
+      }
+      out += segment;
+      col += cellWidth(segment);
+    }
+  }
+  if (col < to) {
+    const gap = Math.max(0, from - col);
+    out += " ".repeat(gap) + (inside ? "" : on) + " ".repeat(to - col - gap);
+  }
+  return out + off;
 }
 
 /**

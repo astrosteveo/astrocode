@@ -8,7 +8,7 @@ import { plural, shortPath } from "../src/view/tools";
 import { ChoiceRow } from "./choice";
 import { printable } from "./markdown";
 import { Panel } from "./markdown-view";
-import { hit, useMouse } from "./mouse";
+import { hit, useHover, useMouse } from "./mouse";
 import { PALETTE, TINT } from "./theme";
 
 /** Keys pressed this soon after the prompt appears were meant for something else, so Enter, digits and clicks wait. */
@@ -30,6 +30,7 @@ export function DecisionPrompt({ request, cwd, home, width, onDecide }: Props) {
   const [selected, setSelected] = useState(request.defaultToNo ? options.length - 1 : 0);
   const shownAt = useRef(Date.now());
   const rows = useRef<(DOMElement | null)[]>([]);
+  const list = useRef<DOMElement>(null);
   const note = permissionNote(request, cwd, home);
 
   useMouse((event) => {
@@ -40,6 +41,10 @@ export function DecisionPrompt({ request, cwd, home, width, onDecide }: Props) {
     event.handled = true;
     setSelected(index);
     if (Date.now() - shownAt.current >= GRACE_MS) onDecide(option.choice);
+  });
+  const hovered = useHover(list, (_x, _y, pointer) => {
+    const index = options.findIndex((_, i) => hit(rows.current[i], pointer));
+    return index === -1 ? null : { key: index, shape: "pointer" };
   });
 
   useInput((input, key) => {
@@ -65,7 +70,7 @@ export function DecisionPrompt({ request, cwd, home, width, onDecide }: Props) {
       <Box flexDirection="column" marginTop={1}>
         <Details request={request} cwd={cwd} home={home} width={inner} note={note} />
       </Box>
-      <Box flexDirection="column" marginTop={1}>
+      <Box ref={list} flexDirection="column" marginTop={1}>
         {options.map((option, i) => (
           <Box
             key={option.choice}
@@ -73,7 +78,7 @@ export function DecisionPrompt({ request, cwd, home, width, onDecide }: Props) {
               rows.current[i] = element;
             }}
           >
-            <ChoiceRow selected={i === selected} width={inner}>
+            <ChoiceRow selected={i === selected} hovered={i === hovered} width={inner}>
               <Text bold={i === selected} color={i === selected ? PALETTE.star : undefined}>
                 {`${i + 1}  ${option.label}`}
               </Text>

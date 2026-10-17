@@ -18,7 +18,7 @@ import { cellWidth, takeCells } from "./markdown";
 import { fit, Panel } from "./markdown-view";
 import { clipboardImage, imageLabel, pastedImageFile } from "./images";
 import { chordHint, keyFor, startsChord, strokeOf, type Action, type Keymap } from "./keys";
-import { hit, useMouse } from "./mouse";
+import { hit, useHover, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
 
 type Props = {
@@ -553,6 +553,10 @@ export function Prompt(props: Props) {
     },
     { isActive: active },
   );
+  // A menu row answers to a click. So does the text, which puts the cursor where it's clicked, so
+  // the pointer is a text beam over it.
+  const hoveredMatch = useHover(menuBox, (_, y) => (y < MENU_ROWS && matches[menuStart + y] ? { key: menuStart + y, shape: "pointer" } : null), showing);
+  useHover(area, () => ({ key: 0, shape: "text" }), active && !search.current);
 
   const mode = modeOf(buffer.current.text);
   // `!` runs a command in your shell, and `#` adds a note to CLAUDE.md. The box says which, and the
@@ -636,7 +640,7 @@ export function Prompt(props: Props) {
           // It runs into the box's top edge, and only its lowest `unfolded` rows show.
           <Box position="absolute" bottom="100%" left={0} width={width} height={unfolded} overflow="hidden" flexDirection="column" justifyContent="flex-end">
             <Box flexShrink={0} flexDirection="column">
-              <SuggestionMenu matches={folding.matches} focus={folding.focus} start={folding.start} width={width} rows={menuBox} />
+              <SuggestionMenu matches={folding.matches} focus={folding.focus} start={folding.start} hovered={hoveredMatch} width={width} rows={menuBox} />
             </Box>
           </Box>
         ) : null}
@@ -684,10 +688,10 @@ function Highlighted({ text, query }: { text: string; query: string }) {
   );
 }
 
-type MenuProps = { matches: Suggestion[]; focus: number; start: number; width: number; rows: RefObject<DOMElement | null> };
+type MenuProps = { matches: Suggestion[]; focus: number; start: number; hovered: number | null; width: number; rows: RefObject<DOMElement | null> };
 
 /** Commands, with what they do, a command's choices, or paths, with the name bright and its folder dim. */
-function SuggestionMenu({ matches, focus, start, width, rows }: MenuProps) {
+function SuggestionMenu({ matches, focus, start, hovered, width, rows }: MenuProps) {
   const names = Math.min(24, Math.max(...matches.map((match) => (match.kind === "command" ? cellWidth(match.command.name) + 1 : 0))));
   const inner = width - 2;
   const first = matches[0];
@@ -736,7 +740,7 @@ function SuggestionMenu({ matches, focus, start, width, rows }: MenuProps) {
     <Panel width={width} note={matches.length > MENU_ROWS ? `${matches.length} ${what}` : undefined} open>
       <Box ref={rows} flexDirection="column">
         {matches.slice(start, start + MENU_ROWS).map((match, i) => (
-          <ChoiceRow key={match.kind === "file" ? match.path : match.kind === "argument" ? match.value : match.command.name} selected={start + i === focus} width={inner}>
+          <ChoiceRow key={match.kind === "file" ? match.path : match.kind === "argument" ? match.value : match.command.name} selected={start + i === focus} hovered={start + i === hovered} width={inner}>
             {row(match, start + i === focus)}
           </ChoiceRow>
         ))}

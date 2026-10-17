@@ -32,7 +32,7 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
     case "prompt":
       return (
         <Railed node="●" color={PALETTE.gold} rail={rail}>
-          <Markdown text={item.text} width={inner.width} yours />
+          <Markdown text={item.text} width={inner.width} voice="you" />
         </Railed>
       );
     case "shell":
@@ -56,9 +56,7 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
     case "thinking":
       return (
         <Railed node="∴" color={PALETTE.haze} rail={rail}>
-          <Text italic color={PALETTE.haze}>
-            {item.text}
-          </Text>
+          <Markdown text={item.text} width={inner.width} voice="thinking" />
         </Railed>
       );
     case "tool": {

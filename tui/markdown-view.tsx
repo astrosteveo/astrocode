@@ -1,4 +1,4 @@
-// Markdown, Claude's and yours, drawn in astrocode's own way. Prose sits on the terminal's
+// Markdown, Claude's and yours, and Claude's thinking, drawn in astrocode's own way. Prose sits on the terminal's
 // background; code and anything a machine printed sits on a panel, a filled surface with soft
 // half-block edges and its label set into the top edge. Headings are weight and color alone, tables
 // have no grid, and quotes hang off a hairline.
@@ -34,28 +34,35 @@ const CALLOUTS: Record<Callout, { color: string; title: string }> = {
 /** The fewest lines a code panel names its length for; a shorter one is read at a glance. */
 const LINE_COUNT_FROM = 5;
 
+/** Whose words these are: Claude's reply, yours, or Claude's thinking. */
+export type Voice = "claude" | "you" | "thinking";
+
 /**
- * Your words (`yours`) are bold and bright, with your strong emphasis in gold and your indentation
- * kept. Claude's are the terminal's own text, with its strong emphasis in teal: bold alone barely
- * shows against a light foreground.
+ * How each voice's prose is drawn under whatever marks it carries, and the color its strong
+ * emphasis, first headings and task bullets take. Claude's words are the terminal's own text with
+ * strong emphasis in teal, since bold alone barely shows against a light foreground. Yours are
+ * bold and bright, with strong emphasis in gold and your indentation kept. Thinking is italic gray.
  */
-export function Markdown({ text, width, yours = false }: { text: string; width: number; yours?: boolean }) {
+const VOICES: Record<Voice, { text: { bold?: boolean; italic?: boolean; color?: string }; accent: string }> = {
+  claude: { text: {}, accent: PALETTE.teal },
+  you: { text: { bold: true, color: PALETTE.star }, accent: PALETTE.gold },
+  thinking: { text: { italic: true, color: PALETTE.haze }, accent: PALETTE.haze },
+};
+
+export function Markdown({ text, width, voice = "claude" }: { text: string; width: number; voice?: Voice }) {
   return (
     <Box flexDirection="column" rowGap={1}>
       {parse(text).map((block, i) => (
-        <BlockView key={i} block={block} width={width} yours={yours} />
+        <BlockView key={i} block={block} width={width} voice={voice} />
       ))}
     </Box>
   );
 }
 
-/** How your words are drawn, under whatever marks they carry. */
-const YOURS = { bold: true, color: PALETTE.star };
-
-function BlockView({ block, width, yours }: { block: Block; width: number; yours: boolean }) {
+function BlockView({ block, width, voice }: { block: Block; width: number; voice: Voice }) {
   switch (block.kind) {
     case "prose":
-      return <Prose text={block.text} width={width} yours={yours} />;
+      return <Prose text={block.text} width={width} voice={voice} />;
     case "code": {
       const source = block.source.replace(/\n$/, "");
       const lines = source.split("\n").length;
@@ -67,14 +74,14 @@ function BlockView({ block, width, yours }: { block: Block; width: number; yours
     }
     case "heading":
       return (
-        <Text bold color={block.level === 1 ? (yours ? PALETTE.gold : PALETTE.teal) : block.level === 2 ? PALETTE.star : PALETTE.haze}>
-          {inline(block.text, yours)}
+        <Text bold color={block.level === 1 ? VOICES[voice].accent : block.level === 2 && voice !== "thinking" ? PALETTE.star : PALETTE.haze}>
+          {inline(block.text, voice)}
         </Text>
       );
     case "table":
-      return <Table block={block} width={width} yours={yours} />;
+      return <Table block={block} width={width} voice={voice} />;
     case "quote":
-      return <Quote block={block} width={width} yours={yours} />;
+      return <Quote block={block} width={width} voice={voice} />;
     case "rule":
       return <Text color={PALETTE.dust}>{"╌".repeat(width)}</Text>;
   }
@@ -86,24 +93,24 @@ const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+(?:\[([ xX])\]\s+)?(.*)$/;
  * Paragraphs and lists, wrapped here rather than by Ink so no line starts with the space it broke
  * at. A list item's wrapped lines hang under its own text.
  */
-function Prose({ text, width, yours }: { text: string; width: number; yours: boolean }) {
+function Prose({ text, width, voice }: { text: string; width: number; voice: Voice }) {
   return (
     <Box flexDirection="column" rowGap={1}>
       {text.split(/\n\s*\n/).map((paragraph, i) => (
         <Box key={i} flexDirection="column">
           {paragraph.split("\n").flatMap((line, j) => {
             const item = LIST_ITEM.exec(line);
-            if (!item) return rows(wrapSpans(spans(yours ? line.trimEnd() : line.trim()), width), `${j}`, yours);
+            if (!item) return rows(wrapSpans(spans(voice === "you" ? line.trimEnd() : line.trim()), width), `${j}`, voice);
             const [, indent = "", marker = "", task, body = ""] = item;
             const bullet = task !== undefined ? (task === " " ? "○" : "●") : /\d/.test(marker) ? marker : "•";
-            const color = task === undefined ? PALETTE.haze : yours ? PALETTE.gold : PALETTE.teal;
+            const color = task === undefined ? PALETTE.haze : VOICES[voice].accent;
             const hang = indent.length + cellWidth(bullet) + 1;
             return wrapSpans(spans(body), width - hang).map((row, k) => (
-              <Text key={`${j}:${k}`} wrap="truncate-end" {...(yours ? YOURS : {})}>
+              <Text key={`${j}:${k}`} wrap="truncate-end" {...VOICES[voice].text}>
                 {" ".repeat(indent.length)}
                 {k === 0 ? <Text color={color}>{bullet} </Text> : " ".repeat(hang - indent.length)}
                 {row.map((run, n) => (
-                  <Styled key={n} run={run} yours={yours} />
+                  <Styled key={n} run={run} voice={voice} />
                 ))}
               </Text>
             ));
@@ -114,21 +121,21 @@ function Prose({ text, width, yours }: { text: string; width: number; yours: boo
   );
 }
 
-function rows(wrapped: Span[][], key: string, yours: boolean) {
+function rows(wrapped: Span[][], key: string, voice: Voice) {
   return wrapped.map((row, i) => (
-    <Text key={`${key}:${i}`} wrap="truncate-end" {...(yours ? YOURS : {})}>
+    <Text key={`${key}:${i}`} wrap="truncate-end" {...VOICES[voice].text}>
       {row.map((run, n) => (
-        <Styled key={n} run={run} yours={yours} />
+        <Styled key={n} run={run} voice={voice} />
       ))}
     </Text>
   ));
 }
 
-export function inline(text: string, yours = false) {
-  return spans(text).map((run, i) => <Styled key={i} run={run} yours={yours} />);
+export function inline(text: string, voice: Voice = "claude") {
+  return spans(text).map((run, i) => <Styled key={i} run={run} voice={voice} />);
 }
 
-function Styled({ run, yours = false }: { run: Span; yours?: boolean }) {
+function Styled({ run, voice = "claude" }: { run: Span; voice?: Voice }) {
   switch (run.style) {
     case "code":
       return (
@@ -144,7 +151,7 @@ function Styled({ run, yours = false }: { run: Span; yours?: boolean }) {
       );
     case "bold":
       return (
-        <Text bold color={yours ? PALETTE.gold : PALETTE.teal}>
+        <Text bold color={VOICES[voice].accent}>
           {run.text}
         </Text>
       );
@@ -256,7 +263,7 @@ export function fit(text: string, room: number, isPath: boolean) {
   return isPath ? `…${lastCells(text, room - 1)}` : `${takeCells(text, room - 1)[0]}…`;
 }
 
-function Quote({ block, width, yours }: { block: Extract<Block, { kind: "quote" }>; width: number; yours: boolean }) {
+function Quote({ block, width, voice }: { block: Extract<Block, { kind: "quote" }>; width: number; voice: Voice }) {
   const callout = block.callout ? CALLOUTS[block.callout] : null;
   const color = callout?.color ?? PALETTE.dust;
   return (
@@ -274,7 +281,7 @@ function Quote({ block, width, yours }: { block: Extract<Block, { kind: "quote" 
           <Text color={color}>▏ </Text>
           <Text italic={!callout} color={callout ? undefined : PALETTE.haze}>
             {row.map((run, j) => (
-              <Styled key={j} run={run} yours={yours} />
+              <Styled key={j} run={run} voice={voice} />
             ))}
           </Text>
         </Text>
@@ -287,7 +294,7 @@ function Quote({ block, width, yours }: { block: Extract<Block, { kind: "quote" 
 const COLUMN_GAP = 3;
 
 /** A table without a grid: the header in bold over a short rule per column, cells wrapped to their column. */
-function Table({ block, width, yours }: { block: Extract<Block, { kind: "table" }>; width: number; yours: boolean }) {
+function Table({ block, width, voice }: { block: Extract<Block, { kind: "table" }>; width: number; voice: Voice }) {
   const count = block.header.length;
   const natural = block.header.map((cell, column) => Math.max(textWidth(cell), ...block.rows.map((row) => textWidth(row[column] ?? ""))));
   const room = width - COLUMN_GAP * (count - 1);
@@ -301,9 +308,9 @@ function Table({ block, width, yours }: { block: Extract<Block, { kind: "table" 
             {block.header.map((head, column) =>
               values[column]
                 ? wrapText(`**${head}:** ${values[column]}`, width).map((row, j) => (
-                    <Text key={`${column}:${j}`} {...(yours ? YOURS : {})}>
+                    <Text key={`${column}:${j}`} {...VOICES[voice].text}>
                       {row.map((run, k) => (
-                        <Styled key={k} run={run} yours={yours} />
+                        <Styled key={k} run={run} voice={voice} />
                       ))}
                     </Text>
                   ))
@@ -318,7 +325,7 @@ function Table({ block, width, yours }: { block: Extract<Block, { kind: "table" 
     const cells = values.map((value, column) => wrapSpans(spans(value), widths[column] ?? 1));
     const height = Math.max(1, ...cells.map((rows) => rows.length));
     return Array.from({ length: height }, (_, index) => (
-      <Text key={`${key}:${index}`} wrap="truncate-end" {...(yours ? YOURS : {})}>
+      <Text key={`${key}:${index}`} wrap="truncate-end" {...VOICES[voice].text}>
         {cells.map((rows, column) => {
           const row = rows[index] ?? [];
           const free = (widths[column] ?? 0) - rowWidth(row);
@@ -331,11 +338,11 @@ function Table({ block, width, yours }: { block: Extract<Block, { kind: "table" 
               {isHeader ? (
                 <Text bold color={PALETTE.star}>
                   {row.map((run, k) => (
-                    <Styled key={k} run={run} yours={yours} />
+                    <Styled key={k} run={run} voice={voice} />
                   ))}
                 </Text>
               ) : (
-                row.map((run, k) => <Styled key={k} run={run} yours={yours} />)
+                row.map((run, k) => <Styled key={k} run={run} voice={voice} />)
               )}
               {" ".repeat(Math.max(0, after))}
             </Text>

@@ -12,7 +12,7 @@ import { ChoiceRow } from "./choice";
 import { Dial, EFFORT_NOTES, effortOn, effortsOf } from "./effort";
 import { cellWidth } from "./markdown";
 import { Panel } from "./markdown-view";
-import { hit, useMouse } from "./mouse";
+import { hit, useHover, useMouse } from "./mouse";
 import { MODE_CHIPS } from "./status";
 import { PALETTE } from "./theme";
 
@@ -141,6 +141,7 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
     event.handled = true;
     setSelected(at.y);
   });
+  const hovered = useHover(list, (_, y) => (rows[y] ? { key: y, shape: "pointer" } : null));
 
   const inner = width - 2;
   // The dials line up, as wide as the widest one.
@@ -152,7 +153,7 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
       </Text>
       <Box ref={list} flexDirection="column" marginTop={1}>
         {rows.map((row, i) => (
-          <ChoiceRow key={row.label} selected={i === selected} width={inner}>
+          <ChoiceRow key={row.label} selected={i === selected} hovered={i === hovered} width={inner}>
             <Box>
               <Box width={LABELS} flexShrink={0}>
                 <Text bold={i === selected} color={i === selected ? PALETTE.star : PALETTE.haze}>

@@ -5,7 +5,7 @@ import { Box, Text, type DOMElement } from "ink";
 import { useRef } from "react";
 import { EFFORTS, type ModelChoice } from "../src/events";
 import { cellWidth } from "./markdown";
-import { hit, useMouse } from "./mouse";
+import { hit, useHover, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
 
 export const EFFORT_NOTES: Record<EffortLevel, string> = {
@@ -51,15 +51,20 @@ export function Dial({ value, focused, changed, pips, onStep }: Props) {
     if (at.x === 0) onStep(-1);
     else if (at.x === cellWidth(value) + 3) onStep(1);
   });
-  const arrow = onStep ? (focused ? PALETTE.gold : PALETTE.dust) : PALETTE.surface;
+  // The arrow under the pointer lights up in your color, bold.
+  const hovered = useHover(box, (x) => (onStep && (x === 0 || x === cellWidth(value) + 3) ? { key: x === 0 ? -1 : 1, shape: "pointer" } : null));
+  const arrow = (side: -1 | 1) => ({
+    color: !onStep ? PALETTE.surface : focused || hovered === side ? PALETTE.gold : PALETTE.dust,
+    bold: hovered === side,
+  });
   return (
     <Box ref={box} flexShrink={0}>
       <Text>
-        <Text color={arrow}>◀ </Text>
+        <Text {...arrow(-1)}>◀</Text>{" "}
         <Text bold={focused} color={changed ? PALETTE.gold : PALETTE.star}>
           {value}
-        </Text>
-        <Text color={arrow}> ▶</Text>
+        </Text>{" "}
+        <Text {...arrow(1)}>▶</Text>
         {pips && pips.at >= 0 ? (
           <Text>
             {"  "}

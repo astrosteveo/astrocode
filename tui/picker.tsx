@@ -5,7 +5,7 @@ import { Box, Text, useInput, type DOMElement } from "ink";
 import { useEffect, useRef, useState } from "react";
 import { ChoiceRow } from "./choice";
 import { Panel } from "./markdown-view";
-import { hit, useMouse } from "./mouse";
+import { hit, useHover, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
 
 export type PickerItem = {
@@ -82,6 +82,7 @@ export function Picker({ title, items, width, rows = 8, empty = "Nothing here ye
     setSelected(start + (at?.y ?? 0));
     onPick(item);
   });
+  const hovered = useHover(list, (_, y) => (visible[y] ? { key: start + y, shape: "pointer" } : null));
 
   return (
     <Box ref={panel} flexDirection="column">
@@ -101,7 +102,7 @@ export function Picker({ title, items, width, rows = 8, empty = "Nothing here ye
             visible.map((item, i) => {
               const isFocused = start + i === index;
               return (
-                <ChoiceRow key={item.key} selected={isFocused} width={inner}>
+                <ChoiceRow key={item.key} selected={isFocused} hovered={start + i === hovered} width={inner}>
                   <Text wrap="truncate-end">
                     <Text bold={isFocused} color={isFocused ? PALETTE.star : undefined}>
                       {item.label}

@@ -11,7 +11,7 @@ import { canStopThinking, modelLabel, resetTime } from "../src/view/format";
 import type { State, UsageWindow } from "../src/view/state";
 import type { GitInfo } from "./git";
 import { cellWidth } from "./markdown";
-import { hit, useMouse } from "./mouse";
+import { hit, useHover, useMouse } from "./mouse";
 import { PALETTE, tone } from "./theme";
 
 export const MODE_CHIPS: Record<PermissionMode, { label: string; color: string }> = {
@@ -103,20 +103,33 @@ export function StatusBar({ state, mode, git, width, exitArmed, toast, onMode, o
     used += cost;
   }
 
+  /** What a click at cell `x` of the bar acts on: the chip, a reading by its place in `shown`, or nothing. */
+  const targetAt = (x: number): "mode" | number | null => {
+    // The chip starts after the bar's padding; the readings end before it, at the right.
+    if (!exitArmed && x >= 1 && x < 1 + cellWidth(left)) return onMode ? "mode" : null;
+    let start = width - 1 - used;
+    for (const [i, segment] of shown.entries()) {
+      if (i > 0) start += GAP.length;
+      if (x >= start && x < start + cellWidth(segment.text)) return segment.onClick ? i : null;
+      start += cellWidth(segment.text);
+    }
+    return null;
+  };
+
   useMouse((event) => {
     if (event.type !== "press" || event.button !== "left") return;
     const at = hit(bar.current, event);
     if (!at) return;
     event.handled = true;
-    // The chip starts after the bar's padding; the readings end before it, at the right.
-    if (!exitArmed && at.x >= 1 && at.x < 1 + cellWidth(left)) return onMode?.();
-    let x = width - 1 - used;
-    for (const [i, segment] of shown.entries()) {
-      if (i > 0) x += GAP.length;
-      if (at.x >= x && at.x < x + cellWidth(segment.text)) return segment.onClick?.();
-      x += cellWidth(segment.text);
-    }
+    const target = targetAt(at.x);
+    if (target === "mode") onMode?.();
+    else if (target !== null) shown[target]?.onClick?.();
   });
+  const hovered = useHover(bar, (x) => {
+    const target = targetAt(x);
+    return target === null ? null : { key: target, shape: "pointer" };
+  });
+  const hover = (key: "mode" | number) => (hovered === key ? PALETTE.hover : undefined);
 
   return (
     <Box ref={bar} width={width} paddingX={1} justifyContent="space-between">
@@ -124,11 +137,13 @@ export function StatusBar({ state, mode, git, width, exitArmed, toast, onMode, o
         <Text color={PALETTE.ember}>{left}</Text>
       ) : (
         <Text>
-          <Text color={chip.color}>▐</Text>
-          <Text backgroundColor={chip.color} color={PALETTE.ink} bold>
-            {chip.label}
+          <Text backgroundColor={hover("mode")}>
+            <Text color={chip.color}>▐</Text>
+            <Text backgroundColor={chip.color} color={PALETTE.ink} bold>
+              {chip.label}
+            </Text>
+            <Text color={chip.color}>▌</Text>
           </Text>
-          <Text color={chip.color}>▌</Text>
           <Text color={PALETTE.dust}>{"  shift+tab"}</Text>
         </Text>
       )}
@@ -136,7 +151,7 @@ export function StatusBar({ state, mode, git, width, exitArmed, toast, onMode, o
         {shown.map((segment, i) => (
           <Text key={i}>
             {i > 0 ? GAP : null}
-            {segment.node}
+            <Text backgroundColor={hover(i)}>{segment.node}</Text>
           </Text>
         ))}
       </Text>

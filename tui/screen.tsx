@@ -5,8 +5,8 @@ import { Box, Text, useBoxMetrics, useInput, useStdout, type DOMElement } from "
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { State } from "../src/view/state";
 import { plural } from "../src/view/tools";
-import { hit, relative, useMouse } from "./mouse";
-import { cellsOn, highlight, selectedText, wordAt, type Cell } from "./selection";
+import { hit, relative, useHover, useMouse } from "./mouse";
+import { band, cellsOn, highlight, selectedText, wordAt, type Cell } from "./selection";
 import { PALETTE } from "./theme";
 import { Welcome, WELCOME_HEIGHT, WELCOME_WIDTH } from "./mirror";
 import { useTranscript, type Transcript } from "./transcript";
@@ -57,6 +57,8 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   /** The selection as of the last event, which may be newer than the last render. */
   const selected = useRef<Selection | null>(null);
   const drag = useRef<"select" | "scrollbar" | null>(null);
+  /** Where the button went down to select, until a drag leaves that cell and starts the selection. */
+  const pressed = useRef<Point | null>(null);
   const edge = useRef<{ timer: ReturnType<typeof setInterval>; step: number; x: number } | null>(null);
 
   const { rows } = transcript;
@@ -101,9 +103,16 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     return row ? { key: row.key, line: row.line, col: Math.max(0, Math.min(width - 1, x)) } : null;
   };
 
+  /**
+   * The selection, stretched to `point`. It starts once a drag leaves the cell the button went down
+   * on, so a click highlights nothing.
+   */
   const extendTo = (point: Point | null) => {
+    if (!point) return;
     const current = selected.current;
-    if (current && point) setSelection({ ...current, to: point });
+    if (current) return setSelection({ ...current, to: point });
+    const from = pressed.current;
+    if (from && !samePoint(from, point)) setSelection({ from, to: point });
   };
 
   const stopEdge = () => {
@@ -169,7 +178,8 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
         if (!point) return;
         if (event.clicks === 1) {
           drag.current = "select";
-          return setSelection({ from: point, to: point });
+          pressed.current = point;
+          return setSelection(null);
         }
         // A double click takes the word, a triple click the line, and both copy at once.
         const index = find(now.current.transcript, point);
@@ -196,13 +206,17 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
         drag.current = null;
         stopEdge();
         const current = selected.current;
-        if (was !== "select" || !current) return;
-        if (current.from.key === current.to.key && current.from.line === current.to.line && current.from.col === current.to.col) {
+        const point = pressed.current;
+        pressed.current = null;
+        if (was !== "select") return;
+        // A drag that came back to where it started selects nothing.
+        if (current && samePoint(current.from, current.to)) return setSelection(null);
+        if (!current) {
           // A click, not a drag: it opens or closes the tool call whose row it's on. The view stays
           // where it is, so the row doesn't move out from under the pointer as its output appears.
-          setSelection(null);
+          if (!point) return;
           const { transcript, top, pad } = now.current;
-          const index = find(transcript, current.from);
+          const index = find(transcript, point);
           const row = index === null ? undefined : transcript.rows[index];
           if (index === null || !row?.head || !transcript.tools.has(row.key)) return;
           setAnchor({ key: row.key, line: row.line, y: index - top + pad });
@@ -252,6 +266,20 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   const cells = selection ? span(transcript, selection) : null;
   // Before the first message, the mirror and how to start, where there's room for them.
   const welcome = state.items.length === 0 && !state.live && view >= WELCOME_HEIGHT && width >= WELCOME_WIDTH + 4;
+  // A tool call's row and the scrollbar answer to a click; the rest of the transcript to a drag,
+  // which selects. The row under the pointer gets a band, so it's plain what a click would open.
+  const hovered = useHover(
+    viewport,
+    (x, y) => {
+      const { transcript, top, pad, thumb } = now.current;
+      if (x > width) return thumb > 0 ? { key: "scrollbar", shape: "pointer" } : null;
+      const row = y < pad ? undefined : transcript.rows[top + y - pad];
+      if (!row) return null;
+      return row.head && transcript.tools.has(row.key) ? { key: row.key, shape: "pointer" } : { key: "", shape: "text" };
+    },
+    !welcome,
+  );
+  useHover(pill, () => ({ key: "pill", shape: "pointer" }), below > 0 && anchor !== null);
   return (
     <Box flexDirection="column" width={columns} height={height}>
       {welcome ? (
@@ -266,7 +294,11 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
               const range = cells ? cellsOn(row.text, top + i, cells[0], cells[1], row.inset) : null;
               return (
                 <Text key={i} wrap="truncate-end">
-                  {range ? highlight(row.text, range[0], range[1]) : row.text || " "}
+                  {range
+                    ? highlight(row.text, range[0], range[1])
+                    : row.head && hovered === row.key && !drag.current
+                      ? band(row.text, row.inset, width, PALETTE.hover)
+                      : row.text || " "}
                 </Text>
               );
             })}
@@ -298,6 +330,10 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
       </Box>
     </Box>
   );
+}
+
+function samePoint(a: Point, b: Point) {
+  return a.key === b.key && a.line === b.line && a.col === b.col;
 }
 
 function find(transcript: Transcript, point: Anchor) {

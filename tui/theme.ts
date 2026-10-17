@@ -29,6 +29,8 @@ export const PALETTE = {
   surface: "#222737",
   /** A selected row, inline code and other raised marks on a panel. */
   raised: "#30374D",
+  /** Under the pointer: a row or control a click would act on, halfway from surface to raised. */
+  hover: "#292F42",
   /** Text on a gold or teal chip. */
   ink: "#141722",
 } as const;

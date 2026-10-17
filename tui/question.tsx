@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 import type { Answers, QuestionRequest } from "../src/events";
 import { ChoiceRow } from "./choice";
 import { Panel } from "./markdown-view";
-import { hit, useMouse } from "./mouse";
+import { hit, useHover, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
 
 /** Keys pressed this soon after a question appears were meant for something else, so Enter, Space, digits and clicks wait. */
@@ -23,6 +23,7 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
   const [typing, setTyping] = useState<string | null>(null);
   const shownAt = useRef(Date.now());
   const rows = useRef<(DOMElement | null)[]>([]);
+  const list = useRef<DOMElement>(null);
 
   const question = questions[step] ?? questions[0]!;
   const other = question.options.length;
@@ -61,6 +62,10 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
     if (Date.now() - shownAt.current < GRACE_MS) return;
     if (typing !== null) setTyping(null);
     pick(index);
+  });
+  const hovered = useHover(list, (_x, _y, pointer) => {
+    const index = rows.current.findIndex((row, i) => i <= other && hit(row, pointer));
+    return index === -1 ? null : { key: index, shape: "pointer" };
   });
 
   usePaste((text) => setTyping((typed) => (typed === null ? typed : typed + text.replace(/\s*\n\s*/g, " "))), { isActive: typing !== null });
@@ -110,7 +115,7 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
       <Text bold color={PALETTE.star}>
         {question.question}
       </Text>
-      <Box flexDirection="column" marginTop={1}>
+      <Box ref={list} flexDirection="column" marginTop={1}>
         {[...question.options, { label: "Other…", description: "Type your own answer" }].map((option, i) => {
           const isFocused = i === selected;
           const box = question.multiSelect && i !== other ? (checked.includes(i) ? "● " : "○ ") : "";
@@ -122,7 +127,7 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
                 rows.current[i] = element;
               }}
             >
-              <ChoiceRow selected={isFocused} width={inner}>
+              <ChoiceRow selected={isFocused} hovered={i === hovered} width={inner}>
                 <Text>
                   <Text color={PALETTE.dust}>{`${i + 1}  `}</Text>
                   {box ? <Text color={checked.includes(i) ? PALETTE.gold : PALETTE.dust}>{box}</Text> : null}
