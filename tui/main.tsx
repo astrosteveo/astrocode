@@ -11,6 +11,7 @@ import { loadKeymap } from "./keys";
 import { Mouse, MouseContext } from "./mouse";
 import { afterFrame, forgetSent } from "./pictures";
 import { Store } from "./store";
+import { TerminalWindow } from "./window";
 
 export type TerminalOptions = { cwd: string; model?: string; effort?: EffortLevel; resume?: string; continue?: boolean; fullscreen?: boolean };
 
@@ -35,6 +36,10 @@ export async function startTerminal(options: TerminalOptions) {
   const stash = await loadStash(options.cwd);
   if (stash) store.unstash(stash);
   if (saved.todos) store.todos = saved.todos;
+  if (saved.notify) store.notifyMode = saved.notify;
+  // Focus reports, the title and the tab's progress, for both layouts and every switch between them.
+  store.window = new TerminalWindow(process.stdin, process.stdout);
+  store.window.start();
   // Claude Code's keybindings.json, so keys you've changed in `claude` change here too.
   const { keymap, problems } = await loadKeymap();
   store.keymap = keymap;
@@ -118,6 +123,7 @@ export async function startTerminal(options: TerminalOptions) {
   }
 
   session.close();
+  store.window.stop();
   await Promise.all([settingsSaved(), stashSaved()]);
   if (session.id) console.log(`\nResume this conversation with: astrocode --resume ${session.id}`);
   process.exit(0);

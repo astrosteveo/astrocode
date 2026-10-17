@@ -6,7 +6,7 @@ import type { EffortLevel, PermissionMode } from "@anthropic-ai/claude-agent-sdk
 import { Box, Text, useInput, type DOMElement } from "ink";
 import { useRef, useState } from "react";
 import { MODES, type ModelChoice } from "../src/events";
-import type { TodoMode } from "../src/settings";
+import type { NotifyMode, TodoMode } from "../src/settings";
 import { isCurrentModel, modelLabel } from "../src/view/format";
 import { ChoiceRow } from "./choice";
 import { Dial, EFFORT_NOTES, effortOn, effortsOf } from "./effort";
@@ -16,12 +16,26 @@ import { hit, useHover, useMouse } from "./mouse";
 import { MODE_CHIPS } from "./status";
 import { PALETTE } from "./theme";
 
-export type ConfigValues = { model?: string; effort?: EffortLevel; thinking: boolean; mode: PermissionMode; todos: TodoMode; fullscreen: boolean };
+export type ConfigValues = {
+  model?: string;
+  effort?: EffortLevel;
+  thinking: boolean;
+  mode: PermissionMode;
+  todos: TodoMode;
+  fullscreen: boolean;
+  notify: NotifyMode;
+};
 
 const TODOS: { mode: TodoMode; label: string; note: string }[] = [
   { mode: "auto", label: "while some are left", note: "Pinned above the message box until every to-do is done" },
   { mode: "on", label: "always", note: "Pinned above the message box, done or not" },
   { mode: "off", label: "hidden", note: "Ctrl+T still shows it, for this session" },
+];
+
+const NOTIFY: { mode: NotifyMode; label: string; note: string }[] = [
+  { mode: "desktop", label: "desktop", note: "When a turn ends or Claude needs you while you're in another window" },
+  { mode: "bell", label: "bell", note: "The terminal's bell, at the same moments" },
+  { mode: "off", label: "off", note: "Only the window title says when Claude needs you" },
 ];
 
 const MODE_NOTES: Partial<Record<PermissionMode, string>> = {
@@ -33,7 +47,7 @@ const MODE_NOTES: Partial<Record<PermissionMode, string>> = {
 };
 
 /** The label column, wide enough for the longest label and a gap. */
-const LABELS = 14;
+const LABELS = 15;
 
 type Row = { label: string; value: string; changed: boolean; note: string; pips?: { at: number; of: number }; step?: (by: -1 | 1) => void };
 
@@ -60,6 +74,7 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
   const track = [...(initial.effort === undefined ? [undefined] : []), ...levels];
   const modeAt = MODES.findIndex((mode) => mode === values.mode);
   const todosAt = TODOS.findIndex((one) => one.mode === values.todos);
+  const notifyAt = NOTIFY.findIndex((one) => one.mode === values.notify);
   const update = (change: Partial<ConfigValues>) => setValues((now) => ({ ...now, ...change }));
   const clamp = (at: number, length: number) => Math.max(0, Math.min(length - 1, at));
 
@@ -109,6 +124,13 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
       note: values.fullscreen ? "The whole terminal, with the mouse" : "The terminal's own scrollback",
       step: () => update({ fullscreen: !values.fullscreen }),
     },
+    {
+      label: "Notifications",
+      value: NOTIFY[notifyAt]?.label ?? "",
+      changed: values.notify !== initial.notify,
+      note: NOTIFY[notifyAt]?.note ?? "",
+      step: (by) => update({ notify: NOTIFY[clamp(notifyAt + by, NOTIFY.length)]?.mode }),
+    },
   ];
 
   const close = () => {
@@ -119,6 +141,7 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
     if (values.mode !== initial.mode) changes.mode = values.mode;
     if (values.todos !== initial.todos) changes.todos = values.todos;
     if (values.fullscreen !== initial.fullscreen) changes.fullscreen = values.fullscreen;
+    if (values.notify !== initial.notify) changes.notify = values.notify;
     onClose(changes);
   };
 

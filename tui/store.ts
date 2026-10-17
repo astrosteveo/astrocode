@@ -1,9 +1,10 @@
 import type { ImageAttachment } from "../src/events";
-import type { TodoMode } from "../src/settings";
+import type { NotifyMode, TodoMode } from "../src/settings";
 import type { Stash } from "../src/stash";
 import { imageLabel } from "./images";
 import { DEFAULT_KEYMAP, type Keymap } from "./keys";
 import { prepare, whenReady } from "./pictures";
+import type { TerminalWindow } from "./window";
 import { initialState, reduce, type State, type ViewEvent } from "../src/view/state";
 
 /**
@@ -21,6 +22,10 @@ export class Store {
   stash: string | null = null;
   /** When the pinned to-dos show: as /config set it, or as Ctrl+T last set it this session. */
   todos: TodoMode = "auto";
+  /** How a turn's end or a prompt is announced while you're in another window, as /config set it. */
+  notifyMode: NotifyMode = "desktop";
+  /** The terminal window's focus, title, progress and notifications. */
+  window: TerminalWindow | null = null;
   /** What the message box's keys do, read from keybindings.json as astrocode starts. */
   keymap: Keymap = DEFAULT_KEYMAP;
   /** Commands run with `!` that are still going, by id, to stop. They outlive a switch of layouts. */

@@ -6,10 +6,10 @@ import { Box, Static, useApp, useStdout, useWindowSize } from "ink";
 import { randomUUID } from "node:crypto";
 import { useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { EFFORTS, isEffort, MODES, type CommandInfo } from "../src/events";
-import { historyEvents, loadHistory, savedSessions, shellMessages, type SavedSession } from "../src/history";
+import { historyEvents, loadHistory, savedSessions, sessionTitle, shellMessages, type SavedSession } from "../src/history";
 import { addMemory, memoryFiles, type MemoryFile } from "../src/memory";
 import type { AgentSession } from "../src/session";
-import { remember, settingsPath, type Remembered, type TodoMode } from "../src/settings";
+import { remember, settingsPath, type NotifyMode, type Remembered, type TodoMode } from "../src/settings";
 import { runShell } from "../src/shell";
 import { saveStash } from "../src/stash";
 import { ago, canStopThinking, currentModel, duration } from "../src/view/format";
@@ -18,6 +18,7 @@ import type { Item } from "../src/view/state";
 import { todoList } from "../src/view/todos";
 import { plural, shortPath, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
 import { Activity } from "./activity";
+import { useAttention } from "./attention";
 import { Banner } from "./banner";
 import { copy } from "./clipboard";
 import { ConfigMenu, type ConfigValues } from "./config";
@@ -83,7 +84,7 @@ const HELP = [
   "Ctrl+O opens a tool call's whole output. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
-  "/config changes the model, effort, thinking, mode, to-do list and full screen, and keeps them for next time, except plan mode and max effort. /fullscreen switches layouts.",
+  "/config changes the model, effort, thinking, mode, to-do list, full screen and notifications, and keeps them for next time, except plan mode and max effort. /fullscreen switches layouts.",
 ].join("\n");
 
 const FULLSCREEN_HELP = [
@@ -113,7 +114,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   // The mode last asked for, until Claude Code confirms it, so quick Shift+Tabs keep stepping.
   const [modeWanted, setModeWanted] = useState<PermissionMode | null>(null);
   const wanted = useRef<PermissionMode | null>(null);
-  const git = useGit(state.cwd, state.items.filter((item) => item.kind === "turn").length);
+  const turns = state.items.filter((item) => item.kind === "turn").length;
+  const git = useGit(state.cwd, turns);
   // Full screen's own: tool calls opened to their whole output, one to scroll to, and what was copied.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [reveal, setReveal] = useState<{ key: string } | null>(null);
@@ -126,6 +128,14 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     store.todos = mode;
     setTodoState(mode);
   };
+  /** How a turn's end or a prompt is announced while you're elsewhere, as /config set it. */
+  const [notifyMode, setNotifyState] = useState(store.notifyMode);
+  const setNotifyMode = (mode: NotifyMode) => {
+    store.notifyMode = mode;
+    setNotifyState(mode);
+  };
+  const title = useSessionTitle(session.id, state.cwd, turns, store.epoch);
+  useAttention({ state, window: store.window, notify: notifyMode, title, git });
   /** The message put aside with Ctrl+S, kept in the store so it outlives a switch of layouts. */
   const [stash, setStash] = useState(store.stash);
   /** Ctrl+X Ctrl+K pressed once: pressed again soon, it stops everything running. */
@@ -200,7 +210,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         report(error);
       }
     };
-    const { model, effort, thinking, mode, todos, fullscreen: layout } = changes;
+    const { model, effort, thinking, mode, todos, notify, fullscreen: layout } = changes;
     if (model) await attempt(() => session.setModel(model), () => (kept.model = model));
     if (effort) await attempt(() => session.setEffort(effort), () => (kept.effort = effort));
     if (thinking !== undefined) await attempt(() => session.setThinking(thinking), () => (kept.thinking = thinking));
@@ -208,6 +218,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     if (todos) {
       setTodoMode(todos);
       kept.todos = todos;
+    }
+    if (notify) {
+      setNotifyMode(notify);
+      kept.notify = notify;
     }
     if (layout !== undefined) kept.fullscreen = layout;
     if (!Object.keys(kept).length) return;
@@ -441,6 +455,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       let edited: string | undefined;
       let failure: unknown;
       mouse?.stop();
+      store.window?.stop();
       const suspension = await suspendTerminal();
       try {
         edited = await editText(text);
@@ -448,6 +463,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         failure = error;
       } finally {
         await suspension.resume();
+        store.window?.start();
         mouse?.start();
         if (fullscreen) resendPictures();
         editing.current = false;
@@ -499,7 +515,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         if (!rest.length) {
           return setOverlay({
             kind: "config",
-            initial: { model: state.model, effort: state.effort, thinking: state.thinking ?? true, mode: wanted.current ?? state.mode, todos: todoMode, fullscreen },
+            initial: { model: state.model, effort: state.effort, thinking: state.thinking ?? true, mode: wanted.current ?? state.mode, todos: todoMode, fullscreen, notify: notifyMode },
           });
         }
         // fullscreen= is astrocode's own key; Claude Code gets the rest.
@@ -542,6 +558,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     editing.current = true;
     void (async () => {
       mouse?.stop();
+      store.window?.stop();
       const suspension = await suspendTerminal();
       const started = Date.now();
       let resumed = false;
@@ -562,6 +579,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         });
       } finally {
         await suspension.resume();
+        store.window?.start();
         mouse?.start();
         if (fullscreen) resendPictures();
         editing.current = false;
@@ -620,7 +638,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     { name: "rewind", description: "Go back to an earlier message, its files, or both (Esc Esc)", argumentHint: "" },
     { name: "tasks", description: "What runs in the background and your ! commands, to watch or stop", argumentHint: "" },
     { name: "plugins", description: "Install, turn on or off, and remove plugins", argumentHint: "" },
-    { name: "config", description: "astrocode's settings: model, effort, thinking, mode, to-dos and full screen", argumentHint: "" },
+    { name: "config", description: "astrocode's settings: model, effort, thinking, mode, to-dos, full screen and notifications", argumentHint: "" },
     {
       name: "fullscreen",
       description: fullscreen ? "Go back to the terminal's own scrollback" : "Use the whole terminal, with the mouse",
@@ -965,6 +983,27 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       </Box>
     </>
   );
+}
+
+/**
+ * The session's title as Claude Code keeps it: yours from /rename, else the one it made up, else
+ * your first message. Read again as each turn ends, and for a new or resumed session.
+ */
+function useSessionTitle(id: string | undefined, cwd: string, turns: number, epoch: number) {
+  const [title, setTitle] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (!id) return setTitle(undefined);
+    let alive = true;
+    void sessionTitle(id, cwd)
+      .catch(() => undefined)
+      .then((next) => {
+        if (alive) setTitle(next);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [id, cwd, turns, epoch]);
+  return title;
 }
 
 function useGit(cwd: string, refresh: number) {
