@@ -179,6 +179,25 @@ export class TerminalWindow {
   }
 }
 
+/**
+ * Where your messages start in scrollback, for the terminal's jump to the previous or next prompt
+ * (kitty's scroll_to_prompt, Ghostty's jump_to_prompt, WezTerm's ScrollToPrompt, tmux's
+ * next-prompt). Ink keeps no escape code in its output but OSC 8 links, so a message's dot is a
+ * link to this address, and `markPrompts()` turns the link into OSC 133's marks on the way to the
+ * terminal: A where the prompt starts, and C right after, so the terminal still takes astrocode for
+ * a command that's running. The link's end stays, ending no link.
+ */
+export const PROMPT_LINK = "astrocode:prompt";
+const PROMPT_START = `\x1b]8;;${PROMPT_LINK}\x07`;
+const PROMPT_MARKS = "\x1b]133;A\x07\x1b]133;C\x07";
+
+/** Turns the prompt links in what Ink writes into OSC 133 marks. */
+export function markPrompts(stdout: NodeJS.WriteStream) {
+  const write = stdout.write.bind(stdout) as (chunk: unknown, ...rest: unknown[]) => boolean;
+  stdout.write = ((chunk: unknown, ...rest: unknown[]) =>
+    write(typeof chunk === "string" && chunk.includes(PROMPT_START) ? chunk.replaceAll(PROMPT_START, PROMPT_MARKS) : chunk, ...rest)) as typeof stdout.write;
+}
+
 function progressCode(progress: Progress) {
   // A full bar for the states that have a color of their own: red for failure, yellow for paused.
   return `\x1b]9;4;${{ none: "0", busy: "3", waiting: "4;100", error: "2;100" }[progress]}\x07`;

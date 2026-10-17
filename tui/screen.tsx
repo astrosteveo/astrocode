@@ -1,13 +1,15 @@
 // Full screen: the conversation in a viewport that scrolls, with the message box and status bar
 // pinned under it. The wheel, PgUp and PgDn scroll, and the viewport follows the end until you
 // scroll up. Dragging selects text and copies it; clicking a tool call or a command opens it, and
-// clicking a link opens that.
+// clicking a link opens that. Ctrl+F finds text in it, and Alt+↑ and Alt+↓ jump between your
+// messages, with Shift between tool calls and commands.
 import { Box, Text, useBoxMetrics, useInput, useStdout, type DOMElement } from "ink";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { State } from "../src/view/state";
 import { plural } from "../src/view/tools";
 import { hit, MULTI_CLICK_MS, relative, useHover, useMouse } from "./mouse";
-import { cellsOn, highlight, hoverBand, isTextAt, linkAt, linkBand, selectedText, wordAt, type Cell } from "./selection";
+import type { Find } from "./find";
+import { cellsOn, findIn, highlight, hoverBand, isTextAt, linkAt, linkBand, markMatches, selectedText, wordAt, type Cell } from "./selection";
 import { PALETTE } from "./theme";
 import { Welcome, WELCOME_HEIGHT, WELCOME_WIDTH } from "./mirror";
 import { pictureRows, usePictureRows } from "./pictures";
@@ -47,11 +49,15 @@ type Props = {
   onCopy: (text: string) => void;
   /** A click on a link. */
   onOpen: (url: string) => void;
+  /** What Ctrl+F is finding, while its bar is open. */
+  find: Find | null;
+  /** How many matches the transcript has for it. */
+  onMatches: (count: number) => void;
   /** What's pinned under the viewport. */
   children: ReactNode;
 };
 
-export function Screen({ state, epoch, branch, columns, rows: height, expanded, waiting, reveal, keys, onToggle, onCopy, onOpen, children }: Props) {
+export function Screen({ state, epoch, branch, columns, rows: height, expanded, waiting, reveal, keys, onToggle, onCopy, onOpen, find: search, onMatches, children }: Props) {
   // A column for the scrollbar and one to keep it off the text.
   const width = Math.max(10, columns - 2);
   const viewport = useRef<DOMElement>(null);
@@ -75,6 +81,25 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
 
   const { rows } = transcript;
   const total = rows.length;
+
+  // Search's matches, top to bottom, and the one it's on, counted back from the newest.
+  const query = search?.query ?? "";
+  const matches = useMemo(
+    () => (query ? rows.flatMap((row, index) => findIn(row.text, query).map(([from, to]) => ({ index, from, to }))) : []),
+    [rows, query],
+  );
+  const current = matches.length ? matches.length - 1 - ((search?.back ?? 0) % matches.length) : -1;
+  const marks = useMemo(() => {
+    const byRow = new Map<number, { ranges: [number, number][]; current: number }>();
+    matches.forEach((match, i) => {
+      const row = byRow.get(match.index) ?? { ranges: [], current: -1 };
+      if (i === current) row.current = row.ranges.length;
+      row.ranges.push([match.from, match.to]);
+      byRow.set(match.index, row);
+    });
+    return byRow;
+  }, [matches, current]);
+  useEffect(() => onMatches(matches.length), [matches.length]);
   const maxTop = Math.max(0, total - view);
   const anchored = anchor ? find(transcript, anchor) : null;
   // Where the anchored row would put the top of the viewport. Above the first row, that's room
@@ -281,11 +306,28 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     if (selected.current && !drag.current) setSelection(null);
     if (!keys) return;
     const page = Math.max(1, now.current.view - 2);
+    if (key.meta && (key.upArrow || key.downArrow)) return jump(key.upArrow ? -1 : 1, key.shift);
     if (key.pageUp) scrollBy(-page);
     else if (key.pageDown) scrollBy(page);
     else if (key.ctrl && key.home) scrollTo(0);
     else if (key.ctrl && key.end) setAnchor(null);
   });
+
+  /**
+   * Alt+↑ and Alt+↓: the viewport's top goes to your message before or after the one there, or
+   * with Shift to a tool call or command. Past the last one, it goes back to following the end.
+   */
+  const jump = (by: -1 | 1, tools: boolean) => {
+    const { transcript, top } = now.current;
+    const starts = state.items.flatMap((item) => {
+      const wanted = tools ? item.kind === "tool" || item.kind === "shell" : item.kind === "prompt";
+      const start = wanted ? transcript.starts.get(item.key) : undefined;
+      return start === undefined ? [] : [start];
+    });
+    const next = by < 0 ? starts.findLast((start) => start < top) : starts.find((start) => start > top);
+    if (next === undefined) return by > 0 ? setAnchor(null) : undefined;
+    scrollTo(next);
+  };
 
   // A new or resumed session starts at the end; so does sending a message.
   const sent = state.items.reduce((count, item) => count + (item.kind === "prompt" ? 1 : 0), 0);
@@ -297,6 +339,15 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   useEffect(() => {
     if (reveal) setAnchor({ key: reveal.key, line: 0 });
   }, [reveal]);
+
+  // The match search is on stays in view, a third of the way down when it has to move.
+  const target = matches[current]?.index;
+  useEffect(() => {
+    if (target === undefined) return;
+    const { top, view, pad } = now.current;
+    if (target >= top && target < top + view - pad) return;
+    scrollTo(target - Math.floor(view / 3));
+  }, [target, query, search?.back]);
 
   // A terminal can move or rewrap what's on screen as it resizes, which Ink's line-by-line updates
   // don't know about. Once it settles, the screen is cleared and Ink draws the whole frame again.
@@ -347,11 +398,14 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
             {pad > 0 ? <Box height={pad} /> : null}
             {rows.slice(top, top + view - pad).map((row, i) => {
               const range = cells ? cellsOn(row.text, top + i, cells[0], cells[1], row.inset) : null;
+              const found = marks.get(top + i);
               return (
                 <Text key={i} wrap="truncate-end">
                   {range
                     ? highlight(row.text, range[0], range[1])
-                    : drag.current
+                    : found
+                      ? markMatches(row.text, found.ranges, found.current)
+                      : drag.current
                       ? row.text || " "
                       : linkUrl && row.key === linkEntry
                         ? linkBand(row.text, linkUrl)

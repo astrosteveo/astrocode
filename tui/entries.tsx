@@ -10,11 +10,13 @@ import type { Item, Live } from "../src/view/state";
 import { cellWidth } from "./markdown";
 import { Markdown } from "./markdown-view";
 import { FullOutput, OutputBody } from "./output";
+import { hyperlink } from "./links";
 import { ImageView, isReady, Pictures } from "./pictures";
 import { GUTTER, LIVE, Railed, type Rail } from "./rail";
 import { ShellCard } from "./shell-card";
 import { PALETTE } from "./theme";
 import { DraftRow, picturesOf, toolNode, ToolRow } from "./tool-row";
+import { PROMPT_LINK } from "./window";
 
 /** `pictureRows`: how tall a picture in an entry may be. */
 export type ViewProps = { cwd: string; home: string; width: number; pictureRows: number };
@@ -27,14 +29,16 @@ type ItemProps = {
   waiting?: boolean;
   /** A tool call or a `!` command opened in full screen, with its whole output under its row. */
   expanded?: boolean;
+  /** A message of yours carries the mark the terminal jumps to, in scrollback. */
+  marked?: boolean;
 } & ViewProps;
 
-export function ItemView({ item, rail, detailed = false, waiting = false, expanded = false, ...view }: ItemProps) {
+export function ItemView({ item, rail, detailed = false, waiting = false, expanded = false, marked = false, ...view }: ItemProps) {
   const inner = { ...view, width: view.width - GUTTER };
   switch (item.kind) {
     case "prompt":
       return (
-        <Railed node="●" color={PALETTE.gold} rail={rail}>
+        <Railed node={marked ? hyperlink(PROMPT_LINK, "●") : "●"} color={PALETTE.gold} rail={rail}>
           <Message text={item.text} images={item.images} width={inner.width} rows={view.pictureRows} />
         </Railed>
       );

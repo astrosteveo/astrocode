@@ -66,6 +66,8 @@ type Props = {
   onModelPicker: () => void;
   /** Ctrl+X Ctrl+K: everything running alongside the conversation stopped, once it's pressed twice. */
   onStopTasks: () => void;
+  /** Ctrl+F: find in full screen's transcript. Not in scrollback, where the terminal has its own. */
+  onFind?: () => void;
   /** A message put aside with Ctrl+S. It stays until Ctrl+S brings it back, whatever is sent meanwhile. */
   stash: string | null;
   onStash: (text: string | null) => void;
@@ -473,6 +475,9 @@ export function Prompt(props: Props) {
         if (startsChord(props.keymap, pressed)) return arm(pressed);
       }
       if (key.ctrl && input === "z") return props.onSuspend();
+      // Full screen's own keys: Ctrl+F finds in the transcript, and Alt+↑ and Alt+↓ move through it.
+      if (key.ctrl && input === "f" && props.onFind) return props.onFind();
+      if (props.fullscreen && key.meta && (key.upArrow || key.downArrow)) return;
       if (key.ctrl && input === "y") return killed.current ? insert(killed.current) : undefined;
       if (key.escape) {
         if (busy) return props.onInterrupt();

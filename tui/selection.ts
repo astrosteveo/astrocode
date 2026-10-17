@@ -75,34 +75,77 @@ export function sliceCells(text: string, from: number, to: number) {
 
 /** `line` with the cells from `from` up to `to` drawn as selected, plain, and its own styles after. */
 export function highlight(line: string, from: number, to: number) {
+  return paint(line, [{ from, to, style: SELECTED }]);
+}
+
+/** A run of cells drawn in a style of its own, over the line's: a selection, or a search's match. */
+type Paint = { from: number; to: number; style: string };
+
+/** `line` with each run drawn in its style, plain, and the line's own styles after it. Runs go in order and don't overlap. */
+function paint(line: string, runs: Paint[]) {
   let out = "";
   let col = 0;
-  let selecting = false;
-  /** The styles set so far, to pick back up after the selection. */
+  let current: Paint | null = null;
+  let next = 0;
+  /** The styles set so far, to pick back up after a run. */
   let styles = "";
   for (const part of line.split(CODE)) {
     if (CODE.test(part)) {
-      // A link goes on through the selection, so the terminal still knows it.
+      // A link goes on through a run, so the terminal still knows it.
       if (LINK.test(part)) out += part;
       else {
         styles = part === "\x1b[0m" || part === "\x1b[m" ? "" : styles + part;
-        if (!selecting) out += part;
+        if (!current) out += part;
       }
       continue;
     }
     for (const { segment } of graphemes.segment(part)) {
-      if (!selecting && col >= from && col < to) {
-        out += RESET + SELECTED;
-        selecting = true;
-      } else if (selecting && col >= to) {
+      if (current && col >= current.to) {
         out += RESET + styles;
-        selecting = false;
+        current = null;
+      }
+      while (runs[next] && runs[next]!.to <= col) next++;
+      const run = runs[next];
+      if (!current && run && col >= run.from && col < run.to) {
+        out += RESET + run.style;
+        current = run;
+        next++;
       }
       out += segment;
       col += cellWidth(segment);
     }
   }
-  return selecting ? out + RESET : out;
+  return current ? out + RESET : out;
+}
+
+/** A match that isn't the one search is on: a deeper gold. */
+const MATCH = `\x1b[48;2;${rgb(PALETTE.goldDeep).join(";")}m\x1b[38;2;${rgb(PALETTE.ink).join(";")}m`;
+
+/**
+ * Where `query` is in a row, as runs of cells. Smart case, as in a pager: lowercase matches either
+ * case, and a capital letter makes it exact. A picture's row has no text to find.
+ */
+export function findIn(line: string, query: string): [number, number][] {
+  if (!query) return [];
+  const text = plain(line);
+  if (PICTURE.test(text.trimStart().replace(/^[│ ]+/, ""))) return [];
+  const exact = query !== query.toLowerCase();
+  const haystack = exact ? text : text.toLowerCase();
+  const needle = exact ? query : query.toLowerCase();
+  const found: [number, number][] = [];
+  for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + needle.length)) {
+    const from = cellWidth(text.slice(0, at));
+    found.push([from, from + cellWidth(text.slice(at, at + needle.length))]);
+  }
+  return found;
+}
+
+/** A row with search's matches drawn on it; `current` is the one search is on, by its place in `matches`. */
+export function markMatches(line: string, matches: [number, number][], current: number) {
+  return paint(
+    line,
+    matches.map(([from, to], i) => ({ from, to, style: i === current ? SELECTED : MATCH })),
+  );
 }
 
 /**

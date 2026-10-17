@@ -25,6 +25,7 @@ import { ConfigMenu, type ConfigValues } from "./config";
 import { DecisionPrompt } from "./decision";
 import { EFFORT_NOTES, effortsOf } from "./effort";
 import { editText } from "./editor";
+import { FindBar, type Find } from "./find";
 import { ItemView, LiveView } from "./entries";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
@@ -64,6 +65,8 @@ type Overlay =
   | { kind: "task"; key: string }
   /** Where a note written with `#` goes. */
   | { kind: "memory"; note: string; files: MemoryFile[] | null }
+  /** Finding text in full screen's transcript. */
+  | { kind: "find" }
   | null;
 
 /** How long the status bar says what was copied. */
@@ -89,6 +92,7 @@ const HELP = [
 
 const FULLSCREEN_HELP = [
   "Full screen: the wheel, PgUp and PgDn scroll; Ctrl+Home and Ctrl+End go to the top and the end.",
+  "Ctrl+F finds text in the conversation: Enter or ↑ goes to the match before, ↓ to the one after. Alt+↑ and Alt+↓ jump between your messages, Alt+Shift+↑ and Alt+Shift+↓ between tool calls and commands.",
   "Drag to copy, double-click to copy a word, triple-click to copy a line.",
   "Click a tool call or a command to open it (a running one shows its live output), an option to choose it, the mode, the model or the effort to change it.",
   "Hold Shift to select with the terminal's own selection instead.",
@@ -120,6 +124,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [reveal, setReveal] = useState<{ key: string } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  /** What Ctrl+F finds, kept when its bar closes so it opens again on the same words, and how many matches there are. */
+  const [find, setFind] = useState<Find>({ query: "", back: 0 });
+  const [matchCount, setMatchCount] = useState(0);
   /** Text for the message box, such as a rewound message or one edited in $EDITOR. */
   const [prefill, setPrefill] = useState<{ text: string } | null>(null);
   /** The pinned to-dos: shown while some are left (auto), or as Ctrl+T or /config last set. */
@@ -832,6 +839,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
             }}
           />
         );
+      case "find":
+        return <FindBar find={find} count={matchCount} width={width} onChange={setFind} onClose={close} />;
       case "plugins":
         return (
           <PluginManager
@@ -892,6 +901,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           onStepEffort={stepEffort}
           onModelPicker={() => setOverlay({ kind: "model" })}
           onStopTasks={stopAllTasks}
+          onFind={fullscreen ? () => setOverlay({ kind: "find" }) : undefined}
           stash={stash}
           onStash={(text) => {
             store.stash = text;
@@ -946,6 +956,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         onToggle={toggleTool}
         onCopy={copySelection}
         onOpen={openAddress}
+        find={overlay?.kind === "find" ? find : null}
+        onMatches={setMatchCount}
       >
         {panel}
       </Screen>
@@ -961,7 +973,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         {(entry) => (
           <Box key={entry.key} flexDirection="column">
             {"item" in entry ? (
-              <ItemView item={entry.item} rail={entry.rail} detailed {...view} />
+              <ItemView item={entry.item} rail={entry.rail} detailed marked {...view} />
             ) : (
               <Banner cwd={state.cwd} home={state.home} branch={branch} width={width} />
             )}
