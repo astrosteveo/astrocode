@@ -9,6 +9,7 @@ import type {
   SDKResultMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { CommandInfo, ImageAttachment, ModelChoice, PermissionRequest, QuestionRequest, SessionEvent } from "../events";
+import { duration } from "./format";
 
 type StreamEvent = SDKPartialAssistantMessage["event"];
 type AssistantBlock = SDKAssistantMessage["message"]["content"][number];
@@ -28,6 +29,36 @@ export type ToolCall = {
   images?: ImageAttachment[];
   /** Tool calls a subagent made under this call. */
   subagentCalls: number;
+  /** When the call came and when its result did, in ms. A saved conversation doesn't say. */
+  startedAt?: number;
+  endedAt?: number;
+  /** Seconds it has run, as Claude Code reports while it runs. */
+  elapsed?: number;
+  /**
+   * A command running in the background, started there or moved there with Ctrl+B, and how it
+   * ended. A saved conversation doesn't say how it went, only that it went there: `unknown`.
+   */
+  background?: "running" | "completed" | "failed" | "stopped" | "unknown";
+};
+
+/**
+ * A command you ran with `!`. `stdout` is what its terminal shows, as it runs and once it's done.
+ * The times are when it started, last reported and ended, where known. `background`: something
+ * came after it while it ran, so its card stopped being the newest thing in the transcript.
+ */
+export type ShellItem = {
+  kind: "shell";
+  key: string;
+  id: string;
+  command: string;
+  status: "running" | "done" | "error" | "stopped";
+  stdout: string;
+  stderr: string;
+  code?: number | null;
+  startedAt?: number;
+  at?: number;
+  endedAt?: number;
+  background?: boolean;
 };
 
 export type Item =
@@ -47,10 +78,11 @@ export type Item =
       replayed?: boolean;
     }
   | { kind: "notice"; key: string; tone: "info" | "error"; text: string }
-  /** A command you ran with `!`. */
-  | { kind: "shell"; key: string; id: string; command: string; status: "running" | "done" | "error"; stdout: string; stderr: string }
-  /** A tool call's whole output, printed on request. */
-  | { kind: "output"; key: string; call: ToolCall };
+  | ShellItem
+  /** A tool call's or a `!` command's whole output, printed on request. */
+  | { kind: "output"; key: string; of: ToolItem | ShellItem };
+
+export type ToolItem = Extract<Item, { kind: "tool" }>;
 
 type NewItem = Item extends infer I ? (I extends Item ? Omit<I, "key"> : never) : never;
 
@@ -62,6 +94,26 @@ export type Live = { messageId: string; blocks: LiveBlock[]; finalized: number }
 
 /** Work Claude Code runs in the background, such as a command or a subagent moved there with Ctrl+B. */
 export type BackgroundTask = { id: string; description: string; type: string };
+
+/**
+ * What's known about a task of Claude Code's, running or ended: the tool call that started it, its
+ * progress and how it ended. `background`: it ran in the background, not as a call Claude waited on.
+ */
+export type TaskInfo = {
+  id: string;
+  description: string;
+  type: string;
+  toolUseId?: string;
+  background: boolean;
+  status: "running" | "completed" | "failed" | "stopped";
+  startedAt?: number;
+  endedAt?: number;
+  /** A line on what it's doing, or what it did once it ended. */
+  summary?: string;
+  lastTool?: string;
+  tokens?: number;
+  toolUses?: number;
+};
 
 /** A plan usage window, from Claude Code's rate-limit events. `utilization` is 0 to 1. */
 export type UsageWindow = { utilization: number; resetsAt: number };
@@ -81,6 +133,8 @@ export type State = {
   limits: { fiveHour?: UsageWindow; sevenDay?: UsageWindow };
   /** What runs in the background right now. */
   tasks: BackgroundTask[];
+  /** This Claude Code process's tasks, running or ended, by id. */
+  taskInfo: Record<string, TaskInfo>;
   items: Item[];
   /** Tool call id to its index in `items`. */
   tools: Record<string, number>;
@@ -98,7 +152,7 @@ export type ViewEvent =
   | SessionEvent
   /** A saved conversation, replayed when resuming it. */
   | { kind: "history"; events: SessionEvent[]; title?: string; notice?: string }
-  /** Print a tool call's whole output into the transcript. */
+  /** Print a tool call's or a `!` command's whole output into the transcript. */
   | { kind: "output"; id: string };
 
 export function initialState(cwd: string, home: string): State {
@@ -110,6 +164,7 @@ export function initialState(cwd: string, home: string): State {
     mode: "default",
     limits: {},
     tasks: [],
+    taskInfo: {},
     items: [],
     tools: {},
     live: null,
@@ -125,23 +180,28 @@ export function reduce(state: State, event: ViewEvent): State {
   switch (event.kind) {
     case "ready":
       // A new Claude Code process, with nothing in the background yet.
-      return { ...state, plan: event.plan, models: event.models, commands: event.commands, tasks: [] };
+      return { ...state, plan: event.plan, models: event.models, commands: event.commands, tasks: [], taskInfo: {} };
     case "commands":
       return { ...state, commands: event.commands };
     case "prompt":
       return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images }), busy: true };
     case "shell":
-      return add(state, { kind: "shell", id: event.id, command: event.command, status: "running", stdout: "", stderr: "" });
+      return add(state, { kind: "shell", id: event.id, command: event.command, status: "running", stdout: "", stderr: "", startedAt: event.at, at: event.at });
+    case "shell-output":
+      return updateShell(state, event.id, (item) => (item.status === "running" ? { stdout: event.output, at: event.at } : {}));
     case "shell-done": {
-      const index = state.items.findIndex((item) => item.kind === "shell" && item.id === event.id);
-      const item = state.items[index];
-      if (item?.kind !== "shell") return state;
-      const items = state.items.slice();
-      items[index] = { ...item, status: event.code === 0 ? "done" : "error", stdout: event.stdout, stderr: event.stderr };
-      return { ...state, items };
+      const item = state.items.find((one): one is ShellItem => one.kind === "shell" && one.id === event.id);
+      if (!item) return state;
+      const status = event.stopped ? "stopped" : event.code === 0 ? "done" : "error";
+      const next = updateShell(state, event.id, () => ({ status, stdout: event.stdout, stderr: event.stderr, code: event.code, at: event.at, endedAt: event.at }));
+      // Its card was drawn for good while it ran, so how it ended goes at the end of the transcript.
+      if (!item.background) return next;
+      const took = event.at !== undefined && item.startedAt !== undefined ? ` after ${duration(event.at - item.startedAt)}` : "";
+      const how = status === "stopped" ? "stopped" : status === "error" ? (event.code === null ? "failed" : `exited with ${event.code}`) : "finished";
+      return add(next, { kind: "notice", tone: status === "error" ? "error" : "info", text: `! ${firstLine(item.command)} ${how}${took}.` });
     }
     case "sdk":
-      return applySdk(state, event.message, event.images);
+      return applySdk(state, event.message, event.images, event.at);
     case "permission":
       return { ...state, pending: [...state.pending.filter((p) => p.id !== event.request.id), event.request] };
     case "question":
@@ -178,31 +238,61 @@ export function reduce(state: State, event: ViewEvent): State {
     }
     case "output": {
       const index = state.tools[event.id];
-      const item = index === undefined ? undefined : state.items[index];
-      return item?.kind === "tool" ? add(state, { kind: "output", call: item.call }) : state;
+      const item = index === undefined ? state.items.find((one) => one.kind === "shell" && one.id === event.id) : state.items[index];
+      return item?.kind === "tool" || item?.kind === "shell" ? add(state, { kind: "output", of: item }) : state;
     }
   }
 }
 
-function applySdk(state: State, message: SDKMessage, images: Record<string, ImageAttachment[]> = {}): State {
+function applySdk(state: State, message: SDKMessage, images: Record<string, ImageAttachment[]> = {}, at?: number): State {
   switch (message.type) {
     case "system":
       switch (message.subtype) {
         case "init":
           return { ...state, model: state.model ?? message.model, mode: message.permissionMode };
-        case "background_tasks_changed":
-          return {
-            ...state,
-            tasks: message.tasks
-              .filter((task) => !task.ambient)
-              .map((task) => ({ id: task.task_id, description: task.description, type: task.task_type })),
+        case "background_tasks_changed": {
+          const tasks = message.tasks
+            .filter((task) => !task.ambient)
+            .map((task) => ({ id: task.task_id, description: task.description, type: task.task_type }));
+          const taskInfo = { ...state.taskInfo };
+          for (const task of tasks) {
+            const known = taskInfo[task.id];
+            taskInfo[task.id] = known ? { ...known, background: true } : { ...task, background: true, status: "running", startedAt: at };
+          }
+          return { ...state, tasks, taskInfo };
+        }
+        case "task_started": {
+          if (message.skip_transcript || message.ambient) return state;
+          const known = state.taskInfo[message.task_id];
+          const task: TaskInfo = {
+            id: message.task_id,
+            description: message.description,
+            type: message.task_type ?? known?.type ?? "",
+            toolUseId: message.tool_use_id,
+            background: known?.background || message.is_backgrounded === true,
+            status: "running",
+            startedAt: known?.startedAt ?? at,
           };
+          return { ...state, taskInfo: { ...state.taskInfo, [task.id]: task } };
+        }
+        case "task_progress":
+          return updateTask(state, message.task_id, (task) => ({
+            summary: message.summary ?? task.summary,
+            lastTool: message.last_tool_name ?? task.lastTool,
+            tokens: message.usage.total_tokens,
+            toolUses: message.usage.tool_uses,
+          }));
+        case "task_updated":
+          return message.patch.is_backgrounded ? updateTask(state, message.task_id, () => ({ background: true })) : state;
         case "task_notification": {
+          let next = updateTask(state, message.task_id, (task) => ({ status: message.status, endedAt: at, summary: message.summary || task.summary }));
+          // A command that ran in the background: its card says how it ended.
+          if (message.tool_use_id) next = updateTool(next, message.tool_use_id, (call) => (call.background ? { background: message.status } : {}));
           // Only work that ran in the background: a subagent Claude waited on reports back as its tool call.
           const task = state.tasks.find((one) => one.id === message.task_id);
-          if (!task || message.skip_transcript) return state;
+          if (!task || message.skip_transcript) return next;
           const how = { completed: "finished", failed: "failed", stopped: "stopped" }[message.status];
-          return add(state, { kind: "notice", tone: message.status === "failed" ? "error" : "info", text: `Background task ${how}: ${task.description}` });
+          return add(next, { kind: "notice", tone: message.status === "failed" ? "error" : "info", text: `Background task ${how}: ${task.description}` });
         }
         case "status":
           return message.permissionMode ? { ...state, mode: message.permissionMode } : state;
@@ -215,12 +305,14 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
       }
     case "rate_limit_event":
       return { ...state, limits: usageWindows(message.rate_limit_info, state.limits) };
+    case "tool_progress":
+      return message.parent_tool_use_id ? state : updateTool(state, message.tool_use_id, (call) => (call.status === "running" ? { elapsed: message.elapsed_time_seconds } : {}));
     case "stream_event":
       return message.parent_tool_use_id ? state : applyStream({ ...state, busy: true }, message.event);
     case "assistant":
-      return applyAssistant({ ...state, busy: true }, message);
+      return applyAssistant({ ...state, busy: true }, message, at);
     case "user":
-      return applyUser(state, message, images);
+      return applyUser(state, message, images, at);
     case "result":
       return applyResult(state, message);
     default:
@@ -282,7 +374,7 @@ function applyStream(state: State, event: StreamEvent): State {
   }
 }
 
-function applyAssistant(state: State, message: SDKAssistantMessage): State {
+function applyAssistant(state: State, message: SDKAssistantMessage, at?: number): State {
   const content = message.message.content;
   if (message.parent_tool_use_id) {
     const calls = content.filter((block) => block.type === "tool_use").length;
@@ -299,7 +391,7 @@ function applyAssistant(state: State, message: SDKAssistantMessage): State {
     } else if (block.type === "thinking" && block.thinking.trim()) {
       next = add(next, { kind: "thinking", text: block.thinking });
     } else if (block.type === "tool_use") {
-      next = addTool(next, { id: block.id, name: block.name, input: asRecord(block.input), status: "running", subagentCalls: 0 });
+      next = addTool(next, { id: block.id, name: block.name, input: asRecord(block.input), status: "running", subagentCalls: 0, startedAt: at });
     }
   }
   return next;
@@ -320,7 +412,7 @@ function finalizeLive(state: State, messageId: string, block: AssistantBlock): S
   return { ...state, live: { ...live, finalized } };
 }
 
-function applyUser(state: State, message: UserMessage, images: Record<string, ImageAttachment[]>): State {
+function applyUser(state: State, message: UserMessage, images: Record<string, ImageAttachment[]>, at?: number): State {
   const content = message.message.content;
   if (message.parent_tool_use_id || typeof content === "string") return state;
   const results = content.filter((block) => block.type === "tool_result");
@@ -336,6 +428,14 @@ function applyUser(state: State, message: UserMessage, images: Record<string, Im
       output,
       images: images[block.tool_use_id],
       status: call.status === "denied" || call.status === "stopped" ? call.status : refused ? "denied" : block.is_error ? "error" : "done",
+      endedAt: at,
+      // Started in the background or moved there: Claude Code answers at once, and the command runs on.
+      background:
+        typeof field(output, "backgroundTaskId") === "string"
+          ? (call.background ?? "running")
+          : output === undefined && result.startsWith("Command running in background with ID:")
+            ? "unknown"
+            : call.background,
     }));
   }
   return next;
@@ -395,8 +495,35 @@ function stopRunningTools(state: State): State {
   return { ...state, items };
 }
 
+/**
+ * A new entry at the end. A `!` command still running moves to the background once anything comes
+ * after it, so what follows can be drawn for good.
+ */
 function add(state: State, item: NewItem): State {
-  return { ...state, seq: state.seq + 1, items: [...state.items, { ...item, key: `i${state.seq}` } as Item] };
+  const live = (one: Item) => one.kind === "shell" && one.status === "running" && !one.background;
+  const items = state.items.some(live) ? state.items.map((one) => (live(one) ? { ...one, background: true } : one)) : state.items;
+  return { ...state, seq: state.seq + 1, items: [...items, { ...item, key: `i${state.seq}` } as Item] };
+}
+
+function updateShell(state: State, id: string, patch: (item: ShellItem) => Partial<ShellItem>): State {
+  const index = state.items.findIndex((item) => item.kind === "shell" && item.id === id);
+  const item = state.items[index];
+  if (item?.kind !== "shell") return state;
+  const changes = patch(item);
+  if (!Object.keys(changes).length) return state;
+  const items = state.items.slice();
+  items[index] = { ...item, ...changes };
+  return { ...state, items };
+}
+
+function updateTask(state: State, id: string, patch: (task: TaskInfo) => Partial<TaskInfo>): State {
+  const task = state.taskInfo[id];
+  return task ? { ...state, taskInfo: { ...state.taskInfo, [id]: { ...task, ...patch(task) } } } : state;
+}
+
+function firstLine(text: string) {
+  const [first = ""] = text.split("\n");
+  return text.includes("\n") ? `${first} …` : first;
 }
 
 function addTool(state: State, call: ToolCall): State {
@@ -408,8 +535,10 @@ function updateTool(state: State, id: string, patch: (call: ToolCall) => Partial
   const index = state.tools[id];
   const item = index === undefined ? undefined : state.items[index];
   if (index === undefined || item?.kind !== "tool") return state;
+  const changes = patch(item.call);
+  if (!Object.keys(changes).length) return state;
   const items = state.items.slice();
-  items[index] = { ...item, call: { ...item.call, ...patch(item.call) } };
+  items[index] = { ...item, call: { ...item.call, ...changes } };
   return { ...state, items };
 }
 

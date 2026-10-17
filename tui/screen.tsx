@@ -1,12 +1,12 @@
 // Full screen: the conversation in a viewport that scrolls, with the message box and status bar
 // pinned under it. The wheel, PgUp and PgDn scroll, and the viewport follows the end until you
-// scroll up. Dragging selects text and copies it; clicking a tool call's row opens its output.
+// scroll up. Dragging selects text and copies it; clicking a tool call or a command opens it.
 import { Box, Text, useBoxMetrics, useInput, useStdout, type DOMElement } from "ink";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { State } from "../src/view/state";
 import { plural } from "../src/view/tools";
-import { hit, relative, useHover, useMouse } from "./mouse";
-import { band, cellsOn, highlight, selectedText, wordAt, type Cell } from "./selection";
+import { hit, MULTI_CLICK_MS, relative, useHover, useMouse } from "./mouse";
+import { cellsOn, highlight, hoverBand, selectedText, wordAt, type Cell } from "./selection";
 import { PALETTE } from "./theme";
 import { Welcome, WELCOME_HEIGHT, WELCOME_WIDTH } from "./mirror";
 import { pictureRows, usePictureRows } from "./pictures";
@@ -39,7 +39,8 @@ type Props = {
   reveal: { key: string } | null;
   /** Whether PgUp and PgDn scroll; a picker open below uses them for its list. */
   keys: boolean;
-  onToggle: (key: string) => void;
+  /** A click on an entry. True when it opened or closed in place, false when it opened something else. */
+  onToggle: (key: string) => boolean;
   onCopy: (text: string) => void;
   /** What's pinned under the viewport. */
   children: ReactNode;
@@ -61,6 +62,8 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   /** Where the button went down to select, until a drag leaves that cell and starts the selection. */
   const pressed = useRef<Point | null>(null);
   const edge = useRef<{ timer: ReturnType<typeof setInterval>; step: number; x: number } | null>(null);
+  /** A click inside an opened entry, closing it unless it turns out to start a double or triple click. */
+  const closing = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { rows } = transcript;
   const total = rows.length;
@@ -137,7 +140,18 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     edge.current = { timer, step, x };
   };
 
-  useEffect(() => stopEdge, []);
+  const cancelClosing = () => {
+    if (closing.current) clearTimeout(closing.current);
+    closing.current = null;
+  };
+
+  useEffect(
+    () => () => {
+      stopEdge();
+      cancelClosing();
+    },
+    [],
+  );
 
   const thumbTo = (y: number) => {
     const { view, maxTop, thumb } = now.current;
@@ -184,6 +198,7 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
           return setSelection(null);
         }
         // A double click takes the word, a triple click the line, and both copy at once.
+        cancelClosing();
         const index = find(now.current.transcript, point);
         const text = index === null ? "" : (now.current.transcript.rows[index]?.text ?? "");
         const [from, to] = event.clicks === 2 ? wordAt(text, point.col) : [0, width - 1];
@@ -214,15 +229,28 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
         // A drag that came back to where it started selects nothing.
         if (current && samePoint(current.from, current.to)) return setSelection(null);
         if (!current) {
-          // A click, not a drag: it opens or closes the tool call whose row it's on. The view stays
-          // where it is, so the row doesn't move out from under the pointer as its output appears.
+          // A click, not a drag: it opens or closes the tool call or command it's on. The view
+          // stays where it is, so the row doesn't move out from under the pointer as it opens.
           if (!point) return;
           const { transcript, top, pad } = now.current;
           const index = find(transcript, point);
           const row = index === null ? undefined : transcript.rows[index];
-          if (index === null || !row?.head || !transcript.tools.has(row.key)) return;
-          setAnchor({ key: row.key, line: row.line, y: index - top + pad });
-          onToggle(row.key);
+          if (index === null || !row?.hot) return;
+          const y = index - top + pad;
+          if (!row.open || row.head) {
+            if (onToggle(row.key)) setAnchor({ key: row.key, line: row.line, y });
+            return;
+          }
+          // Inside what's open, a click closes it, once it's plain it isn't the first of a double or
+          // triple click, which copy a word or a line. The entry's first row then takes the place of
+          // the row clicked, so the card is where you were reading, not wherever its top had been.
+          const { key } = row;
+          cancelClosing();
+          closing.current = setTimeout(() => {
+            closing.current = null;
+            const { transcript, view } = now.current;
+            if (onToggle(key)) setAnchor({ key, line: headLine(transcript, key), y: Math.max(0, Math.min(y, view - 4)) });
+          }, MULTI_CLICK_MS);
           return;
         }
         copy(current);
@@ -268,8 +296,8 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   const cells = selection ? span(transcript, selection) : null;
   // Before the first message, the mirror and how to start, where there's room for them.
   const welcome = state.items.length === 0 && !state.live && view >= WELCOME_HEIGHT && width >= WELCOME_WIDTH + 4;
-  // A tool call's row and the scrollbar answer to a click; the rest of the transcript to a drag,
-  // which selects. The row under the pointer gets a band, so it's plain what a click would open.
+  // Tool calls, commands and the scrollbar answer to a click; the rest of the transcript to a drag,
+  // which selects. The rows under the pointer get a band, so it's plain what a click would open.
   const hovered = useHover(
     viewport,
     (x, y) => {
@@ -277,7 +305,9 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
       if (x > width) return thumb > 0 ? { key: "scrollbar", shape: "pointer" } : null;
       const row = y < pad ? undefined : transcript.rows[top + y - pad];
       if (!row) return null;
-      return row.head && transcript.tools.has(row.key) ? { key: row.key, shape: "pointer" } : { key: "", shape: "text" };
+      // What's open is for reading and selecting, so it keeps the text beam, and only its first row
+      // is banded as what a click acts on.
+      return row.hot && (!row.open || row.head) ? { key: row.key, shape: "pointer" } : { key: "", shape: "text" };
     },
     !welcome,
   );
@@ -298,8 +328,8 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
                 <Text key={i} wrap="truncate-end">
                   {range
                     ? highlight(row.text, range[0], range[1])
-                    : row.head && hovered === row.key && !drag.current
-                      ? band(row.text, row.inset, width, PALETTE.hover)
+                    : row.hot && (!row.open || row.head) && hovered === row.key && !drag.current
+                      ? hoverBand(row.text, row.inset, width)
                       : row.text || " "}
                 </Text>
               );
@@ -336,6 +366,13 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
 
 function samePoint(a: Point, b: Point) {
   return a.key === b.key && a.line === b.line && a.col === b.col;
+}
+
+/** Which of an entry's lines is its first line of content. */
+function headLine(transcript: Transcript, key: string) {
+  const start = transcript.starts.get(key) ?? 0;
+  for (let i = start; transcript.rows[i]?.key === key; i++) if (transcript.rows[i]?.head) return transcript.rows[i]!.line;
+  return 0;
 }
 
 function find(transcript: Transcript, point: Anchor) {

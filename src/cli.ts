@@ -53,6 +53,10 @@ if (effort !== undefined && !isEffort(effort)) {
   process.exit(2);
 }
 
+// The palette is made from the terminal's own colors, so they're asked for before the interface,
+// and the palette with it, loads.
+const { askColors } = await import("../tui/colors");
+await askColors(process.stdin, process.stdout);
 const { startTerminal } = await import("../tui/main");
 await startTerminal({
   cwd: resolve(positionals[0] ?? process.cwd()),

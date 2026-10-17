@@ -186,6 +186,19 @@ export function keyFor(keymap: Keymap, action: Action) {
   return null;
 }
 
+/** A binding as it's written in prose: `ctrl+x ctrl+k` reads as Ctrl+X Ctrl+K. */
+export function keyLabel(chord: string) {
+  return chord
+    .split(" ")
+    .map((stroke) =>
+      stroke
+        .split("+")
+        .map((part) => (part.length === 1 ? part.toUpperCase() : `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`))
+        .join("+"),
+    )
+    .join(" ");
+}
+
 /** Whether keys pressed so far start a longer chord, so the next key finishes it. */
 export function startsChord(keymap: Keymap, pressed: string) {
   for (const chord of keymap.keys()) if (chord.startsWith(`${pressed} `)) return true;

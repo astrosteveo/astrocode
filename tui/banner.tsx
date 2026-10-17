@@ -19,14 +19,13 @@ const MIRROR_WIDTH = 9;
 const MIRROR_ROWS = 5;
 /** The mirror and the gap after it. */
 const TEXT_AT = MIRROR_WIDTH + 4;
-const LIGHT = "#FFE2A0";
 
 type Props = { cwd: string; home: string; branch?: string; width: number; fullscreen?: boolean };
 
 export function Banner({ cwd, home, branch, width, fullscreen = false }: Props) {
   const room = width - TEXT_AT;
   const where = fit(shortPath(cwd, "", home), room - (branch ? branch.length + 4 : 0), true);
-  const hint = fullscreen ? "Drag to copy. Click a tool call to open it. /help for more." : "Type / for commands, /help for keys.";
+  const hint = fullscreen ? "Drag to copy. Click a tool call or a command to open it. /help for more." : "Type / for commands, /help for keys.";
   const lines = [
     null,
     <Text key="name" bold color={PALETTE.star}>
@@ -60,7 +59,7 @@ export function Banner({ cwd, home, branch, width, fullscreen = false }: Props) 
               // Light falls from the upper left, so those segments shine and the far ones deepen.
               const shade = (col / (MIRROR_WIDTH - 1) + row / (MIRROR_ROWS - 1)) / 2;
               return (
-                <Text key={col} color={shade < 0.35 ? mix(LIGHT, PALETTE.gold, shade / 0.35) : mix(PALETTE.gold, PALETTE.goldDeep, (shade - 0.35) / 0.65)}>
+                <Text key={col} color={shade < 0.35 ? mix(PALETTE.glint, PALETTE.gold, shade / 0.35) : mix(PALETTE.gold, PALETTE.goldDeep, (shade - 0.35) / 0.65)}>
                   ⬢
                 </Text>
               );

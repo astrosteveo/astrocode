@@ -28,8 +28,6 @@ type Props = {
   /** Full screen, where the menu covers the transcript; in scrollback it makes room for itself. */
   fullscreen: boolean;
   busy: boolean;
-  /** A command run with `!` is still going: Esc stops it. */
-  running: boolean;
   width: number;
   /** The project, whose files `@` offers. */
   cwd: string;
@@ -66,7 +64,7 @@ type Props = {
   onToggleThinking: () => void;
   /** Alt+P: the model and effort picker. */
   onModelPicker: () => void;
-  /** Ctrl+X Ctrl+K: everything in the background stopped. */
+  /** Ctrl+X Ctrl+K: everything running alongside the conversation stopped, once it's pressed twice. */
   onStopTasks: () => void;
   /** A message put aside with Ctrl+S. It stays until Ctrl+S brings it back, whatever is sent meanwhile. */
   stash: string | null;
@@ -477,7 +475,7 @@ export function Prompt(props: Props) {
       if (key.ctrl && input === "z") return props.onSuspend();
       if (key.ctrl && input === "y") return killed.current ? insert(killed.current) : undefined;
       if (key.escape) {
-        if (busy || props.running) return props.onInterrupt();
+        if (busy) return props.onInterrupt();
         if (text) return;
         const now = Date.now();
         if (now - lastEscape.current < DOUBLE_ESC_MS) {

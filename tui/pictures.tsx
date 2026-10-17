@@ -80,7 +80,8 @@ function imagesIn(event: ViewEvent): ImageAttachment[] {
 /** The images an entry draws: what you sent with a message, or what a tool's result carried. */
 export function imagesOf(item: Item): ImageAttachment[] {
   if (item.kind === "prompt") return Object.values(item.images ?? {});
-  if (item.kind === "tool" || item.kind === "output") return item.call.images ?? [];
+  if (item.kind === "tool") return item.call.images ?? [];
+  if (item.kind === "output") return item.of.kind === "tool" ? (item.of.call.images ?? []) : [];
   return [];
 }
 

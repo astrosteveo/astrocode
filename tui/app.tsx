@@ -12,7 +12,8 @@ import type { AgentSession } from "../src/session";
 import { remember, settingsPath, type Remembered, type TodoMode } from "../src/settings";
 import { runShell } from "../src/shell";
 import { saveStash } from "../src/stash";
-import { ago, canStopThinking, currentModel } from "../src/view/format";
+import { ago, canStopThinking, currentModel, duration } from "../src/view/format";
+import { findRunning, runningKeyOf, runningList, type Running } from "../src/view/runs";
 import type { Item } from "../src/view/state";
 import { todoList } from "../src/view/todos";
 import { plural, shortPath, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
@@ -26,6 +27,7 @@ import { editText } from "./editor";
 import { ItemView, LiveView } from "./entries";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
+import { keyFor, keyLabel } from "./keys";
 import { ANSI } from "./markdown";
 import { fit } from "./markdown-view";
 import { ModelPicker } from "./model-picker";
@@ -35,10 +37,11 @@ import { pictureRows, resendPictures } from "./pictures";
 import { PluginManager } from "./plugins";
 import { Prompt } from "./prompt";
 import { QuestionPrompt } from "./question";
-import { rails } from "./rail";
+import { GUTTER, rails } from "./rail";
 import { Screen } from "./screen";
 import { StatusBar } from "./status";
 import type { Store } from "./store";
+import { RUNNING_STATUS, TaskView } from "./tasks";
 import { PinnedTodos, STATUS } from "./tool-row";
 
 type Overlay =
@@ -54,16 +57,17 @@ type Overlay =
   | { kind: "rewind" }
   /** What to put back for the message picked, once Claude Code has said what the files would change. */
   | { kind: "rewind-how"; uuid: string; text: string; files: RewindFilesResult | null }
+  /** What runs alongside the conversation, and one of them opened, by its key in `runningList()`. */
   | { kind: "tasks" }
+  | { kind: "task"; key: string }
   /** Where a note written with `#` goes. */
   | { kind: "memory"; note: string; files: MemoryFile[] | null }
   | null;
 
-/** Kinds of background work, by Claude Code's task types. */
-const TASK_KINDS: Record<string, string> = { local_bash: "command", local_agent: "subagent", local_workflow: "workflow", monitor: "monitor" };
-
 /** How long the status bar says what was copied. */
 const TOAST_MS = 2000;
+/** As much of a `!` command's output as goes to Claude, its end, as Claude Code cuts its own shell output. */
+const MAX_SHELL_OUTPUT = 30_000;
 
 const HELP = [
   "Enter sends. Shift+Enter, Alt+Enter, Ctrl+J, or \\ then Enter starts a new line. Type / for commands; partway through a message, choosing one writes it in.",
@@ -71,9 +75,9 @@ const HELP = [
   "Shift+Tab changes the permission mode. Alt+P switches the model and its effort, Alt+T turns thinking off and on. ↑ and ↓ recall earlier messages; Ctrl+R searches them.",
   "Ctrl+S puts the message aside, and it stays there until Ctrl+S brings it back. Pressed with a message in the box, the two trade places.",
   "Ctrl+_ undoes. Ctrl+K, Ctrl+U, Ctrl+W and Alt+D cut, Ctrl+Y puts back what they cut. Alt+B and Alt+F move by words. Ctrl+L clears the box.",
-  "! runs a command in your shell and shows it to Claude. # adds a note to a CLAUDE.md.",
+  "! runs a command in your shell. Its output streams in as it runs, you can keep talking meanwhile, and Claude sees it once it ends. # adds a note to a CLAUDE.md.",
   "Ctrl+V attaches the clipboard's image; a pasted or dropped image file attaches too. Ctrl+G or Ctrl+X Ctrl+E edits the message in $EDITOR.",
-  "Ctrl+B moves a command or subagent Claude is waiting on to the background (/tasks); Ctrl+X Ctrl+K stops everything there. Ctrl+T shows or hides the to-dos.",
+  "Ctrl+B moves a command or subagent Claude is waiting on to the background. /tasks lists what runs there and your ! commands: open one to watch it, and x stops it. Ctrl+X Ctrl+K twice stops them all. Ctrl+T shows or hides the to-dos.",
   "Ctrl+Enter or Ctrl+X Ctrl+S sends now, stopping what Claude is doing. Ctrl+Z suspends astrocode until the shell's fg.",
   "Ctrl+O opens a tool call's whole output. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
@@ -84,7 +88,7 @@ const HELP = [
 const FULLSCREEN_HELP = [
   "Full screen: the wheel, PgUp and PgDn scroll; Ctrl+Home and Ctrl+End go to the top and the end.",
   "Drag to copy, double-click to copy a word, triple-click to copy a line.",
-  "Click a tool call to open it, an option to choose it, the mode, the model or the effort to change it.",
+  "Click a tool call or a command to open it (a running one shows its live output), an option to choose it, the mode, the model or the effort to change it.",
   "Hold Shift to select with the terminal's own selection instead.",
 ].join("\n");
 
@@ -123,8 +127,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   };
   /** The message put aside with Ctrl+S, kept in the store so it outlives a switch of layouts. */
   const [stash, setStash] = useState(store.stash);
-  /** Commands run with `!` that haven't finished, to stop with Esc. */
-  const shells = useRef(new Map<string, AbortController>());
+  /** Ctrl+X Ctrl+K pressed once: pressed again soon, it stops everything running. */
+  const [stopArmed, setStopArmed] = useState(false);
   const editing = useRef(false);
 
   useEffect(() => {
@@ -132,6 +136,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     const timer = setTimeout(() => setExitArmed(false), 2000);
     return () => clearTimeout(timer);
   }, [exitArmed]);
+
+  useEffect(() => {
+    if (!stopArmed) return;
+    const timer = setTimeout(() => setStopArmed(false), 3000);
+    return () => clearTimeout(timer);
+  }, [stopArmed]);
 
   useEffect(() => {
     if (!toast) return;
@@ -161,7 +171,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     store.emit({ kind: "notice", tone: "error", text: error instanceof Error ? error.message : String(error) });
   const notice = (tone: "info" | "error", text: string) => store.emit({ kind: "notice", tone, text });
 
-  const shellRunning = state.items.some((item) => item.kind === "shell" && item.status === "running");
+  const running = runningList(state);
+  const runningNow = running.filter((one) => one.status === "running").length;
   const todos = todoList(state.items);
   const todosLeft = todos?.some((todo) => todo.status !== "completed") ?? false;
   const showTodos = Boolean(todos?.length) && (todoMode === "on" || (todoMode === "auto" && todosLeft));
@@ -235,12 +246,28 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     }, report);
   };
 
+  /**
+   * chat:killAgents. Pressed once it asks, as in Claude Code; pressed again, it stops everything
+   * running. Each says how it ended: your commands on their cards, Claude Code's tasks in notices.
+   */
   const stopAllTasks = () => {
-    if (!state.tasks.length) return notice("info", "Nothing runs in the background.");
-    void Promise.all(state.tasks.map((task) => session.stopTask(task.id))).then(
-      () => notice("info", `Stopped ${plural(state.tasks.length, "background task")}.`),
-      report,
-    );
+    if (!runningNow) return notice("info", "Nothing is running alongside the conversation.");
+    if (!stopArmed) return setStopArmed(true);
+    setStopArmed(false);
+    store.stopShells();
+    void Promise.all(state.tasks.map((task) => session.stopTask(task.id))).catch(report);
+  };
+
+  /** /tasks and the status bar: what's running, or the one thing running, opened. */
+  const openTasks = () => {
+    const now = running.filter((one) => one.status === "running");
+    setOverlay(now.length === 1 && now[0] ? { kind: "task", key: now[0].key } : { kind: "tasks" });
+  };
+
+  /** Stops one thing running, from its view: a command of yours, or a task of Claude Code's. */
+  const stopRunning = (entry: Running) => {
+    if (entry.shellId) store.shells.get(entry.shellId)?.abort();
+    else if (entry.taskId) session.stopTask(entry.taskId).catch(report);
   };
 
   /** Full screen or scrollback, kept for next time even when it's the layout already showing. */
@@ -249,10 +276,16 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     if (next !== fullscreen) onToggleFullscreen();
   };
 
-  /** A new screen for a new or resumed session, scrollback included, as `claude` does. Full screen has no scrollback to clear. */
+  /**
+   * A new screen for a new or resumed session, scrollback included, as `claude` does. Full screen
+   * has no scrollback to clear. Commands of yours still running belong to the conversation left,
+   * and stop with it, as Claude Code's background tasks do.
+   */
   const startOver = () => {
     if (!fullscreen) write("\x1b[2J\x1b[3J\x1b[H");
+    const stopped = store.stopShells();
     store.reset();
+    if (stopped) notice("info", `Stopped ${stopped === 1 ? "a command of yours that was" : `${stopped} commands of yours that were`} still running.`);
   };
 
   const resumeSession = (id: string, title?: string) => {
@@ -275,21 +308,36 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       });
   };
 
-  /** Full screen opens a tool call's output under its row and scrolls there; scrollback prints it at the end. */
+  /**
+   * Full screen opens a tool call's or a command's output under its row and scrolls there;
+   * scrollback prints it at the end.
+   */
   const showOutput = (id: string) => {
     const index = state.tools[id];
-    const item = index === undefined ? undefined : state.items[index];
+    const item = index === undefined ? state.items.find((one) => one.kind === "shell" && one.id === id) : state.items[index];
     if (!fullscreen || !item) return store.emit({ kind: "output", id });
     setExpanded((open) => new Set(open).add(item.key));
     setReveal({ key: item.key });
   };
 
-  const toggleTool = (key: string) =>
+  /**
+   * A click on an entry in full screen opens or closes it in place. Something still running, or
+   * that ran in the background, opens its view instead.
+   */
+  const toggleTool = (key: string) => {
+    const item = state.items.find((one) => one.key === key);
+    const task = item ? runningKeyOf(item, state) : undefined;
+    if (task) {
+      setOverlay({ kind: "task", key: task });
+      return false;
+    }
     setExpanded((open) => {
       const next = new Set(open);
       if (!next.delete(key)) next.add(key);
       return next;
     });
+    return true;
+  };
 
   const copySelection = (text: string) => {
     copy(text);
@@ -300,24 +348,26 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   /** A message, with the images it still mentions. */
   const send = (text: string) => session.send(text, store.images);
 
-  /** Runs a command with `!`, then adds it and what it printed to the conversation, as Claude Code does. */
+  /**
+   * Runs a command with `!`. Its output streams into its card while you carry on, and once it ends
+   * it goes into the conversation with what it printed, as Claude Code adds its own.
+   */
   const runCommand = (command: string) => {
     if (!command) return;
     const id = randomUUID();
     const controller = new AbortController();
-    shells.current.set(id, controller);
-    store.emit({ kind: "shell", id, command });
-    void runShell(command, state.cwd, controller.signal).then((result) => {
-      shells.current.delete(id);
-      store.emit({ kind: "shell-done", id, ...result });
-      const stdout = result.stdout.replace(ANSI, "");
-      const stderr = result.stderr.replace(ANSI, "");
-      for (const message of shellMessages(command, stdout || stderr ? stdout : "(Bash completed with no output)", stderr)) session.note(message);
+    const epoch = store.epoch;
+    store.shells.set(id, controller);
+    store.emit({ kind: "shell", id, command, at: Date.now() });
+    const onOutput = (output: string) => store.emit({ kind: "shell-output", id, output, at: Date.now() });
+    void runShell(command, { cwd: state.cwd, cols: width - GUTTER - 2, signal: controller.signal, onOutput }).then((result) => {
+      store.shells.delete(id);
+      // After /clear or a resume, the conversation it belonged to is gone.
+      if (store.epoch !== epoch) return;
+      store.emit({ kind: "shell-done", id, stdout: result.output, stderr: "", code: result.code, stopped: result.stopped, at: Date.now() });
+      const said = result.output.replace(ANSI, "").slice(-MAX_SHELL_OUTPUT);
+      for (const message of shellMessages(command, said || "(Bash completed with no output)", result.stopped ? "Stopped by the user." : "")) session.note(message);
     });
-  };
-
-  const stopShells = () => {
-    for (const controller of shells.current.values()) controller.abort();
   };
 
   /** Asks where a note written with `#` goes. */
@@ -435,7 +485,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       case "/rewind":
         return openRewind();
       case "/tasks":
-        return setOverlay({ kind: "tasks" });
+        return openTasks();
       case "/config": {
         if (!rest.length) {
           return setOverlay({
@@ -536,13 +586,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     }, report);
   };
 
+  /** Esc stops Claude. Your commands run on until you stop them yourself, from /tasks. */
   const interrupt = () => {
-    stopShells();
     if (state.busy) void session.interrupt().catch(report);
   };
 
   const onCtrlC = () => {
-    if (shellRunning) return stopShells();
     if (state.busy) return void session.interrupt().catch(report);
     if (exitArmed) return exit();
     setExitArmed(true);
@@ -560,7 +609,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     { name: "effort", description: "Set how hard Claude thinks", argumentHint: "[low|medium|high|xhigh|max]" },
     { name: "output", description: "Open a tool call's whole output (Ctrl+O)", argumentHint: "" },
     { name: "rewind", description: "Go back to an earlier message, its files, or both (Esc Esc)", argumentHint: "" },
-    { name: "tasks", description: "What runs in the background, to stop (Ctrl+B moves work there)", argumentHint: "" },
+    { name: "tasks", description: "What runs in the background and your ! commands, to watch or stop", argumentHint: "" },
     { name: "plugins", description: "Install, turn on or off, and remove plugins", argumentHint: "" },
     { name: "config", description: "astrocode's settings: model, effort, thinking, mode, to-dos and full screen", argumentHint: "" },
     {
@@ -707,18 +756,38 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       case "tasks":
         return (
           <Picker
-            title="Background tasks · enter stops one"
+            title="Running · enter opens one"
             width={width}
             rows={listRows}
-            items={state.tasks.map((task) => ({ key: task.id, label: task.description, note: TASK_KINDS[task.type] ?? task.type }))}
-            empty="Nothing runs in the background. Ctrl+B moves a command or subagent Claude is waiting on there."
+            items={running.map((one) => ({
+              key: one.key,
+              label: `${RUNNING_STATUS[one.status].glyph} ${one.title}`,
+              note: [one.kind, one.status === "running" ? "running" : one.status === "completed" ? "finished" : one.status, one.startedAt ? ago(one.startedAt) : ""]
+                .filter(Boolean)
+                .join(" · "),
+              detail: one.command && one.command !== one.title ? `$ ${one.command.split("\n")[0]}` : undefined,
+            }))}
+            empty="Nothing runs alongside the conversation. Ctrl+B moves a command or subagent Claude is waiting on to the background, and ! runs a command of yours."
             onCancel={close}
-            onPick={(item) => {
-              close();
-              session.stopTask(item.key).catch(report);
-            }}
+            onPick={(item) => setOverlay({ kind: "task", key: item.key })}
           />
         );
+      case "task": {
+        const entry = findRunning(state, overlay.key);
+        const shell = entry?.shellId ? state.items.find((item) => item.kind === "shell" && item.id === entry.shellId) : undefined;
+        return (
+          <TaskView
+            entry={entry}
+            shellOutput={shell?.kind === "shell" ? shell.stdout : undefined}
+            session={session}
+            width={width}
+            rows={Math.max(4, Math.min(14, rows - 18))}
+            onStop={stopRunning}
+            onBack={() => setOverlay({ kind: "tasks" })}
+            onClose={close}
+          />
+        );
+      }
       case "memory":
         return (
           <Picker
@@ -773,7 +842,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           active={!question && !request && !overlay}
           fullscreen={fullscreen}
           busy={state.busy}
-          running={shellRunning}
           width={width}
           cwd={state.cwd}
           history={store.sent}
@@ -817,13 +885,20 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           mode={modeWanted ?? state.mode}
           git={git}
           width={width}
-          exitArmed={exitArmed}
+          armed={
+            exitArmed
+              ? "Press Ctrl+C again to exit"
+              : stopArmed
+                ? `Press ${keyLabel(keyFor(store.keymap, "chat:killAgents") ?? "ctrl+x ctrl+k")} again to stop what's running (${runningNow})`
+                : null
+          }
+          running={runningNow}
           toast={toast}
           onMode={cycleMode}
           onModel={() => setOverlay({ kind: "model" })}
           onEffort={() => setOverlay({ kind: "effort" })}
           onThinking={toggleThinking}
-          onTasks={() => setOverlay({ kind: "tasks" })}
+          onTasks={openTasks}
         />
       </Box>
     </>
@@ -896,24 +971,36 @@ function useGit(cwd: string, refresh: number) {
   return info;
 }
 
-/** This session's tool calls for the output browser, newest first. */
+/** This session's tool calls and your commands for the output browser, newest first. */
 function toolCalls(items: Item[], { cwd, home, width }: { cwd: string; home: string; width: number }): PickerItem[] {
   return items
-    .flatMap((item) => (item.kind === "tool" ? [item.call] : []))
+    .flatMap((item): PickerItem[] => {
+      if (item.kind === "shell") {
+        const took = item.startedAt !== undefined && item.endedAt !== undefined ? duration(item.endedAt - item.startedAt) : "";
+        return [{ key: item.id, label: `! ${fit(item.command.split("\n")[0] ?? "", width - 30, false)}`, note: [item.status === "done" ? "finished" : item.status, took].filter(Boolean).join(" · ") }];
+      }
+      if (item.kind !== "tool") return [];
+      const { call } = item;
+      const description = call.name === "Bash" && typeof call.input.description === "string" ? call.input.description : "";
+      return [
+        {
+          key: call.id,
+          label: `${STATUS[call.status].glyph} ${toolLabel(call.name)}  ${fit(description || toolTarget(call, cwd, home), width - 40, !description)}`,
+          note: toolSummary(call, false),
+        },
+      ];
+    })
     .reverse()
-    .slice(0, 50)
-    .map((call) => ({
-      key: call.id,
-      label: `${STATUS[call.status].glyph} ${toolLabel(call.name)}  ${fit(toolTarget(call, cwd, home), width - 40, true)}`,
-      note: toolSummary(call, false),
-    }));
+    .slice(0, 50);
 }
 
 /** How many leading items are finished, so they can go into scrollback for good. */
 function settledCount(items: Item[], waiting: Set<string>) {
   const index = items.findIndex(
     (item) =>
-      (item.kind === "tool" && (item.call.status === "running" || waiting.has(item.call.id))) || (item.kind === "shell" && item.status === "running"),
+      (item.kind === "tool" && (item.call.status === "running" || waiting.has(item.call.id))) ||
+      // A command of yours stays live while it's the newest thing; after that its card is drawn for good.
+      (item.kind === "shell" && item.status === "running" && !item.background),
   );
   return index === -1 ? items.length : index;
 }

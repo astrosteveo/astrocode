@@ -1,14 +1,16 @@
 // A tool call's whole output, printed into scrollback on request (Ctrl+O or /output), or opened
 // under its row in full screen.
 import { Box, Text } from "ink";
+import { runOfCall } from "../src/view/runs";
 import type { ToolCall } from "../src/view/state";
 import { field, toolLabel, toolTarget } from "../src/view/tools";
 import { highlightCode } from "./highlight";
 import { printable } from "./markdown";
 import { Markdown, fit, onPanel, Panel } from "./markdown-view";
 import { isReady, Pictures } from "./pictures";
+import { ShellCard } from "./shell-card";
 import { PALETTE } from "./theme";
-import { BashOutput, clip, CommandPanel, EditDiff, hiddenCommand } from "./tool-row";
+import { clip, EditDiff } from "./tool-row";
 
 /** The most lines printed for one output; scrollback can hold this much without trouble. */
 const MAX_LINES = 2000;
@@ -17,6 +19,15 @@ type Props = { call: ToolCall; cwd: string; home: string; width: number; picture
 
 /** The header of a printed output: which call it belongs to, since it lands at the end of the transcript. */
 export function FullOutput({ call, cwd, home, width, pictureRows }: Props) {
+  // A command's card says which it was, and opened, it holds the whole command and output.
+  if (call.name === "Bash") {
+    return (
+      <Box flexDirection="column">
+        <ShellCard run={runOfCall(call, false)} width={width} expanded />
+        <Pictures images={call.images?.filter(isReady) ?? []} width={width} rows={pictureRows} />
+      </Box>
+    );
+  }
   return (
     <Box flexDirection="column">
       <Text wrap="truncate-end">
@@ -54,15 +65,6 @@ function Output({ call, width }: { call: ToolCall; width: number }) {
   const path = typeof call.input.file_path === "string" ? call.input.file_path : "";
   const language = path.includes(".") ? (path.split(".").pop() ?? "") : "";
   switch (call.name) {
-    case "Bash": {
-      const command = hiddenCommand(call, typeof call.input.command === "string" ? call.input.command : "", width - TARGET_ROOM);
-      return (
-        <Box flexDirection="column">
-          {command ? <CommandPanel command={command} width={width} limit={MAX_LINES} /> : null}
-          <BashOutput call={call} width={width} limit={MAX_LINES} />
-        </Box>
-      );
-    }
     case "Edit":
       return <EditDiff call={call} width={width} limit={MAX_LINES} />;
     case "Write":

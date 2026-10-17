@@ -23,6 +23,8 @@ export class Store {
   todos: TodoMode = "auto";
   /** What the message box's keys do, read from keybindings.json as astrocode starts. */
   keymap: Keymap = DEFAULT_KEYMAP;
+  /** Commands run with `!` that are still going, by id, to stop. They outlive a switch of layouts. */
+  readonly shells = new Map<string, AbortController>();
   private nextImage = 1;
   private state: State;
   /**
@@ -68,6 +70,13 @@ export class Store {
     this.state = { ...initialState(this.cwd, this.home), plan, models, commands, limits, mode, model, effort, thinking };
     this.epoch += 1;
     this.notify();
+  }
+
+  /** Stops the commands run with `!` that are still going, and says how many there were. */
+  stopShells() {
+    const count = this.shells.size;
+    for (const controller of this.shells.values()) controller.abort();
+    return count;
   }
 
   /** Starts the scrollback over with the same conversation, as when coming back from full screen. */

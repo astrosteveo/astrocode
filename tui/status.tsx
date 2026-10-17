@@ -2,8 +2,8 @@
 // right, readings: the model, what runs in the background, how full the context is, your plan's
 // usage windows, the git branch and the plan, as many as fit, most important first. In full
 // screen, clicking the chip changes the mode, clicking the model switches it, clicking the effort
-// sets it, clicking "thinking off" turns it back on, and clicking the background count lists what's
-// running.
+// sets it, clicking "thinking off" turns it back on, and clicking the running count opens what's
+// running: Claude Code's background tasks and your `!` commands.
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { Box, Text, type DOMElement } from "ink";
 import { useRef, type ReactNode } from "react";
@@ -35,7 +35,10 @@ type Props = {
   mode: PermissionMode;
   git: GitInfo | null;
   width: number;
-  exitArmed: boolean;
+  /** A key pressed once that does something if pressed again, such as Ctrl+C to exit, in place of the mode. */
+  armed: string | null;
+  /** How many things run alongside the conversation. */
+  running: number;
   /** A word on something just done, such as copying, in place of the readings for a moment. */
   toast?: string | null;
   onMode?: () => void;
@@ -45,12 +48,12 @@ type Props = {
   onTasks?: () => void;
 };
 
-export function StatusBar({ state, mode, git, width, exitArmed, toast, onMode, onModel, onEffort, onThinking, onTasks }: Props) {
+export function StatusBar({ state, mode, git, width, armed, running, toast, onMode, onModel, onEffort, onThinking, onTasks }: Props) {
   const bar = useRef<DOMElement>(null);
   const chip = MODE_CHIPS[mode];
   // The chip's caps are half blocks, so it reads as a solid lozenge.
-  const left = exitArmed ? "Press Ctrl+C again to exit" : `▐${chip.label}▌`;
-  const room = width - 2 - cellWidth(left) - (exitArmed ? 0 : cellWidth("  shift+tab")) - 2;
+  const left = armed ?? `▐${chip.label}▌`;
+  const room = width - 2 - cellWidth(left) - (armed ? 0 : cellWidth("  shift+tab")) - 2;
 
   // In order of importance: the bar keeps what fits from the start of this list.
   const segments: Segment[] = [];
@@ -62,8 +65,8 @@ export function StatusBar({ state, mode, git, width, exitArmed, toast, onMode, o
   }
   // Thinking is on unless turned off, so only off is worth a word, and only on a model that can stop.
   if (state.thinking === false && canStopThinking(state)) segments.push({ text: "thinking off", node: <Text color={PALETTE.ember}>thinking off</Text>, onClick: onThinking });
-  if (state.tasks.length) {
-    const text = `◌ ${state.tasks.length} in background`;
+  if (running) {
+    const text = `◌ ${running} running`;
     segments.push({ text, node: <Text color={PALETTE.teal}>{text}</Text>, onClick: onTasks });
   }
   if (state.context) {
@@ -106,7 +109,7 @@ export function StatusBar({ state, mode, git, width, exitArmed, toast, onMode, o
   /** What a click at cell `x` of the bar acts on: the chip, a reading by its place in `shown`, or nothing. */
   const targetAt = (x: number): "mode" | number | null => {
     // The chip starts after the bar's padding; the readings end before it, at the right.
-    if (!exitArmed && x >= 1 && x < 1 + cellWidth(left)) return onMode ? "mode" : null;
+    if (!armed && x >= 1 && x < 1 + cellWidth(left)) return onMode ? "mode" : null;
     let start = width - 1 - used;
     for (const [i, segment] of shown.entries()) {
       if (i > 0) start += GAP.length;
@@ -133,7 +136,7 @@ export function StatusBar({ state, mode, git, width, exitArmed, toast, onMode, o
 
   return (
     <Box ref={bar} width={width} paddingX={1} justifyContent="space-between">
-      {exitArmed ? (
+      {armed ? (
         <Text color={PALETTE.ember}>{left}</Text>
       ) : (
         <Text>

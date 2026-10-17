@@ -47,6 +47,9 @@ export type SessionOptions = {
   emit: (event: SessionEvent) => void;
 };
 
+/** A background task's output, as the SDK's `SDKControlGetTaskOutputResponse` has it. */
+export type TaskOutput = { output: string; total_bytes: number; truncated: boolean };
+
 /** Thinking turned back on in a Claude Code that started without it: Claude Code's own largest default budget. */
 const THINKING_BUDGET = 31_999;
 
@@ -196,6 +199,22 @@ export class AgentSession {
 
   async stopTask(id: string) {
     await this.run?.query.stopTask(id);
+  }
+
+  /**
+   * The end of what a background command or Monitor printed, the last 8 KiB of it, while it runs
+   * and once more after it ends. Null for a task with no output to read, such as a subagent, or
+   * once Claude Code has stopped.
+   */
+  async taskOutput(id: string): Promise<TaskOutput | null> {
+    // The SDK has this in its code, answering `get_task_output`, but not in Query's type.
+    const query = this.run?.query as (Query & { getTaskOutput?: (taskId: string) => Promise<TaskOutput> }) | undefined;
+    if (!query?.getTaskOutput) return null;
+    try {
+      return await query.getTaskOutput(id);
+    } catch {
+      return null;
+    }
   }
 
   decide(id: string, decision: Decision) {
@@ -357,7 +376,7 @@ export class AgentSession {
         if (message.type === "system" && message.subtype === "init") this.mode = message.permissionMode;
         // Claude Code changes modes too, such as when Claude leaves plan mode. A restart carries on in that one.
         if (message.type === "system" && message.subtype === "status" && message.permissionMode) this.mode = message.permissionMode;
-        this.options.emit(sdkEvent(message));
+        this.options.emit(sdkEvent(message, Date.now()));
         if (message.type === "result") void this.reportContext(run);
       }
     } catch (error) {

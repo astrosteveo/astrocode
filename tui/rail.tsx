@@ -36,11 +36,13 @@ export function rails(items: Item[]): Rail[] {
 export const LIVE: Rail = { spaced: true, joined: true, through: true };
 
 /**
- * A row between entries, except between tool calls, which stack as one run of nodes. A picture
- * under a call's row ends the run, so the next call doesn't sit on the picture's edge.
+ * A row between entries, except between tool calls, which stack as one run of nodes. A shell
+ * command's card stands apart, and a picture under a call's row ends the run, so the next call
+ * doesn't sit on the picture's edge.
  */
 function gap(before: Item | undefined, item: Item) {
-  return !(before?.kind === "tool" && item.kind === "tool") || picturesOf(before.call).length > 0;
+  if (before?.kind !== "tool" || item.kind !== "tool") return true;
+  return before.call.name === "Bash" || item.call.name === "Bash" || picturesOf(before.call).length > 0;
 }
 
 type Props = { node: string; color: string; rail: Rail; children: ReactNode };

@@ -1,12 +1,11 @@
 // A tool call: its node on the rail says how it went (a filled hexagon once it's done, an outline
 // while it runs or after it stopped), and its row says what it was: the tool, what it acts on,
 // and a word on the result, set against the right edge. Finished rows keep what matters from the
-// result on a panel under them.
+// result on a panel under them. Bash calls are cards of their own (`shell-card.tsx`).
 import { Box, Text } from "ink";
 import type { ToolCall } from "../src/view/state";
 import type { Todo } from "../src/view/todos";
-import { bashOutput, field, plural, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
-import { highlightCode } from "./highlight";
+import { field, plural, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
 import { cellWidth, printable, printableColored } from "./markdown";
 import { fit, onPanel, Panel } from "./markdown-view";
 import { isReady, Pictures } from "./pictures";
@@ -43,7 +42,6 @@ export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, 
   const room = width - cellWidth(name) - 2 - (summary ? cellWidth(summary) + 2 : 0);
   const whole = toolTarget(call, cwd, home);
   const target = fit(whole, room, PATHLIKE.has(call.name));
-  const command = detailed ? hiddenCommand(call, whole, room) : "";
   return (
     <Box flexDirection="column" width={width}>
       <Box justifyContent="space-between" width={width}>
@@ -55,7 +53,6 @@ export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, 
         </Text>
         {summary ? <Text color={summaryColor}>{summary}</Text> : null}
       </Box>
-      {command ? <CommandPanel command={command} width={width} limit={OUTPUT_LINES} /> : null}
       {detailed ? <Detail call={call} width={width} /> : null}
       {detailed ? <Pictures images={picturesOf(call)} width={width} rows={pictureRows} /> : null}
     </Box>
@@ -64,25 +61,6 @@ export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, 
 
 /** The pictures a finished call's row draws under it: the images its result carried, where the terminal draws them. */
 export const picturesOf = (call: ToolCall) => (call.status === "done" ? (call.images ?? []).filter(isReady) : []);
-
-/**
- * Bash's command when a row showing `target` in `room` cells can't show all of it: it runs over
- * more than one line, as a heredoc does, or past the room.
- */
-export function hiddenCommand(call: ToolCall, target: string, room: number) {
-  const command = call.name === "Bash" && typeof call.input.command === "string" ? call.input.command : "";
-  return command.includes("\n") || cellWidth(target) > room ? command : "";
-}
-
-/** A command as Claude wrote it, on a panel, its first `limit` lines. */
-export function CommandPanel({ command, width, limit }: { command: string; width: number; limit: number }) {
-  const shown = clip(command, limit);
-  return (
-    <Panel label="command" note={shown.hidden ? shown.note : undefined} width={width}>
-      <Text>{onPanel(highlightCode(shown.text, "bash"))}</Text>
-    </Panel>
-  );
-}
 
 /** The row for a tool call Claude is still writing. */
 export function DraftRow({ name }: { name: string }) {
@@ -103,8 +81,6 @@ function Detail({ call, width }: { call: ToolCall; width: number }) {
   }
   if (call.status !== "done") return null;
   switch (call.name) {
-    case "Bash":
-      return <BashOutput call={call} width={width} limit={OUTPUT_LINES} />;
     case "Edit":
       return <EditDiff call={call} width={width} limit={OUTPUT_LINES * 2} />;
     case "TodoWrite":
@@ -114,13 +90,6 @@ function Detail({ call, width }: { call: ToolCall; width: number }) {
     default:
       return null;
   }
-}
-
-export function BashOutput({ call, width, limit }: { call: ToolCall; width: number; limit: number }) {
-  const structured = bashOutput(call.output);
-  return (
-    <ShellOutput stdout={structured?.stdout ?? call.result ?? ""} stderr={structured?.stderr ?? ""} failed={call.status === "error"} width={width} limit={limit} />
-  );
 }
 
 /**

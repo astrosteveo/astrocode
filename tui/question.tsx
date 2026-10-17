@@ -4,6 +4,7 @@ import { Box, Text, useInput, usePaste, type DOMElement } from "ink";
 import { useRef, useState } from "react";
 import type { Answers, QuestionRequest } from "../src/events";
 import { ChoiceRow } from "./choice";
+import { wrapText } from "./markdown";
 import { Panel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
@@ -99,8 +100,14 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
     }
   });
 
-  const preview = question.options[selected]?.preview;
   const inner = width - 2;
+  // The preview follows the pointer, else the chosen option. It's as tall as the tallest of them,
+  // so the options above it don't move as it changes: in full screen this panel is pinned to the
+  // bottom, and a taller preview would push another option under a pointer that held still.
+  const room = inner - 2;
+  const tallest = Math.max(0, ...question.options.map((option) => previewRows(option.preview, room).length));
+  const previewed = hovered !== null && hovered !== other ? hovered : selected;
+  const preview = previewRows(question.options[previewed]?.preview, room);
   return (
     <Panel width={width} accent={PALETTE.gold} note={questions.length > 1 ? `${step + 1} of ${questions.length}` : undefined}>
       {questions.length > 1 ? (
@@ -150,10 +157,14 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
           </Text>
         </Box>
       ) : null}
-      {preview && typing === null ? (
+      {tallest > 0 && typing === null ? (
         <Box marginTop={1}>
           <Panel label="preview" width={inner} background={PALETTE.raised}>
-            <Text>{preview}</Text>
+            {Array.from({ length: tallest }, (_, i) => (
+              <Text key={i} color={preview.length ? undefined : PALETTE.dust}>
+                {preview.length ? preview[i] || " " : i === 0 ? "No preview for this one." : " "}
+              </Text>
+            ))}
           </Panel>
         </Box>
       ) : null}
@@ -166,4 +177,10 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
       </Box>
     </Panel>
   );
+}
+
+/** An option's preview as the rows it takes at `room` cells: none when it has no preview. */
+function previewRows(preview: string | undefined, room: number) {
+  if (!preview?.trim()) return [];
+  return wrapText(preview.replace(/\n+$/, ""), room, true).map((row) => row.map((run) => run.text).join(""));
 }

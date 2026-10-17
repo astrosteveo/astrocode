@@ -132,6 +132,17 @@ export function band(line: string, from: number, to: number, background: string)
 }
 
 /**
+ * A row under the pointer, on a band from `from` to `to`. A row on a panel is raised a step
+ * instead, so the panel still shows, and a diff's tinted rows keep their tint.
+ */
+export function hoverBand(line: string, from: number, to: number) {
+  const under = backgroundAt(line, from);
+  if (under === PANELS[0]) return band(line, from, to, PALETTE.raised);
+  if (under && PANELS.includes(under)) return line;
+  return band(line, from, to, PALETTE.hover);
+}
+
+/**
  * The cells of a row that a selection from `start` to `end` covers, or null for none. `end` is
  * included. `inset` is how many cells the rail takes at the start of the row. The selection
  * starts after decoration and stops where the row's text does, since the spaces after it aren't

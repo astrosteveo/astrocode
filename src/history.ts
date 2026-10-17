@@ -46,10 +46,12 @@ export function historyEvents(messages: SessionMessage[]): SessionEvent[] {
       if (shell?.stdout !== undefined) {
         // The output belongs to the command saved just before it. Its exit code isn't saved, and
         // stderr is no sign of failure (git prints its progress there), so only the "Command failed:"
-        // Claude Code writes for a command that couldn't run counts as one.
+        // Claude Code writes for a command that couldn't run counts as one. One you stopped says so.
         const started = events.findLast((event) => event.kind === "shell");
         const failed = shell.stderr?.startsWith("Command failed:") ?? false;
-        if (started?.kind === "shell") events.push({ kind: "shell-done", id: started.id, stdout: shell.stdout, stderr: shell.stderr ?? "", code: failed ? 1 : 0 });
+        const stopped = /^Stopped( by the user)?\.$/.test(shell.stderr?.trim() ?? "");
+        const stdout = /^\(\w+ completed with no output\)$/.test(shell.stdout.trim()) ? "" : shell.stdout;
+        if (started?.kind === "shell") events.push({ kind: "shell-done", id: started.id, stdout, stderr: stopped ? "" : (shell.stderr ?? ""), code: failed ? 1 : 0, stopped });
         continue;
       }
       const typed = saved.parent_tool_use_id ? null : promptText(content);

@@ -67,15 +67,15 @@ export function imageBlocks(content: unknown): ImageAttachment[] {
   });
 }
 
-/** A message from Claude Code as an event, with the images its tool results carried. */
-export function sdkEvent(message: SDKMessage): SessionEvent {
-  if (message.type !== "user" || message.parent_tool_use_id || typeof message.message.content === "string") return { kind: "sdk", message };
+/** A message from Claude Code as an event, with the images its tool results carried. `at` is when it came. */
+export function sdkEvent(message: SDKMessage, at?: number): SessionEvent {
+  if (message.type !== "user" || message.parent_tool_use_id || typeof message.message.content === "string") return { kind: "sdk", message, at };
   const found = message.message.content.flatMap((block) => {
     if (block.type !== "tool_result") return [];
     const images = imageBlocks(block.content);
     return images.length ? [[block.tool_use_id, images] as const] : [];
   });
-  return found.length ? { kind: "sdk", message, images: Object.fromEntries(found) } : { kind: "sdk", message };
+  return found.length ? { kind: "sdk", message, at, images: Object.fromEntries(found) } : { kind: "sdk", message, at };
 }
 
 export type CommandInfo = { name: string; description: string; argumentHint: string };
@@ -90,15 +90,20 @@ export type SessionEvent =
    * are the images it carried, by the number of the `[Image #n]` each went with.
    */
   | { kind: "prompt"; text: string; uuid?: string; images?: Record<number, ImageAttachment> }
-  /** A command you ran with `!`, before and after it finishes. */
-  | { kind: "shell"; id: string; command: string }
-  | { kind: "shell-done"; id: string; stdout: string; stderr: string; code: number | null }
+  /**
+   * A command you ran with `!`: as it starts, what its terminal shows as it runs, and how it ended.
+   * `at` is when each happened; a replayed conversation doesn't say.
+   */
+  | { kind: "shell"; id: string; command: string; at?: number }
+  | { kind: "shell-output"; id: string; output: string; at: number }
+  | { kind: "shell-done"; id: string; stdout: string; stderr: string; code: number | null; stopped?: boolean; at?: number }
   /**
    * A message from Claude Code. `images` are what its tool results carried, by tool call id, such
    * as a picture Claude read. The interface keeps a picture per image object, so they're read out
-   * of the message once, by `sdkEvent()`, before the event goes anywhere.
+   * of the message once, by `sdkEvent()`, before the event goes anywhere. `at` is when it came,
+   * which times tool calls; a replayed conversation doesn't say.
    */
-  | { kind: "sdk"; message: SDKMessage; images?: Record<string, ImageAttachment[]> }
+  | { kind: "sdk"; message: SDKMessage; images?: Record<string, ImageAttachment[]>; at?: number }
   | { kind: "permission"; request: PermissionRequest }
   | { kind: "question"; request: QuestionRequest }
   | { kind: "resolved"; id: string; outcome: Decision | "answered" | "cancelled" }

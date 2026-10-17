@@ -18,7 +18,6 @@ const ROWS = [3, 4, 5, 4, 3];
 const PITCH = 6;
 const WIDTH = 5 * PITCH - 1;
 const HEIGHT = (ROWS.length - 1) * 2 + SHAPE.length;
-const LIGHT = "#FFE2A0";
 
 type Segment = { x: number; y: number; ring: number };
 
@@ -59,8 +58,7 @@ const DONE_MS = ORDER.length * STEP_MS + FADE_MS;
 const CENTER = { x: 2 * PITCH, y: 4 };
 const isCenter = (x: number, y: number) => (SHAPE[y - CENTER.y]?.[x - CENTER.x] ?? " ") !== " ";
 
-/** What a ripple brightens toward, and how a segment under the pointer glows. */
-const FLARE = "#FFF4D6";
+/** How much a segment under the pointer glows, toward the flare a ripple brightens to. */
 const HOVER_GLOW = 0.25;
 /** How long a ripple takes to reach the next segment out, to flare, and to fade. */
 const WAVE_MS = 70;
@@ -98,7 +96,7 @@ function pulse(delay: number, decay: number) {
 /** A segment's gold: light falls from the upper left, so those shine and the far ones deepen. */
 function shade(segment: Segment) {
   const t = (segment.x / (WIDTH - 5) + segment.y / (HEIGHT - 3)) / 2;
-  return t < 0.4 ? mix(LIGHT, PALETTE.gold, t / 0.4) : mix(PALETTE.gold, PALETTE.goldDeep, (t - 0.4) / 0.6);
+  return t < 0.4 ? mix(PALETTE.glint, PALETTE.gold, t / 0.4) : mix(PALETTE.gold, PALETTE.goldDeep, (t - 0.4) / 0.6);
 }
 
 /** The mirror `time` ms into its first lighting, each segment brightened toward white by its `glow`. */
@@ -106,7 +104,7 @@ function Mirror({ time, glow }: { time: number; glow: number[] }) {
   const colors = SEGMENTS.map((segment, index) => {
     const start = ORDER.indexOf(index) * STEP_MS;
     const lit = Math.min(1, Math.max(0, (time - start) / FADE_MS));
-    return mix(mix(PALETTE.raised, shade(segment), lit), FLARE, Math.min(1, glow[index] ?? 0));
+    return mix(mix(PALETTE.raised, shade(segment), lit), PALETTE.flare, Math.min(1, glow[index] ?? 0));
   });
   return (
     <Box flexDirection="column">

@@ -5,17 +5,16 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
 import { compact, duration } from "../src/view/format";
+import { runOfCall, runOfShell } from "../src/view/runs";
 import type { Item, Live } from "../src/view/state";
 import { cellWidth } from "./markdown";
 import { Markdown } from "./markdown-view";
 import { FullOutput, OutputBody } from "./output";
-import { ImageView, isReady } from "./pictures";
+import { ImageView, isReady, Pictures } from "./pictures";
 import { GUTTER, LIVE, Railed, type Rail } from "./rail";
+import { ShellCard } from "./shell-card";
 import { PALETTE } from "./theme";
-import { DraftRow, ShellOutput, toolNode, ToolRow } from "./tool-row";
-
-/** Lines of a `!` command's output the transcript keeps. */
-const SHELL_LINES = 12;
+import { DraftRow, picturesOf, toolNode, ToolRow } from "./tool-row";
 
 /** `pictureRows`: how tall a picture in an entry may be. */
 export type ViewProps = { cwd: string; home: string; width: number; pictureRows: number };
@@ -26,7 +25,7 @@ type ItemProps = {
   /** With what matters from a finished tool call's result under its row. */
   detailed?: boolean;
   waiting?: boolean;
-  /** A tool call opened in full screen, with its whole output under its row. */
+  /** A tool call or a `!` command opened in full screen, with its whole output under its row. */
   expanded?: boolean;
 } & ViewProps;
 
@@ -41,14 +40,8 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
       );
     case "shell":
       return (
-        <Railed node="!" color={item.status === "error" ? PALETTE.rose : PALETTE.gold} rail={rail}>
-          <Text>
-            <Text bold color={PALETTE.star}>
-              {item.command}
-            </Text>
-            {item.status === "running" ? <Text color={PALETTE.haze}>{"  running"}</Text> : null}
-          </Text>
-          {item.status === "running" ? null : <ShellOutput stdout={item.stdout} stderr={item.stderr} failed={item.status === "error"} width={inner.width} limit={SHELL_LINES} />}
+        <Railed node="!" color={item.status === "error" ? PALETTE.rose : item.status === "stopped" ? PALETTE.ember : PALETTE.gold} rail={rail}>
+          <ShellCard run={runOfShell(item)} width={inner.width} expanded={expanded} />
         </Railed>
       );
     case "text":
@@ -65,6 +58,14 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
       );
     case "tool": {
       const { glyph, color } = toolNode(item.call, waiting);
+      if (item.call.name === "Bash") {
+        return (
+          <Railed node={glyph} color={color} rail={rail}>
+            <ShellCard run={runOfCall(item.call, waiting)} width={inner.width} expanded={expanded} />
+            {detailed || expanded ? <Pictures images={picturesOf(item.call)} width={inner.width} rows={view.pictureRows} /> : null}
+          </Railed>
+        );
+      }
       return (
         <Railed node={glyph} color={color} rail={rail}>
           <ToolRow call={item.call} waiting={waiting} detailed={detailed && !expanded} {...inner} />
@@ -73,10 +74,18 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
       );
     }
     case "output": {
-      const { glyph, color } = toolNode(item.call, false);
+      const shown = item.of;
+      if (shown.kind === "shell") {
+        return (
+          <Railed node="!" color={PALETTE.gold} rail={rail}>
+            <ShellCard run={runOfShell(shown)} width={inner.width} expanded />
+          </Railed>
+        );
+      }
+      const { glyph, color } = toolNode(shown.call, false);
       return (
         <Railed node={glyph} color={color} rail={rail}>
-          <FullOutput call={item.call} {...inner} />
+          <FullOutput call={shown.call} {...inner} />
         </Railed>
       );
     }

@@ -18,6 +18,10 @@ export type Row = {
   line: number;
   /** The entry's first line of content, which for a tool call is its row. */
   head: boolean;
+  /** A click here opens or closes the entry: any row of a tool call or a `!` command. */
+  hot: boolean;
+  /** The entry is open, with its whole output under its first row. */
+  open: boolean;
   /** Cells the rail takes at the start of the row, which a selection leaves out. */
   inset: number;
 };
@@ -26,8 +30,6 @@ export type Transcript = {
   rows: Row[];
   /** Where each entry starts in `rows`. */
   starts: Map<string, number>;
-  /** The keys of tool calls, which open and close when their row is clicked. */
-  tools: Set<string>;
 };
 
 export type TranscriptInput = {
@@ -36,13 +38,13 @@ export type TranscriptInput = {
   /** How tall a picture in an entry may be. */
   pictureRows: number;
   branch?: string;
-  /** Tool calls opened to their whole output, by item key. */
+  /** Tool calls and `!` commands opened to their whole output, by item key. */
   expanded: ReadonlySet<string>;
   /** Tool calls waiting on a permission prompt or a question, by call id. */
   waiting: ReadonlySet<string>;
 };
 
-const EMPTY: Transcript = { rows: [], starts: new Map(), tools: new Set() };
+const EMPTY: Transcript = { rows: [], starts: new Map() };
 
 /** How long the width has to hold still before the transcript is drawn again for it. */
 const RESIZE_SETTLE_MS = 80;
@@ -64,14 +66,16 @@ function draw(owner: object, drawnFor: string, width: number, element: () => Rea
 export function layout({ state, width, pictureRows, branch, expanded, waiting }: TranscriptInput): Transcript {
   const rows: Row[] = [];
   const starts = new Map<string, number>();
-  const tools = new Set<string>();
   const view = { cwd: state.cwd, home: state.home, width, pictureRows };
   wantPictures(state.items, width - GUTTER, pictureRows);
 
-  /** An entry's lines; `head` is where its content starts, after the row that sets it apart. */
-  const add = (key: string, lines: string[], head: number, inset: number) => {
+  /**
+   * An entry's lines; `head` is where its content starts, after the row that sets it apart, and
+   * `hot` whether a click from there on opens or closes it.
+   */
+  const add = (key: string, lines: string[], head: number, inset: number, hot = false, open = false) => {
     starts.set(key, rows.length);
-    lines.forEach((text, line) => rows.push({ text, key, line, head: line === head, inset }));
+    lines.forEach((text, line) => rows.push({ text, key, line, head: line === head, hot: hot && line >= head, open, inset }));
   };
 
   add(
@@ -84,17 +88,18 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting }:
   state.items.forEach((item, i) => {
     const rail = placed[i]!;
     const isWaiting = item.kind === "tool" && waiting.has(item.call.id);
-    const isOpen = item.kind === "tool" && expanded.has(item.key);
+    const opens = item.kind === "tool" || item.kind === "shell";
+    const isOpen = opens && expanded.has(item.key);
     const pictures = imagesOf(item).length ? pictureRows : "";
     const lines = draw(item, `${width}|${pictures}|${isWaiting}|${isOpen}|${rail.spaced}${rail.joined}${rail.through}`, width, () => (
       <ItemView item={item} rail={rail} detailed waiting={isWaiting} expanded={isOpen} {...view} />
     ));
-    if (item.kind === "tool") tools.add(item.key);
-    add(item.key, lines, rail.spaced ? 1 : 0, GUTTER);
+    const head = rail.spaced ? 1 : 0;
+    add(item.key, lines, head, GUTTER, opens, isOpen);
   });
   const live = state.live;
   if (live) add("live", draw(live, `${width}`, width, () => <LiveView live={live} width={width} />), 1, GUTTER);
-  return { rows, starts, tools };
+  return { rows, starts };
 }
 
 /**
