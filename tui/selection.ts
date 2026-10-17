@@ -1,15 +1,19 @@
 // Selecting text in full screen's transcript, which is lines of styled text. A selection runs from
 // one cell to another like a terminal's, but only over content: it leaves out the rail and its
 // gutter, a panel's padding and edges, the hairline before a quote, and pictures, so copying code
-// brings only the code. What's highlighted is what's copied.
+// brings only the code. What's highlighted is what's copied. It's also where the pointer's shape
+// comes from: what's text, and what's a link.
 import { cellWidth } from "./markdown";
 import { PALETTE, rgb, sgr, TINT } from "./theme";
 
 /** A cell in the transcript: a row, and a column in cells. */
 export type Cell = { row: number; col: number };
 
-const SGR = /(\x1b\[[0-9;]*m)/;
-const SGR_ALL = /\x1b\[[0-9;]*m/g;
+/** A color code, or a link's start or end (OSC 8): what a line carries between its cells. */
+const CODE = /(\x1b\[[0-9;]*m|\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\))/;
+const CODE_ALL = new RegExp(CODE.source, "g");
+/** A link's start, with its address; an empty address ends it. */
+const LINK = /^\x1b\]8;[^;\x07\x1b]*;([^\x07\x1b]*)/;
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 /** A panel's soft top or bottom edge, with any label set into it. */
@@ -28,13 +32,14 @@ const PANELS = [PALETTE.surface, TINT.added, TINT.removed].map((hex) => rgb(hex)
 const SELECTED = `\x1b[48;2;${rgb(PALETTE.gold).join(";")}m\x1b[38;2;${rgb(PALETTE.ink).join(";")}m`;
 const RESET = "\x1b[0m";
 
-export const plain = (line: string) => line.replace(SGR_ALL, "");
+export const plain = (line: string) => line.replace(CODE_ALL, "");
 
 /** The background of the cell at `col`, as red, green and blue joined with `;`, or null for the terminal's own. */
 function backgroundAt(line: string, col: number) {
   let background: string | null = null;
   let at = 0;
-  for (const part of line.split(SGR)) {
+  for (const part of line.split(CODE)) {
+    if (LINK.test(part)) continue;
     const codes = /^\x1b\[([0-9;]*)m$/.exec(part);
     if (codes) {
       const list = (codes[1] || "0").split(";").map(Number);
@@ -75,10 +80,14 @@ export function highlight(line: string, from: number, to: number) {
   let selecting = false;
   /** The styles set so far, to pick back up after the selection. */
   let styles = "";
-  for (const part of line.split(SGR)) {
-    if (SGR.test(part)) {
-      styles = part === "\x1b[0m" || part === "\x1b[m" ? "" : styles + part;
-      if (!selecting) out += part;
+  for (const part of line.split(CODE)) {
+    if (CODE.test(part)) {
+      // A link goes on through the selection, so the terminal still knows it.
+      if (LINK.test(part)) out += part;
+      else {
+        styles = part === "\x1b[0m" || part === "\x1b[m" ? "" : styles + part;
+        if (!selecting) out += part;
+      }
       continue;
     }
     for (const { segment } of graphemes.segment(part)) {
@@ -98,8 +107,9 @@ export function highlight(line: string, from: number, to: number) {
 
 /**
  * `line` on `background` from cell `from` up to `to`, padded out to `to`, with its own colors kept:
- * the band behind a row the pointer is over. The background goes back on after each of the line's
- * own color codes, since a reset among them would end it.
+ * the band behind what the pointer is over. The background goes back on after each of the line's
+ * own color codes, since a reset among them would end it, and after the band the line's own
+ * styles come back, so a panel's background carries on past a link.
  */
 export function band(line: string, from: number, to: number, background: string) {
   const on = sgr(background, true);
@@ -107,8 +117,11 @@ export function band(line: string, from: number, to: number, background: string)
   let out = "";
   let col = 0;
   let inside = false;
-  for (const part of line.split(SGR)) {
-    if (SGR.test(part)) {
+  /** The line's styles so far, to pick back up after the band. */
+  let styles = "";
+  for (const part of line.split(CODE)) {
+    if (CODE.test(part)) {
+      if (!LINK.test(part)) styles = part === "\x1b[0m" || part === "\x1b[m" ? "" : styles + part;
       out += part + (inside ? on : "");
       continue;
     }
@@ -117,7 +130,7 @@ export function band(line: string, from: number, to: number, background: string)
         out += on;
         inside = true;
       } else if (inside && col >= to) {
-        out += off;
+        out += off + styles;
         inside = false;
       }
       out += segment;
@@ -142,6 +155,25 @@ export function hoverBand(line: string, from: number, to: number) {
   return band(line, from, to, PALETTE.hover);
 }
 
+/** A link the pointer is over, each run of it on the row banded as `hoverBand` bands a row. */
+export function linkBand(line: string, href: string) {
+  return linkRuns(line, href).reduce((out, [from, to]) => hoverBand(out, from, to), line);
+}
+
+/**
+ * Where a row's content starts, past `inset` cells of rail, a panel's padding and a quote's
+ * hairline, and whether the row is a panel's edge. Null for a picture's row, which has none.
+ */
+function margin(line: string, inset: number) {
+  const body = sliceCells(plain(line), inset, Infinity);
+  if (PICTURE.test(body)) return null;
+  if (PANEL_EDGE.test(body)) return { from: inset, edge: true };
+  // A panel's first cell is padding.
+  if (PANELS.includes(backgroundAt(line, inset) ?? "")) return { from: inset + 1, edge: false };
+  if (HAIRLINE.test(body)) return { from: inset + 2, edge: false };
+  return { from: inset, edge: false };
+}
+
 /**
  * The cells of a row that a selection from `start` to `end` covers, or null for none. `end` is
  * included. `inset` is how many cells the rail takes at the start of the row. The selection
@@ -150,21 +182,81 @@ export function hoverBand(line: string, from: number, to: number) {
  */
 export function cellsOn(line: string, row: number, start: Cell, end: Cell, inset = 0): [number, number] | null {
   if (row < start.row || row > end.row) return null;
-  let from = Math.max(inset, row === start.row ? start.col : 0);
-  let to = row === end.row ? end.col + 1 : Infinity;
-  const text = plain(line);
-  const body = sliceCells(text, inset, Infinity);
-  if (PICTURE.test(body)) return null;
-  if (PANEL_EDGE.test(body)) {
-    if (start.row !== end.row) return null;
-  } else if (PANELS.includes(backgroundAt(line, inset) ?? "")) {
-    // A panel's first cell is padding.
-    from = Math.max(from, inset + 1);
-  } else if (HAIRLINE.test(body)) {
-    from = Math.max(from, inset + 2);
-  }
-  to = Math.min(to, cellWidth(text.trimEnd()));
+  const content = margin(line, inset);
+  if (!content || (content.edge && start.row !== end.row)) return null;
+  const from = Math.max(content.from, row === start.row ? start.col : 0);
+  const to = Math.min(row === end.row ? end.col + 1 : Infinity, cellWidth(plain(line).trimEnd()));
   return from < to ? [from, to] : null;
+}
+
+/** Spaces this many or fewer between two words are part of the text; a wider gap, like a table's between columns, isn't. */
+const WORD_GAP = 2;
+
+/**
+ * Whether the cell at `col` is text, where the pointer is a text beam: the row's words and the
+ * spaces between them, where a selection would take them, so not the rail, a panel's padding or
+ * edges, or a quote's hairline. Indentation, the cells after the text and a wide gap are empty.
+ */
+export function isTextAt(line: string, col: number, inset = 0) {
+  const content = margin(line, inset);
+  if (!content || col < content.from) return false;
+  // On a panel's edge, only the label set into it is text.
+  const blank = content.edge ? /^[\s▄▀]$/u : /^\s$/u;
+  const cells: { at: number; width: number; blank: boolean }[] = [];
+  let at = 0;
+  for (const { segment } of graphemes.segment(plain(line))) {
+    const width = cellWidth(segment);
+    if (at >= content.from) cells.push({ at, width, blank: blank.test(segment) });
+    at += width;
+  }
+  const index = cells.findIndex((cell) => col < cell.at + Math.max(1, cell.width));
+  const here = cells[index];
+  if (!here || here.at > col) return false;
+  if (!here.blank) return true;
+  let before = index;
+  while (before >= 0 && cells[before]!.blank) before--;
+  let after = index;
+  while (after < cells.length && cells[after]!.blank) after++;
+  const left = cells[before];
+  const right = cells[after];
+  return left !== undefined && right !== undefined && right.at - (left.at + left.width) <= WORD_GAP;
+}
+
+/** A line's cells in order, each with the address of the link it's part of, or null. */
+function* linkCells(line: string) {
+  let href: string | null = null;
+  let at = 0;
+  for (const part of line.split(CODE)) {
+    const link = LINK.exec(part);
+    if (link) href = link[1] || null;
+    if (CODE.test(part)) continue;
+    for (const { segment } of graphemes.segment(part)) {
+      const width = cellWidth(segment);
+      yield { at, width, href };
+      at += width;
+    }
+  }
+}
+
+/** The address of the link the cell at `col` is part of, or null. */
+export function linkAt(line: string, col: number) {
+  for (const cell of linkCells(line)) {
+    if (cell.at > col) break;
+    if (col < cell.at + cell.width) return cell.href;
+  }
+  return null;
+}
+
+/** The cells of a line that are a link to `href`, as runs from one cell up to the next. */
+function linkRuns(line: string, href: string) {
+  const runs: [number, number][] = [];
+  for (const cell of linkCells(line)) {
+    if (cell.href !== href) continue;
+    const last = runs.at(-1);
+    if (last?.[1] === cell.at) last[1] += cell.width;
+    else runs.push([cell.at, cell.at + cell.width]);
+  }
+  return runs;
 }
 
 /** The selected text, a line per row, without trailing spaces. `rows` are the rows the selection spans. */

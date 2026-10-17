@@ -1,5 +1,6 @@
 // Began as a copy of nebula-ui's Markdown parser, and is astrocode's own now. A link keeps its URL
 // as a following `url` span, since a terminal can't hide it behind the text.
+import { BARE_URL, isWebLink } from './links'
 
 /**
  * Splits a reply's markdown into the blocks astrocode draws itself (fences,
@@ -21,7 +22,12 @@ export type Block =
   | { kind: 'quote'; callout: Callout | null; title: string; text: string }
   | { kind: 'rule' }
 
-export type Span = { text: string; style: 'plain' | 'code' | 'bold' | 'italic' | 'strike' | 'link' | 'url' | 'command' | 'image' }
+/** A run of text in one style. `href` is the web address a link's text and its URL go to. */
+export type Span = {
+  text: string
+  style: 'plain' | 'code' | 'bold' | 'italic' | 'strike' | 'link' | 'url' | 'command' | 'image'
+  href?: string
+}
 
 const FENCE = /^( {0,3})(`{3,}|~{3,})\s*([^\s`]*)/
 const HEADING = /^ {0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/
@@ -36,10 +42,14 @@ const NUMERIC = /^[~≈<>+\-−$€£]*\s*[\d.,]+\s*(%|x|ms|s|m|h|k|kb|mb|gb|tb)
 /**
  * Inline markdown. Asterisks hug what they emphasize, so `ls *.ts and *.js` and `2 ** 3 ** 4` stay
  * as typed; underscores, single or double, don't open or close inside a word, so
- * `mcp__server__tool` and `snake_case` stay as typed. `[Image #n]` is an attached image.
+ * `mcp__server__tool` and `snake_case` stay as typed. `[Image #n]` is an attached image. A bare web
+ * address is a link, matched whole, so emphasis can't start inside it.
  */
-const INLINE =
-  /(`+)(.+?)\1|\*\*(?!\s)(.+?)(?<!\s)\*\*|(?<![\w])__(?!\s)(.+?)(?<!\s)__(?![\w])|~~(.+?)~~|\*(?![\s*])(.+?)(?<![\s*])\*|(?<![\w])_(?![\s_])(.+?)(?<![\s_])_(?![\w])|\[([^\]]+)\]\(([^)\s]+)\)|(\[Image #\d+\])/g
+const INLINE = new RegExp(
+  /(`+)(.+?)\1|\*\*(?!\s)(.+?)(?<!\s)\*\*|(?<![\w])__(?!\s)(.+?)(?<!\s)__(?![\w])|~~(.+?)~~|\*(?![\s*])(.+?)(?<![\s*])\*|(?<![\w])_(?![\s_])(.+?)(?<![\s_])_(?![\w])|\[([^\]]+)\]\(([^)\s]+)\)|(\[Image #\d+\])/
+    .source + `|(${BARE_URL.source})`,
+  'g'
+)
 
 /** Terminal color and cursor codes, and the other escape sequences a tool or process prints. */
 export const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g
@@ -229,8 +239,10 @@ export const spans = (text: string): Span[] => {
     if (match.index > at) {
       out.push({ text: text.slice(at, match.index), style: 'plain' })
     }
-    const [, , code, bold, boldU, strike, italic, italicU, link, url, image] = match
-    if (code !== undefined) {
+    const [, , code, bold, boldU, strike, italic, italicU, link, url, image, bare] = match
+    if (bare !== undefined) {
+      out.push({ text: bare, style: 'link', href: bare })
+    } else if (code !== undefined) {
       out.push({ text: code.trim(), style: 'code' })
     } else if (boldU !== undefined && /^\w+$/.test(boldU)) {
       // One name between double underscores is Python's `__init__` or `__name__`, not bold, though
@@ -247,11 +259,15 @@ export const spans = (text: string): Span[] => {
             : italic !== undefined || italicU !== undefined
               ? [(italic ?? italicU)!, 'italic']
               : [link!, 'link']
+      const target = url !== undefined && isWebLink(url) ? url : undefined
       for (const run of spans(inner)) {
-        out.push(run.style === 'code' || run.style === 'link' || run.style === 'url' || run.style === 'image' ? run : { text: run.text, style })
+        const kept = run.style === 'code' || run.style === 'link' || run.style === 'url' || run.style === 'image' ? run.style : style
+        // Everything in a link's text goes where the link does, even an address written there.
+        const href = style === 'link' ? target : run.href
+        out.push(href === undefined ? { text: run.text, style: kept } : { text: run.text, style: kept, href })
       }
       if (style === 'link' && url !== undefined && url !== link) {
-        out.push({ text: ` (${url})`, style: 'url' })
+        out.push(target === undefined ? { text: ` (${url})`, style: 'url' } : { text: ` (${url})`, style: 'url', href: target })
       }
     }
     at = match.index + match[0].length
@@ -465,16 +481,16 @@ export const wrapSpans = (runs: Span[], room: number): Span[][] => {
   let used = 0
   let hasWords = false
 
-  const add = (text: string, style: Span['style']) => {
+  const add = (text: string, { style, href }: Span) => {
     if (text === '') {
       return
     }
     const row = rows[rows.length - 1]!
     const last = row[row.length - 1]
-    if (last !== undefined && last.style === style) {
+    if (last !== undefined && last.style === style && last.href === href) {
       last.text += text
     } else {
-      row.push({ text, style })
+      row.push(href === undefined ? { text, style } : { text, style, href })
     }
     used += cellWidth(text)
   }
@@ -502,10 +518,10 @@ export const wrapSpans = (runs: Span[], room: number): Span[][] => {
           // A line's own indentation stays.
           const indent = limit - 1
           if (indent > 0) {
-            add(takeCells(token, indent)[0], run.style)
+            add(takeCells(token, indent)[0], run)
           }
         } else if (used > 0 && used + cellWidth(token) <= limit) {
-          add(token, run.style)
+          add(token, run)
         } else if (used > 0) {
           breakRow()
         }
@@ -518,11 +534,11 @@ export const wrapSpans = (runs: Span[], room: number): Span[][] => {
       let rest = token
       while (cellWidth(rest) > limit) {
         const [head, tail] = takeCells(rest, limit)
-        add(head, run.style)
+        add(head, run)
         breakRow()
         rest = tail
       }
-      add(rest, run.style)
+      add(rest, run)
     }
   }
 

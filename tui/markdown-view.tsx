@@ -21,6 +21,7 @@ import {
   type Callout,
   type Span,
 } from "./markdown";
+import { hyperlink } from "./links";
 import { PALETTE } from "./theme";
 
 const CALLOUTS: Record<Callout, { color: string; title: string }> = {
@@ -136,50 +137,57 @@ export function inline(text: string, voice: Voice = "claude") {
 }
 
 function Styled({ run, voice = "claude" }: { run: Span; voice?: Voice }) {
+  const text = run.href === undefined ? run.text : run.style === "url" ? linkInBrackets(run.text, run.href) : hyperlink(run.href, run.text);
   switch (run.style) {
     case "code":
       return (
         <Text color={PALETTE.tealLight} backgroundColor={PALETTE.raised}>
-          {run.text}
+          {text}
         </Text>
       );
     case "command":
       return (
         <Text bold color={PALETTE.tealLight} backgroundColor={PALETTE.raised}>
-          {run.text}
+          {text}
         </Text>
       );
     case "bold":
       return (
         <Text bold color={VOICES[voice].accent}>
-          {run.text}
+          {text}
         </Text>
       );
     case "italic":
-      return <Text italic>{run.text}</Text>;
+      return <Text italic>{text}</Text>;
     case "strike":
       return (
         <Text strikethrough color={PALETTE.haze}>
-          {run.text}
+          {text}
         </Text>
       );
     case "link":
       return (
         <Text color={PALETTE.sky} underline>
-          {run.text}
+          {text}
         </Text>
       );
     case "url":
-      return <Text color={PALETTE.dust}>{run.text}</Text>;
+      return <Text color={PALETTE.dust}>{text}</Text>;
     case "image":
       return (
         <Text color={PALETTE.sky} backgroundColor={PALETTE.raised}>
-          {run.text}
+          {text}
         </Text>
       );
     default:
-      return <Text>{run.text}</Text>;
+      return <Text>{text}</Text>;
   }
+}
+
+/** The ` (address)` after a link's text, or a piece of it, with the address alone a link. */
+function linkInBrackets(text: string, href: string) {
+  const [, open = "", address = "", close = ""] = /^(\s*\()?(.*?)(\))?$/s.exec(text) ?? [];
+  return address ? `${open}${hyperlink(href, address)}${close}` : text;
 }
 
 /**

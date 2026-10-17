@@ -5,6 +5,7 @@ import { runOfCall } from "../src/view/runs";
 import type { ToolCall } from "../src/view/state";
 import { field, toolLabel, toolTarget } from "../src/view/tools";
 import { highlightCode } from "./highlight";
+import { linked } from "./links";
 import { printable } from "./markdown";
 import { Markdown, fit, onPanel, Panel } from "./markdown-view";
 import { isReady, Pictures } from "./pictures";
@@ -87,7 +88,7 @@ function Output({ call, width }: { call: ToolCall; width: number }) {
   const shown = clip(printable(result), MAX_LINES);
   return (
     <Panel note={shown.note} width={width}>
-      <Text>{shown.text}</Text>
+      <Text>{linked(shown.text)}</Text>
     </Panel>
   );
 }

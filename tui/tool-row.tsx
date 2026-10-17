@@ -6,6 +6,7 @@ import { Box, Text } from "ink";
 import type { ToolCall } from "../src/view/state";
 import type { Todo } from "../src/view/todos";
 import { field, plural, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
+import { linked } from "./links";
 import { cellWidth, printable, printableColored } from "./markdown";
 import { fit, onPanel, Panel } from "./markdown-view";
 import { isReady, Pictures } from "./pictures";
@@ -105,7 +106,7 @@ export function ShellOutput({ stdout: out, stderr: err, failed, width, limit }: 
     if (!all.text) return null;
     return (
       <Panel note={all.hidden ? all.note : undefined} width={width}>
-        <Text>{onPanel(all.text)}</Text>
+        <Text>{onPanel(linked(all.text))}</Text>
       </Panel>
     );
   }
@@ -116,12 +117,12 @@ export function ShellOutput({ stdout: out, stderr: err, failed, width, limit }: 
     <Box flexDirection="column">
       {stdout.text ? (
         <Panel note={stdout.hidden ? stdout.note : undefined} width={width}>
-          <Text>{onPanel(stdout.text)}</Text>
+          <Text>{onPanel(linked(stdout.text))}</Text>
         </Panel>
       ) : null}
       {stderr.text ? (
         <Panel label="stderr" note={stderr.hidden ? stderr.note : undefined} width={width}>
-          <Text color={PALETTE.rose}>{stderr.text}</Text>
+          <Text color={PALETTE.rose}>{linked(stderr.text)}</Text>
         </Panel>
       ) : null}
     </Box>

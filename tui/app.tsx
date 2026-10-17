@@ -28,6 +28,7 @@ import { ItemView, LiveView } from "./entries";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
 import { keyFor, keyLabel } from "./keys";
+import { openLink } from "./links";
 import { ANSI } from "./markdown";
 import { fit } from "./markdown-view";
 import { ModelPicker } from "./model-picker";
@@ -343,6 +344,14 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     copy(text);
     const lines = text.split("\n").length;
     setToast(lines > 1 ? `Copied ${plural(lines, "line")}` : `Copied ${plural([...text].length, "character")}`);
+  };
+
+  /** A link clicked in full screen, opened in the desktop's browser. */
+  const openAddress = (url: string) => {
+    void openLink(url).then((opened) => {
+      if (opened) setToast(`Opening ${url.replace(/^https?:\/\/([^/?#]+).*$/is, "$1")}`);
+      else notice("error", `Couldn't open ${url}: there's no xdg-open here, or no desktop for it to open on.`);
+    });
   };
 
   /** A message, with the images it still mentions. */
@@ -918,6 +927,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         keys={!overlay}
         onToggle={toggleTool}
         onCopy={copySelection}
+        onOpen={openAddress}
       >
         {panel}
       </Screen>

@@ -1,12 +1,13 @@
 // Full screen: the conversation in a viewport that scrolls, with the message box and status bar
 // pinned under it. The wheel, PgUp and PgDn scroll, and the viewport follows the end until you
-// scroll up. Dragging selects text and copies it; clicking a tool call or a command opens it.
+// scroll up. Dragging selects text and copies it; clicking a tool call or a command opens it, and
+// clicking a link opens that.
 import { Box, Text, useBoxMetrics, useInput, useStdout, type DOMElement } from "ink";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { State } from "../src/view/state";
 import { plural } from "../src/view/tools";
 import { hit, MULTI_CLICK_MS, relative, useHover, useMouse } from "./mouse";
-import { cellsOn, highlight, hoverBand, selectedText, wordAt, type Cell } from "./selection";
+import { cellsOn, highlight, hoverBand, isTextAt, linkAt, linkBand, selectedText, wordAt, type Cell } from "./selection";
 import { PALETTE } from "./theme";
 import { Welcome, WELCOME_HEIGHT, WELCOME_WIDTH } from "./mirror";
 import { pictureRows, usePictureRows } from "./pictures";
@@ -17,6 +18,8 @@ const WHEEL_LINES = 3;
 const EDGE_SCROLL_MS = 50;
 /** How long after the window stops resizing the whole screen is drawn again. */
 const REPAINT_MS = 150;
+/** Between an entry's key and an address in the key of a link under the pointer. */
+const LINK_KEY = "\n";
 
 /**
  * A row by its entry, so what you're reading stays put when lines above it change, and the
@@ -42,11 +45,13 @@ type Props = {
   /** A click on an entry. True when it opened or closed in place, false when it opened something else. */
   onToggle: (key: string) => boolean;
   onCopy: (text: string) => void;
+  /** A click on a link. */
+  onOpen: (url: string) => void;
   /** What's pinned under the viewport. */
   children: ReactNode;
 };
 
-export function Screen({ state, epoch, branch, columns, rows: height, expanded, waiting, reveal, keys, onToggle, onCopy, children }: Props) {
+export function Screen({ state, epoch, branch, columns, rows: height, expanded, waiting, reveal, keys, onToggle, onCopy, onOpen, children }: Props) {
   // A column for the scrollbar and one to keep it off the text.
   const width = Math.max(10, columns - 2);
   const viewport = useRef<DOMElement>(null);
@@ -62,8 +67,11 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   /** Where the button went down to select, until a drag leaves that cell and starts the selection. */
   const pressed = useRef<Point | null>(null);
   const edge = useRef<{ timer: ReturnType<typeof setInterval>; step: number; x: number } | null>(null);
-  /** A click inside an opened entry, closing it unless it turns out to start a double or triple click. */
-  const closing = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * What a click on a link or inside an opened entry does, held until it's plain the click isn't
+   * the first of a double or triple click, which copy a word or a line instead.
+   */
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { rows } = transcript;
   const total = rows.length;
@@ -140,15 +148,23 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     edge.current = { timer, step, x };
   };
 
-  const cancelClosing = () => {
-    if (closing.current) clearTimeout(closing.current);
-    closing.current = null;
+  const cancelPending = () => {
+    if (pending.current) clearTimeout(pending.current);
+    pending.current = null;
+  };
+
+  const later = (action: () => void) => {
+    cancelPending();
+    pending.current = setTimeout(() => {
+      pending.current = null;
+      action();
+    }, MULTI_CLICK_MS);
   };
 
   useEffect(
     () => () => {
       stopEdge();
-      cancelClosing();
+      cancelPending();
     },
     [],
   );
@@ -198,7 +214,7 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
           return setSelection(null);
         }
         // A double click takes the word, a triple click the line, and both copy at once.
-        cancelClosing();
+        cancelPending();
         const index = find(now.current.transcript, point);
         const text = index === null ? "" : (now.current.transcript.rows[index]?.text ?? "");
         const [from, to] = event.clicks === 2 ? wordAt(text, point.col) : [0, width - 1];
@@ -229,28 +245,29 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
         // A drag that came back to where it started selects nothing.
         if (current && samePoint(current.from, current.to)) return setSelection(null);
         if (!current) {
-          // A click, not a drag: it opens or closes the tool call or command it's on. The view
-          // stays where it is, so the row doesn't move out from under the pointer as it opens.
+          // A click, not a drag: it opens the link it's on, else opens or closes the tool call or
+          // command it's on. The view stays where it is, so the row doesn't move out from under the
+          // pointer as it opens.
           if (!point) return;
           const { transcript, top, pad } = now.current;
           const index = find(transcript, point);
           const row = index === null ? undefined : transcript.rows[index];
-          if (index === null || !row?.hot) return;
+          if (index === null || !row) return;
+          const url = linkAt(row.text, point.col);
+          if (url) return later(() => onOpen(url));
+          if (!row.hot) return;
           const y = index - top + pad;
           if (!row.open || row.head) {
             if (onToggle(row.key)) setAnchor({ key: row.key, line: row.line, y });
             return;
           }
-          // Inside what's open, a click closes it, once it's plain it isn't the first of a double or
-          // triple click, which copy a word or a line. The entry's first row then takes the place of
-          // the row clicked, so the card is where you were reading, not wherever its top had been.
+          // Inside what's open, a click closes it. The entry's first row then takes the place of the
+          // row clicked, so the card is where you were reading, not wherever its top had been.
           const { key } = row;
-          cancelClosing();
-          closing.current = setTimeout(() => {
-            closing.current = null;
+          later(() => {
             const { transcript, view } = now.current;
             if (onToggle(key)) setAnchor({ key, line: headLine(transcript, key), y: Math.max(0, Math.min(y, view - 4)) });
-          }, MULTI_CLICK_MS);
+          });
           return;
         }
         copy(current);
@@ -296,21 +313,27 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   const cells = selection ? span(transcript, selection) : null;
   // Before the first message, the mirror and how to start, where there's room for them.
   const welcome = state.items.length === 0 && !state.live && view >= WELCOME_HEIGHT && width >= WELCOME_WIDTH + 4;
-  // Tool calls, commands and the scrollbar answer to a click; the rest of the transcript to a drag,
-  // which selects. The rows under the pointer get a band, so it's plain what a click would open.
+  // Links, tool calls, commands and the scrollbar answer to a click, and the pointer is a hand over
+  // them; text answers to a drag, which selects, and the pointer is a text beam over it. Elsewhere
+  // it's the terminal's own. What a click would open gets a band, so it's plain what it is.
   const hovered = useHover(
     viewport,
     (x, y) => {
       const { transcript, top, pad, thumb } = now.current;
       if (x > width) return thumb > 0 ? { key: "scrollbar", shape: "pointer" } : null;
+      // A selection keeps the text beam wherever the drag goes.
+      if (drag.current === "select" && selected.current) return { key: "", shape: "text" };
       const row = y < pad ? undefined : transcript.rows[top + y - pad];
       if (!row) return null;
-      // What's open is for reading and selecting, so it keeps the text beam, and only its first row
-      // is banded as what a click acts on.
-      return row.hot && (!row.open || row.head) ? { key: row.key, shape: "pointer" } : { key: "", shape: "text" };
+      const url = linkAt(row.text, x);
+      if (url) return { key: `${row.key}${LINK_KEY}${url}`, shape: "pointer" };
+      // What's open is for reading and selecting, so only its first row is what a click acts on.
+      if (row.hot && (!row.open || row.head)) return { key: row.key, shape: "pointer" };
+      return isTextAt(row.text, x, row.inset) ? { key: "", shape: "text" } : null;
     },
     !welcome,
   );
+  const [linkEntry, linkUrl] = hovered?.includes(LINK_KEY) ? hovered.split(LINK_KEY) : [];
   useHover(pill, () => ({ key: "pill", shape: "pointer" }), below > 0 && anchor !== null);
   return (
     <Box flexDirection="column" width={columns} height={height}>
@@ -328,9 +351,13 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
                 <Text key={i} wrap="truncate-end">
                   {range
                     ? highlight(row.text, range[0], range[1])
-                    : row.hot && (!row.open || row.head) && hovered === row.key && !drag.current
-                      ? hoverBand(row.text, row.inset, width)
-                      : row.text || " "}
+                    : drag.current
+                      ? row.text || " "
+                      : linkUrl && row.key === linkEntry
+                        ? linkBand(row.text, linkUrl)
+                        : row.hot && (!row.open || row.head) && hovered === row.key
+                          ? hoverBand(row.text, row.inset, width)
+                          : row.text || " "}
                 </Text>
               );
             })}

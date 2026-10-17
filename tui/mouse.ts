@@ -29,9 +29,10 @@ const ENABLE = "\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h";
 const DISABLE = "\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l";
 
 /**
- * What the pointer looks like over something: a hand where a click acts, a text beam where a drag
- * selects. Set with OSC 22, which kitty, foot, Ghostty and xterm understand and others ignore. It
- * draws nothing, so it can go to the terminal between Ink's frames.
+ * What the pointer looks like over something: a hand where a click acts, a text beam over text a
+ * drag selects. Over anything else, such as an empty cell, it's the terminal's default. Set with
+ * OSC 22, which kitty, foot, Ghostty and xterm understand and others ignore. It draws nothing, so
+ * it can go to the terminal between Ink's frames.
  */
 export type Shape = "pointer" | "text";
 const shapeCode = (shape: Shape | "default") => `\x1b]22;${shape}\x1b\\`;
