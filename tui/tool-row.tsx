@@ -9,6 +9,7 @@ import { bashOutput, field, plural, toolLabel, toolSummary, toolTarget } from ".
 import { highlightCode } from "./highlight";
 import { cellWidth, printable, printableColored } from "./markdown";
 import { fit, onPanel, Panel } from "./markdown-view";
+import { isReady, Pictures } from "./pictures";
 import { PALETTE, TINT } from "./theme";
 
 export const STATUS = {
@@ -25,14 +26,15 @@ export const PATHLIKE = new Set(["Read", "Edit", "Write", "NotebookEdit", "WebFe
 /** Lines of output a finished row keeps; its panel says how many more there were. */
 const OUTPUT_LINES = 12;
 
-type Props = { call: ToolCall; waiting?: boolean; cwd: string; home: string; width: number; detailed?: boolean };
+/** `pictureRows`: how tall a picture the result carried may be. */
+type Props = { call: ToolCall; waiting?: boolean; cwd: string; home: string; width: number; pictureRows: number; detailed?: boolean };
 
 /** The node a tool call shows on the rail. */
 export function toolNode(call: ToolCall, waiting: boolean) {
   return STATUS[waiting ? "waiting" : call.status];
 }
 
-export function ToolRow({ call, waiting = false, cwd, home, width, detailed = false }: Props) {
+export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, detailed = false }: Props) {
   const status = waiting ? "waiting" : call.status;
   const name = toolLabel(call.name);
   const summary = toolSummary(call, waiting);
@@ -55,9 +57,13 @@ export function ToolRow({ call, waiting = false, cwd, home, width, detailed = fa
       </Box>
       {command ? <CommandPanel command={command} width={width} limit={OUTPUT_LINES} /> : null}
       {detailed ? <Detail call={call} width={width} /> : null}
+      {detailed ? <Pictures images={picturesOf(call)} width={width} rows={pictureRows} /> : null}
     </Box>
   );
 }
+
+/** The pictures a finished call's row draws under it: the images its result carried, where the terminal draws them. */
+export const picturesOf = (call: ToolCall) => (call.status === "done" ? (call.images ?? []).filter(isReady) : []);
 
 /**
  * Bash's command when a row showing `target` in `room` cells can't show all of it: it runs over

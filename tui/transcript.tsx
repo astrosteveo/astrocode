@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { State } from "../src/view/state";
 import { Banner } from "./banner";
 import { ItemView, LiveView } from "./entries";
-import { wantPictures } from "./pictures";
+import { imagesOf, wantPictures } from "./pictures";
 import { GUTTER, rails } from "./rail";
 
 /** A line of the transcript: its text with color codes, and the entry it belongs to. */
@@ -33,7 +33,7 @@ export type Transcript = {
 export type TranscriptInput = {
   state: State;
   width: number;
-  /** How tall a picture in a message may be. */
+  /** How tall a picture in an entry may be. */
   pictureRows: number;
   branch?: string;
   /** Tool calls opened to their whole output, by item key. */
@@ -85,7 +85,7 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting }:
     const rail = placed[i]!;
     const isWaiting = item.kind === "tool" && waiting.has(item.call.id);
     const isOpen = item.kind === "tool" && expanded.has(item.key);
-    const pictures = item.kind === "prompt" && item.images ? pictureRows : "";
+    const pictures = imagesOf(item).length ? pictureRows : "";
     const lines = draw(item, `${width}|${pictures}|${isWaiting}|${isOpen}|${rail.spaced}${rail.joined}${rail.through}`, width, () => (
       <ItemView item={item} rail={rail} detailed waiting={isWaiting} expanded={isOpen} {...view} />
     ));

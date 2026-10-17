@@ -6,8 +6,8 @@
 import { dlopen, FFIType } from "bun:ffi";
 import { Box, Text } from "ink";
 import { useRef } from "react";
-import type { ImageAttachment, SessionEvent } from "../src/events";
-import type { Item } from "../src/view/state";
+import type { ImageAttachment } from "../src/events";
+import type { Item, ViewEvent } from "../src/view/state";
 
 /** kitty draws images. Under tmux or screen each image would have to be wrapped to pass through, so not there. */
 export const drawsImages = process.env.TERM === "xterm-kitty" && !process.env.TMUX && !process.env.STY;
@@ -33,12 +33,13 @@ type Picture = { id: number; png: string; width: number; height: number };
 /** A picture's size in cells. */
 export type Size = { cols: number; rows: number };
 
-const pictures = new WeakMap<ImageAttachment, Picture>();
+/** Each image's picture once it's been made, or null when it couldn't be. */
+const pictures = new WeakMap<ImageAttachment, Picture | null>();
 const preparing = new WeakMap<ImageAttachment, Promise<void>>();
 
 /**
- * Gets an image ready to draw. Scrollback draws a message once, so its images must be ready before
- * it's sent or replayed. An image that can't be read stays an `[Image #n]`.
+ * Gets an image ready to draw. Scrollback draws an entry once, so its images must be ready before
+ * it goes in. An image that can't be read stays its label, or `[image]` in a tool's output.
  */
 export function prepare(image: ImageAttachment): Promise<void> {
   if (!drawsImages) return Promise.resolve();
@@ -46,17 +47,41 @@ export function prepare(image: ImageAttachment): Promise<void> {
   if (!pending) {
     pending = toPicture(image).then(
       (picture) => void pictures.set(image, picture),
-      () => {},
+      () => void pictures.set(image, null),
     );
     preparing.set(image, pending);
   }
   return pending;
 }
 
-/** A replay's events, once the images of its messages are ready to draw. */
-export async function withPictures(events: SessionEvent[]) {
-  await Promise.all(events.flatMap((event) => (event.kind === "prompt" ? Object.values(event.images ?? {}).map(prepare) : [])));
-  return events;
+/**
+ * The wait for the images an event brings to be ready to draw, or null when there's nothing to
+ * wait for. The `Store` holds an event, and those after it, until then.
+ */
+export function whenReady(event: ViewEvent): Promise<unknown> | null {
+  if (!drawsImages) return null;
+  const waiting = imagesIn(event).filter((image) => !pictures.has(image));
+  return waiting.length ? Promise.all(waiting.map(prepare)) : null;
+}
+
+function imagesIn(event: ViewEvent): ImageAttachment[] {
+  switch (event.kind) {
+    case "prompt":
+      return Object.values(event.images ?? {});
+    case "sdk":
+      return Object.values(event.images ?? {}).flat();
+    case "history":
+      return event.events.flatMap(imagesIn);
+    default:
+      return [];
+  }
+}
+
+/** The images an entry draws: what you sent with a message, or what a tool's result carried. */
+export function imagesOf(item: Item): ImageAttachment[] {
+  if (item.kind === "prompt") return Object.values(item.images ?? {});
+  if (item.kind === "tool" || item.kind === "output") return item.call.images ?? [];
+  return [];
 }
 
 async function toPicture(image: ImageAttachment): Promise<Picture> {
@@ -99,7 +124,7 @@ function windowCell() {
 }
 
 /** Whether `image` is ready to draw. */
-export const isReady = (image: ImageAttachment) => pictures.has(image);
+export const isReady = (image: ImageAttachment) => !!pictures.get(image);
 
 /** How tall a picture may be with `visible` rows of transcript on screen: half, so the other half still shows the conversation. */
 export const pictureRows = (visible: number) => Math.max(2, Math.floor(visible / 2));
@@ -147,13 +172,12 @@ function want(picture: Picture, size: Size) {
 
 /**
  * Full screen's pictures, at the size its transcript draws them, since a line drawn earlier is
- * reused without drawing its pictures again. Scrollback never redraws a message, so only drawing
+ * reused without drawing its pictures again. Scrollback never redraws an entry, so only drawing
  * one wants its pictures there.
  */
 export function wantPictures(items: readonly Item[], width: number, rows: number) {
   for (const item of items) {
-    if (item.kind !== "prompt" || !item.images) continue;
-    for (const image of Object.values(item.images)) {
+    for (const image of imagesOf(item)) {
       const picture = pictures.get(image);
       if (picture) want(picture, sizeOf(picture, width, rows));
     }
@@ -239,6 +263,17 @@ export function ImageView({ image, width, rows }: { image: ImageAttachment; widt
     <Box flexDirection="column">
       {DIACRITICS.slice(0, size.rows).map((row, i) => (
         <Text key={i}>{color + PLACEHOLDER + row + DIACRITICS[0] + rest + "\x1b[39m"}</Text>
+      ))}
+    </Box>
+  );
+}
+
+/** Images one under another, each as large as fits in `width` columns and `rows` rows, once it's ready. */
+export function Pictures({ images, width, rows }: { images: readonly ImageAttachment[]; width: number; rows: number }) {
+  return (
+    <Box flexDirection="column">
+      {images.map((image, i) => (
+        <ImageView key={i} image={image} width={width} rows={rows} />
       ))}
     </Box>
   );

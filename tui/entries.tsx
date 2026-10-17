@@ -17,7 +17,7 @@ import { DraftRow, ShellOutput, toolNode, ToolRow } from "./tool-row";
 /** Lines of a `!` command's output the transcript keeps. */
 const SHELL_LINES = 12;
 
-/** `pictureRows`: how tall a picture in a message may be. */
+/** `pictureRows`: how tall a picture in an entry may be. */
 export type ViewProps = { cwd: string; home: string; width: number; pictureRows: number };
 
 type ItemProps = {
@@ -68,7 +68,7 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
       return (
         <Railed node={glyph} color={color} rail={rail}>
           <ToolRow call={item.call} waiting={waiting} detailed={detailed && !expanded} {...inner} />
-          {expanded ? <OutputBody call={item.call} width={inner.width} /> : null}
+          {expanded ? <OutputBody call={item.call} width={inner.width} pictureRows={view.pictureRows} /> : null}
         </Railed>
       );
     }

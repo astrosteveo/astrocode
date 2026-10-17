@@ -1,5 +1,6 @@
 // What the session tells the interface, and the requests that wait on the user.
 import type { EffortLevel, PermissionMode, PermissionUpdate, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { field } from "./view/tools";
 
 /** A tool call waiting for the user to allow or deny it. */
 export type PermissionRequest = {
@@ -52,6 +53,31 @@ export type ModelChoice = { value: string; name: string; description: string; ef
 /** An image going with a message, as an image block takes it. */
 export type ImageAttachment = { mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string };
 
+const MEDIA_TYPES: readonly string[] = ["image/png", "image/jpeg", "image/gif", "image/webp"] satisfies ImageAttachment["mediaType"][];
+
+/** The images among a message's or a tool result's content blocks, in order. */
+export function imageBlocks(content: unknown): ImageAttachment[] {
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((block): ImageAttachment[] => {
+    const source = field(block, "source");
+    const mediaType = field(source, "media_type");
+    const data = field(source, "data");
+    if (field(block, "type") !== "image" || field(source, "type") !== "base64" || typeof data !== "string") return [];
+    return typeof mediaType === "string" && MEDIA_TYPES.includes(mediaType) ? [{ mediaType: mediaType as ImageAttachment["mediaType"], data }] : [];
+  });
+}
+
+/** A message from Claude Code as an event, with the images its tool results carried. */
+export function sdkEvent(message: SDKMessage): SessionEvent {
+  if (message.type !== "user" || message.parent_tool_use_id || typeof message.message.content === "string") return { kind: "sdk", message };
+  const found = message.message.content.flatMap((block) => {
+    if (block.type !== "tool_result") return [];
+    const images = imageBlocks(block.content);
+    return images.length ? [[block.tool_use_id, images] as const] : [];
+  });
+  return found.length ? { kind: "sdk", message, images: Object.fromEntries(found) } : { kind: "sdk", message };
+}
+
 export type CommandInfo = { name: string; description: string; argumentHint: string };
 
 export type SessionEvent =
@@ -67,7 +93,12 @@ export type SessionEvent =
   /** A command you ran with `!`, before and after it finishes. */
   | { kind: "shell"; id: string; command: string }
   | { kind: "shell-done"; id: string; stdout: string; stderr: string; code: number | null }
-  | { kind: "sdk"; message: SDKMessage }
+  /**
+   * A message from Claude Code. `images` are what its tool results carried, by tool call id, such
+   * as a picture Claude read. The interface keeps a picture per image object, so they're read out
+   * of the message once, by `sdkEvent()`, before the event goes anywhere.
+   */
+  | { kind: "sdk"; message: SDKMessage; images?: Record<string, ImageAttachment[]> }
   | { kind: "permission"; request: PermissionRequest }
   | { kind: "question"; request: QuestionRequest }
   | { kind: "resolved"; id: string; outcome: Decision | "answered" | "cancelled" }

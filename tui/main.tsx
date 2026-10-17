@@ -9,7 +9,7 @@ import { App } from "./app";
 import { gitInfo } from "./git";
 import { loadKeymap } from "./keys";
 import { Mouse, MouseContext } from "./mouse";
-import { afterFrame, forgetSent, withPictures } from "./pictures";
+import { afterFrame, forgetSent } from "./pictures";
 import { Store } from "./store";
 
 export type TerminalOptions = { cwd: string; model?: string; effort?: EffortLevel; resume?: string; continue?: boolean; fullscreen?: boolean };
@@ -63,7 +63,7 @@ export async function startTerminal(options: TerminalOptions) {
   for (const problem of problems) store.emit({ kind: "notice", ...problem });
   if (resume) {
     const id = resume;
-    Promise.all([loadHistory(id, options.cwd).then(withPictures), sessionTitle(id, options.cwd)])
+    Promise.all([loadHistory(id, options.cwd), sessionTitle(id, options.cwd)])
       .then(([events, title]) => store.emit({ kind: "history", events, title }))
       .catch((error: unknown) =>
         store.emit({ kind: "notice", tone: "error", text: `Couldn't load the earlier conversation: ${error instanceof Error ? error.message : String(error)}` }),

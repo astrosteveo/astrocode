@@ -3,7 +3,7 @@ import type { TodoMode } from "../src/settings";
 import type { Stash } from "../src/stash";
 import { imageLabel } from "./images";
 import { DEFAULT_KEYMAP, type Keymap } from "./keys";
-import { prepare } from "./pictures";
+import { prepare, whenReady } from "./pictures";
 import { initialState, reduce, type State, type ViewEvent } from "../src/view/state";
 
 /**
@@ -25,6 +25,12 @@ export class Store {
   keymap: Keymap = DEFAULT_KEYMAP;
   private nextImage = 1;
   private state: State;
+  /**
+   * Events not folded in yet, in order. Scrollback draws an entry once, so an event that brings
+   * images waits until they're ready to draw, and those after it wait their turn.
+   */
+  private held: ViewEvent[] = [];
+  private waiting = false;
   private listeners = new Set<() => void>();
 
   constructor(
@@ -35,13 +41,30 @@ export class Store {
   }
 
   emit = (event: ViewEvent) => {
-    this.state = reduce(this.state, event);
-    this.notify();
+    this.held.push(event);
+    if (!this.waiting) this.release();
   };
+
+  /** Folds in the held events, in order, up to one whose images aren't ready yet. */
+  private release() {
+    this.waiting = false;
+    while (this.held.length) {
+      const wait = whenReady(this.held[0]!);
+      if (wait) {
+        this.waiting = true;
+        void wait.then(() => this.release());
+        return;
+      }
+      this.state = reduce(this.state, this.held.shift()!);
+      this.notify();
+    }
+  }
 
   /** Starts over for a new or resumed session. What's known about the account and Claude Code stays. */
   reset() {
     const { plan, models, commands, limits, mode, model, effort, thinking } = this.state;
+    // Whatever was still waiting on its images belongs to the conversation being left.
+    this.held = [];
     this.state = { ...initialState(this.cwd, this.home), plan, models, commands, limits, mode, model, effort, thinking };
     this.epoch += 1;
     this.notify();

@@ -15,6 +15,7 @@ import {
 import { randomUUID } from "node:crypto";
 import {
   MODES,
+  sdkEvent,
   type Answers,
   type CommandInfo,
   type Decision,
@@ -356,7 +357,7 @@ export class AgentSession {
         if (message.type === "system" && message.subtype === "init") this.mode = message.permissionMode;
         // Claude Code changes modes too, such as when Claude leaves plan mode. A restart carries on in that one.
         if (message.type === "system" && message.subtype === "status" && message.permissionMode) this.mode = message.permissionMode;
-        this.options.emit({ kind: "sdk", message });
+        this.options.emit(sdkEvent(message));
         if (message.type === "result") void this.reportContext(run);
       }
     } catch (error) {

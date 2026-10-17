@@ -24,6 +24,8 @@ export type ToolCall = {
   result?: string;
   /** Claude Code's structured result (`tool_use_result`), such as Bash's stdout or Read's line count. */
   output?: unknown;
+  /** The images the result carried, such as a picture Claude read. */
+  images?: ImageAttachment[];
   /** Tool calls a subagent made under this call. */
   subagentCalls: number;
 };
@@ -139,7 +141,7 @@ export function reduce(state: State, event: ViewEvent): State {
       return { ...state, items };
     }
     case "sdk":
-      return applySdk(state, event.message);
+      return applySdk(state, event.message, event.images);
     case "permission":
       return { ...state, pending: [...state.pending.filter((p) => p.id !== event.request.id), event.request] };
     case "question":
@@ -182,7 +184,7 @@ export function reduce(state: State, event: ViewEvent): State {
   }
 }
 
-function applySdk(state: State, message: SDKMessage): State {
+function applySdk(state: State, message: SDKMessage, images: Record<string, ImageAttachment[]> = {}): State {
   switch (message.type) {
     case "system":
       switch (message.subtype) {
@@ -218,7 +220,7 @@ function applySdk(state: State, message: SDKMessage): State {
     case "assistant":
       return applyAssistant({ ...state, busy: true }, message);
     case "user":
-      return applyUser(state, message);
+      return applyUser(state, message, images);
     case "result":
       return applyResult(state, message);
     default:
@@ -318,7 +320,7 @@ function finalizeLive(state: State, messageId: string, block: AssistantBlock): S
   return { ...state, live: { ...live, finalized } };
 }
 
-function applyUser(state: State, message: UserMessage): State {
+function applyUser(state: State, message: UserMessage, images: Record<string, ImageAttachment[]>): State {
   const content = message.message.content;
   if (message.parent_tool_use_id || typeof content === "string") return state;
   const results = content.filter((block) => block.type === "tool_result");
@@ -332,6 +334,7 @@ function applyUser(state: State, message: UserMessage): State {
     next = updateTool(next, block.tool_use_id, (call) => ({
       result,
       output,
+      images: images[block.tool_use_id],
       status: call.status === "denied" || call.status === "stopped" ? call.status : refused ? "denied" : block.is_error ? "error" : "done",
     }));
   }

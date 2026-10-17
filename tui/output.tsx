@@ -6,16 +6,17 @@ import { field, toolLabel, toolTarget } from "../src/view/tools";
 import { highlightCode } from "./highlight";
 import { printable } from "./markdown";
 import { Markdown, fit, onPanel, Panel } from "./markdown-view";
+import { isReady, Pictures } from "./pictures";
 import { PALETTE } from "./theme";
 import { BashOutput, clip, CommandPanel, EditDiff, hiddenCommand } from "./tool-row";
 
 /** The most lines printed for one output; scrollback can hold this much without trouble. */
 const MAX_LINES = 2000;
 
-type Props = { call: ToolCall; cwd: string; home: string; width: number };
+type Props = { call: ToolCall; cwd: string; home: string; width: number; pictureRows: number };
 
 /** The header of a printed output: which call it belongs to, since it lands at the end of the transcript. */
-export function FullOutput({ call, cwd, home, width }: Props) {
+export function FullOutput({ call, cwd, home, width, pictureRows }: Props) {
   return (
     <Box flexDirection="column">
       <Text wrap="truncate-end">
@@ -25,7 +26,7 @@ export function FullOutput({ call, cwd, home, width }: Props) {
         <Text>{`  ${fit(toolTarget(call, cwd, home), width - TARGET_ROOM, true)}`}</Text>
         <Text color={PALETTE.haze}>{"  whole output"}</Text>
       </Text>
-      <OutputBody call={call} width={width} />
+      <OutputBody call={call} width={width} pictureRows={pictureRows} />
     </Box>
   );
 }
@@ -33,7 +34,23 @@ export function FullOutput({ call, cwd, home, width }: Props) {
 /** About how many cells a row's tool name and summary take, leaving the rest for what the call acts on. */
 const TARGET_ROOM = 30;
 
-export function OutputBody({ call, width }: { call: ToolCall; width: number }) {
+/**
+ * A call's whole output. Where the terminal draws images, the pictures its result carried come
+ * first, and stand in for the `[image]` each left in the result's text.
+ */
+export function OutputBody({ call, width, pictureRows }: { call: ToolCall; width: number; pictureRows: number }) {
+  const images = call.images?.filter(isReady) ?? [];
+  if (!images.length) return <Output call={call} width={width} />;
+  const said = (call.result ?? "").replace(/^\[image\]$/gm, "").trim();
+  return (
+    <Box flexDirection="column">
+      <Pictures images={images} width={width} rows={pictureRows} />
+      {said ? <Output call={{ ...call, result: said }} width={width} /> : null}
+    </Box>
+  );
+}
+
+function Output({ call, width }: { call: ToolCall; width: number }) {
   const path = typeof call.input.file_path === "string" ? call.input.file_path : "";
   const language = path.includes(".") ? (path.split(".").pop() ?? "") : "";
   switch (call.name) {

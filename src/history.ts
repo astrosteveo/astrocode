@@ -1,5 +1,5 @@
 import { getSessionInfo, getSessionMessages, listSessions, type SDKMessage, type SessionMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { ImageAttachment, SessionEvent } from "./events";
+import { imageBlocks, sdkEvent, type ImageAttachment, type SessionEvent } from "./events";
 
 export type SavedSession = { id: string; title: string; firstPrompt?: string; modified: number; branch?: string };
 
@@ -35,7 +35,7 @@ export function historyEvents(messages: SessionMessage[]): SessionEvent[] {
   for (const saved of messages) {
     const base = { message: saved.message, parent_tool_use_id: saved.parent_tool_use_id, uuid: saved.uuid, session_id: saved.session_id };
     if (saved.type === "assistant") {
-      events.push({ kind: "sdk", message: { type: "assistant", ...base } as SDKMessage });
+      events.push(sdkEvent({ type: "assistant", ...base } as SDKMessage));
     } else if (saved.type === "user") {
       const content = field(saved.message, "content");
       const shell = saved.parent_tool_use_id ? null : shellPart(content);
@@ -56,7 +56,7 @@ export function historyEvents(messages: SessionMessage[]): SessionEvent[] {
       events.push(
         typed !== null
           ? { kind: "prompt", text: typed, uuid: saved.uuid, images: promptImages(content, typed) }
-          : { kind: "sdk", message: { type: "user", ...base } as SDKMessage },
+          : sdkEvent({ type: "user", ...base } as SDKMessage),
       );
     }
   }
@@ -94,22 +94,13 @@ function promptText(content: unknown): string | null {
   return typedByYou(text);
 }
 
-const MEDIA_TYPES: readonly string[] = ["image/png", "image/jpeg", "image/gif", "image/webp"] satisfies ImageAttachment["mediaType"][];
-
 /**
  * The images a message carried, by the number of the `[Image #n]` each went with: the images in
  * the order they were sent, matched to the labels in the order they first appear, which is the
  * order astrocode sends them in.
  */
 function promptImages(content: unknown, text: string): Record<number, ImageAttachment> | undefined {
-  if (!Array.isArray(content)) return undefined;
-  const images = content.flatMap((block): ImageAttachment[] => {
-    const source = field(block, "source");
-    const mediaType = field(source, "media_type");
-    const data = field(source, "data");
-    if (field(block, "type") !== "image" || field(source, "type") !== "base64" || typeof data !== "string") return [];
-    return typeof mediaType === "string" && MEDIA_TYPES.includes(mediaType) ? [{ mediaType: mediaType as ImageAttachment["mediaType"], data }] : [];
-  });
+  const images = imageBlocks(content);
   if (!images.length) return undefined;
   const labels = [...new Set([...text.matchAll(/\[Image #(\d+)\]/g)].map((match) => Number(match[1])))];
   return Object.fromEntries(labels.slice(0, images.length).map((n, i) => [n, images[i]!]));

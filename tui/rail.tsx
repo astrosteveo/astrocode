@@ -6,6 +6,7 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { Item } from "../src/view/state";
 import { PALETTE } from "./theme";
+import { picturesOf } from "./tool-row";
 
 /** The rail's column and the space after it. Content starts after this. */
 export const GUTTER = 2;
@@ -34,9 +35,12 @@ export function rails(items: Item[]): Rail[] {
 /** The rail for what Claude is doing right now, which is always inside a turn. */
 export const LIVE: Rail = { spaced: true, joined: true, through: true };
 
-/** A row between entries, except between tool calls, which stack as one run of nodes. */
+/**
+ * A row between entries, except between tool calls, which stack as one run of nodes. A picture
+ * under a call's row ends the run, so the next call doesn't sit on the picture's edge.
+ */
 function gap(before: Item | undefined, item: Item) {
-  return !(before?.kind === "tool" && item.kind === "tool");
+  return !(before?.kind === "tool" && item.kind === "tool") || picturesOf(before.call).length > 0;
 }
 
 type Props = { node: string; color: string; rail: Rail; children: ReactNode };

@@ -108,6 +108,7 @@ function doneSummary(call: ToolCall) {
       break;
     }
   }
+  if (call.images?.length) return plural(call.images.length, "image");
   const result = call.result?.trimEnd() ?? "";
   if (!result || /^\(\w+ completed with no output\)$/.test(result)) return "no output";
   return plural(lineCount(result), "line");

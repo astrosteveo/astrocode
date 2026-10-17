@@ -31,7 +31,7 @@ import { fit } from "./markdown-view";
 import { ModelPicker } from "./model-picker";
 import { MouseContext } from "./mouse";
 import { Picker, type PickerItem } from "./picker";
-import { pictureRows, resendPictures, withPictures } from "./pictures";
+import { pictureRows, resendPictures } from "./pictures";
 import { PluginManager } from "./plugins";
 import { Prompt } from "./prompt";
 import { QuestionPrompt } from "./question";
@@ -259,7 +259,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     startOver();
     session.resume(id);
     loadHistory(id, state.cwd)
-      .then(withPictures)
       .then((events) => store.emit({ kind: "history", events, title }))
       .catch(report);
   };
@@ -364,7 +363,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       if (!restored.canRewind) throw new Error(restored.error ?? "Claude Code couldn't put the files back.");
     }
     if (how !== "code") {
-      const events = await withPictures(historyEvents(await session.rewindConversation(uuid)));
+      const events = historyEvents(await session.rewindConversation(uuid));
       startOver();
       store.emit({ kind: "history", events, notice: "Went back to before your message, which is in the box to change or send again." });
       setPrefill({ text });
