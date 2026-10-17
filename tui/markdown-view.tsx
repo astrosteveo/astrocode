@@ -36,7 +36,8 @@ const LINE_COUNT_FROM = 5;
 
 /**
  * Your words (`yours`) are bold and bright, with your strong emphasis in gold and your indentation
- * kept; Claude's are the terminal's own text.
+ * kept. Claude's are the terminal's own text, with its strong emphasis in teal: bold alone barely
+ * shows against a light foreground.
  */
 export function Markdown({ text, width, yours = false }: { text: string; width: number; yours?: boolean }) {
   return (
@@ -143,7 +144,7 @@ function Styled({ run, yours = false }: { run: Span; yours?: boolean }) {
       );
     case "bold":
       return (
-        <Text bold color={yours ? PALETTE.gold : PALETTE.star}>
+        <Text bold color={yours ? PALETTE.gold : PALETTE.teal}>
           {run.text}
         </Text>
       );
