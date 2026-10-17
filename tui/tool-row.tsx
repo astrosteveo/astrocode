@@ -89,13 +89,28 @@ function Detail({ call, width }: { call: ToolCall; width: number }) {
 
 export function BashOutput({ call, width, limit }: { call: ToolCall; width: number; limit: number }) {
   const structured = bashOutput(call.output);
-  return <ShellOutput stdout={structured?.stdout ?? call.result ?? ""} stderr={structured?.stderr ?? ""} width={width} limit={limit} />;
+  return (
+    <ShellOutput stdout={structured?.stdout ?? call.result ?? ""} stderr={structured?.stderr ?? ""} failed={call.status === "error"} width={width} limit={limit} />
+  );
 }
 
-/** What a command printed, on a panel, with what it printed as errors on one of its own. */
-export function ShellOutput({ stdout: out, stderr: err, width, limit }: { stdout: string; stderr: string; width: number; limit: number }) {
+/**
+ * What a command printed, on a panel. When it failed, what it printed as errors goes in rose on a
+ * panel of its own. When it succeeded, that's just more output: git, curl and others print their
+ * progress and results to stderr.
+ */
+export function ShellOutput({ stdout: out, stderr: err, failed, width, limit }: { stdout: string; stderr: string; failed: boolean; width: number; limit: number }) {
   // Claude Code's words for a command that printed nothing.
   const said = /^\(\w+ completed with no output\)$/.test(out.trim()) ? "" : out;
+  if (!failed) {
+    const all = clip([printableColored(said).trimEnd(), printable(err).trimEnd()].filter(Boolean).join("\n"), limit);
+    if (!all.text) return null;
+    return (
+      <Panel note={all.hidden ? all.note : undefined} width={width}>
+        <Text>{onPanel(all.text)}</Text>
+      </Panel>
+    );
+  }
   const stdout = clip(printableColored(said), limit);
   const stderr = clip(printable(err), limit);
   if (!stdout.text && !stderr.text) return null;

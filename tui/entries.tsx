@@ -44,7 +44,7 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
             </Text>
             {item.status === "running" ? <Text color={PALETTE.haze}>{"  running"}</Text> : null}
           </Text>
-          {item.status === "running" ? null : <ShellOutput stdout={item.stdout} stderr={item.stderr} width={inner.width} limit={SHELL_LINES} />}
+          {item.status === "running" ? null : <ShellOutput stdout={item.stdout} stderr={item.stderr} failed={item.status === "error"} width={inner.width} limit={SHELL_LINES} />}
         </Railed>
       );
     case "text":

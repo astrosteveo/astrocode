@@ -44,9 +44,12 @@ export function historyEvents(messages: SessionMessage[]): SessionEvent[] {
         continue;
       }
       if (shell?.stdout !== undefined) {
-        // The output belongs to the command saved just before it.
+        // The output belongs to the command saved just before it. Its exit code isn't saved, and
+        // stderr is no sign of failure (git prints its progress there), so only the "Command failed:"
+        // Claude Code writes for a command that couldn't run counts as one.
         const started = events.findLast((event) => event.kind === "shell");
-        if (started?.kind === "shell") events.push({ kind: "shell-done", id: started.id, stdout: shell.stdout, stderr: shell.stderr ?? "", code: shell.stderr ? 1 : 0 });
+        const failed = shell.stderr?.startsWith("Command failed:") ?? false;
+        if (started?.kind === "shell") events.push({ kind: "shell-done", id: started.id, stdout: shell.stdout, stderr: shell.stderr ?? "", code: failed ? 1 : 0 });
         continue;
       }
       const typed = saved.parent_tool_use_id ? null : promptText(content);
@@ -58,7 +61,8 @@ export function historyEvents(messages: SessionMessage[]): SessionEvent[] {
 
 /**
  * A command run with `!` is saved as two messages, as Claude Code saves its own: the command in
- * `<bash-input>`, then what it printed in `<bash-stdout>` and `<bash-stderr>`.
+ * `<bash-input>`, then what it printed in `<bash-stdout>` and `<bash-stderr>`. A command that
+ * couldn't run gets only `<bash-stderr>`.
  */
 function shellPart(content: unknown) {
   if (typeof content !== "string") return null;
@@ -66,7 +70,8 @@ function shellPart(content: unknown) {
   const command = tag("bash-input");
   if (command !== undefined) return { command };
   const stdout = tag("bash-stdout");
-  return stdout !== undefined ? { stdout, stderr: tag("bash-stderr") } : null;
+  const stderr = tag("bash-stderr");
+  return stdout !== undefined || stderr !== undefined ? { stdout: stdout ?? "", stderr } : null;
 }
 
 /** How a command run with `!` goes into the conversation, the same way Claude Code's does. */
