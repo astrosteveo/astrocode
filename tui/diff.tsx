@@ -267,9 +267,12 @@ function markChanges(old: Cell[], next: Cell[]) {
 
 /** Sets `changed` on the cells of the words not kept, matching cells to words by where their text starts. */
 function mark(cells: Cell[], words: string[], kept: boolean[]) {
+  const space = (i: number) => /^\s+$/.test(words[i] ?? "");
+  // A space between two changed words is part of the change, so a changed phrase is one run of tint.
+  const isChanged = (i: number) => !kept[i] && (!space(i) || (i > 0 && i < words.length - 1 && !kept[i - 1] && !kept[i + 1]));
   const changed: boolean[] = [];
   words.forEach((word, i) => {
-    for (let k = 0; k < word.length; k++) changed.push(!kept[i] && !/^\s+$/.test(word));
+    for (let k = 0; k < word.length; k++) changed.push(isChanged(i));
   });
   let at = 0;
   for (const cell of cells) {
@@ -280,18 +283,24 @@ function mark(cells: Cell[], words: string[], kept: boolean[]) {
 
 /**
  * Cells cut into rows of at most `width` cells, after a space where there's one in the row's
- * second half, else wherever the row is full. An empty line is one empty row.
+ * second half, else wherever the row is full. Later rows start as indented as the line's text,
+ * past a comment's leader, up to half the row, so a wrapped line reads as one. An empty line is
+ * one empty row.
  */
 function wrap(cells: Cell[], width: number): Cell[][] {
+  // A comment's leader, such as ` * ` or `// `, counts as indentation, so its text lines up.
+  const lead = /^\s*(?:(?:\*|\/\/|#|--|;+)\s+)?/.exec(cells.map((cell) => cell.text).join(""))![0].length;
+  const indent = Math.min(lead, Math.floor(width / 2));
+  const pad = (): Cell[] => Array.from({ length: indent }, () => ({ text: " ", width: 1, bold: false, italic: false, changed: false }));
   const rows: Cell[][] = [[]];
   let used = 0;
   for (const cell of cells) {
     const row = rows.at(-1)!;
-    if (used + cell.width > width && row.length) {
+    if (used + cell.width > width && row.length > (rows.length > 1 ? indent : 0)) {
       const space = row.findLastIndex((one) => one.text === " ");
       const carried = space >= row.length / 2 ? row.splice(space + 1) : [];
-      rows.push(carried);
-      used = carried.reduce((sum, one) => sum + one.width, 0);
+      rows.push([...pad(), ...carried]);
+      used = rows.at(-1)!.reduce((sum, one) => sum + one.width, 0);
     }
     rows.at(-1)!.push(cell);
     used += cell.width;
