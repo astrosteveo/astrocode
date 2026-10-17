@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { State } from "../src/view/state";
 import { Banner } from "./banner";
 import { ItemView, LiveView } from "./entries";
+import { wantPictures } from "./pictures";
 import { GUTTER, rails } from "./rail";
 
 /** A line of the transcript: its text with color codes, and the entry it belongs to. */
@@ -32,6 +33,8 @@ export type Transcript = {
 export type TranscriptInput = {
   state: State;
   width: number;
+  /** How tall a picture in a message may be. */
+  pictureRows: number;
   branch?: string;
   /** Tool calls opened to their whole output, by item key. */
   expanded: ReadonlySet<string>;
@@ -58,11 +61,12 @@ function draw(owner: object, drawnFor: string, width: number, element: () => Rea
 }
 
 /** The whole transcript. Must run outside React's render, since renderToString renders with the same reconciler. */
-export function layout({ state, width, branch, expanded, waiting }: TranscriptInput): Transcript {
+export function layout({ state, width, pictureRows, branch, expanded, waiting }: TranscriptInput): Transcript {
   const rows: Row[] = [];
   const starts = new Map<string, number>();
   const tools = new Set<string>();
-  const view = { cwd: state.cwd, home: state.home, width };
+  const view = { cwd: state.cwd, home: state.home, width, pictureRows };
+  wantPictures(state.items, width - GUTTER, pictureRows);
 
   /** An entry's lines; `head` is where its content starts, after the row that sets it apart. */
   const add = (key: string, lines: string[], head: number, inset: number) => {
@@ -81,7 +85,8 @@ export function layout({ state, width, branch, expanded, waiting }: TranscriptIn
     const rail = placed[i]!;
     const isWaiting = item.kind === "tool" && waiting.has(item.call.id);
     const isOpen = item.kind === "tool" && expanded.has(item.key);
-    const lines = draw(item, `${width}|${isWaiting}|${isOpen}|${rail.spaced}${rail.joined}${rail.through}`, width, () => (
+    const pictures = item.kind === "prompt" && item.images ? pictureRows : "";
+    const lines = draw(item, `${width}|${pictures}|${isWaiting}|${isOpen}|${rail.spaced}${rail.joined}${rail.through}`, width, () => (
       <ItemView item={item} rail={rail} detailed waiting={isWaiting} expanded={isOpen} {...view} />
     ));
     if (item.kind === "tool") tools.add(item.key);
@@ -129,7 +134,7 @@ export function useTranscript(input: TranscriptInput) {
     return () => {
       stale = true;
     };
-  }, [input.state.items, input.state.live, input.state.cwd, input.width, input.branch, input.expanded, waiting]);
+  }, [input.state.items, input.state.live, input.state.cwd, input.width, input.pictureRows, input.branch, input.expanded, waiting]);
 
   useEffect(
     () => () => {

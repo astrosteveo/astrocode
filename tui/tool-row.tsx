@@ -6,6 +6,7 @@ import { Box, Text } from "ink";
 import type { ToolCall } from "../src/view/state";
 import type { Todo } from "../src/view/todos";
 import { bashOutput, field, plural, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
+import { highlightCode } from "./highlight";
 import { cellWidth, printable, printableColored } from "./markdown";
 import { fit, onPanel, Panel } from "./markdown-view";
 import { PALETTE, TINT } from "./theme";
@@ -38,7 +39,9 @@ export function ToolRow({ call, waiting = false, cwd, home, width, detailed = fa
   const summaryColor =
     status === "error" ? PALETTE.rose : status === "denied" || status === "stopped" ? PALETTE.ember : status === "waiting" ? PALETTE.gold : PALETTE.haze;
   const room = width - cellWidth(name) - 2 - (summary ? cellWidth(summary) + 2 : 0);
-  const target = fit(toolTarget(call, cwd, home), room, PATHLIKE.has(call.name));
+  const whole = toolTarget(call, cwd, home);
+  const target = fit(whole, room, PATHLIKE.has(call.name));
+  const command = detailed ? hiddenCommand(call, whole, room) : "";
   return (
     <Box flexDirection="column" width={width}>
       <Box justifyContent="space-between" width={width}>
@@ -50,8 +53,28 @@ export function ToolRow({ call, waiting = false, cwd, home, width, detailed = fa
         </Text>
         {summary ? <Text color={summaryColor}>{summary}</Text> : null}
       </Box>
+      {command ? <CommandPanel command={command} width={width} limit={OUTPUT_LINES} /> : null}
       {detailed ? <Detail call={call} width={width} /> : null}
     </Box>
+  );
+}
+
+/**
+ * Bash's command when a row showing `target` in `room` cells can't show all of it: it runs over
+ * more than one line, as a heredoc does, or past the room.
+ */
+export function hiddenCommand(call: ToolCall, target: string, room: number) {
+  const command = call.name === "Bash" && typeof call.input.command === "string" ? call.input.command : "";
+  return command.includes("\n") || cellWidth(target) > room ? command : "";
+}
+
+/** A command as Claude wrote it, on a panel, its first `limit` lines. */
+export function CommandPanel({ command, width, limit }: { command: string; width: number; limit: number }) {
+  const shown = clip(command, limit);
+  return (
+    <Panel label="command" note={shown.hidden ? shown.note : undefined} width={width}>
+      <Text>{onPanel(highlightCode(shown.text, "bash"))}</Text>
+    </Panel>
   );
 }
 

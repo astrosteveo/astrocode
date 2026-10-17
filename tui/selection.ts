@@ -1,7 +1,7 @@
 // Selecting text in full screen's transcript, which is lines of styled text. A selection runs from
 // one cell to another like a terminal's, but only over content: it leaves out the rail and its
-// gutter, a panel's padding and edges, and the hairline before a quote, so copying code brings
-// only the code. What's highlighted is what's copied.
+// gutter, a panel's padding and edges, the hairline before a quote, and pictures, so copying code
+// brings only the code. What's highlighted is what's copied.
 import { cellWidth } from "./markdown";
 import { PALETTE, rgb, sgr, TINT } from "./theme";
 
@@ -16,6 +16,8 @@ const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const PANEL_EDGE = /^[▄▀]/;
 /** The hairline before a quote or a callout. */
 const HAIRLINE = /^▏ /;
+/** A row of a picture's placeholder cells (`pictures.tsx`). Coloring them would change which image they show. */
+const PICTURE = /^\u{10EEEE}/u;
 /** What a double click selects: a word, a path, a URL or a number. */
 const WORD = /[\p{L}\p{N}_\-./~:@#%+=?&$]/u;
 
@@ -141,6 +143,7 @@ export function cellsOn(line: string, row: number, start: Cell, end: Cell, inset
   let to = row === end.row ? end.col + 1 : Infinity;
   const text = plain(line);
   const body = sliceCells(text, inset, Infinity);
+  if (PICTURE.test(body)) return null;
   if (PANEL_EDGE.test(body)) {
     if (start.row !== end.row) return null;
   } else if (PANELS.includes(backgroundAt(line, inset) ?? "")) {
@@ -158,7 +161,8 @@ export function selectedText(rows: { text: string; inset: number }[], start: Cel
   const out: string[] = [];
   for (let row = start.row; row <= end.row; row++) {
     const { text: line, inset } = rows[row - start.row] ?? { text: "", inset: 0 };
-    if (start.row !== end.row && PANEL_EDGE.test(sliceCells(plain(line), inset, Infinity))) continue;
+    const body = sliceCells(plain(line), inset, Infinity);
+    if (PICTURE.test(body) || (start.row !== end.row && PANEL_EDGE.test(body))) continue;
     const cells = cellsOn(line, row, start, end, inset);
     out.push(cells ? sliceCells(plain(line), cells[0], cells[1]).trimEnd() : "");
   }

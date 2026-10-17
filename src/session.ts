@@ -128,19 +128,17 @@ export class AgentSession {
     void this.announce(run);
   }
 
-  /** Sends a message, with any images before its text. Its uuid is the one rewinding goes back to. */
-  send(text: string, images: ImageAttachment[] = []) {
+  /**
+   * Sends a message, with the images its `[Image #n]` labels mention, by number, before its text.
+   * Its uuid is the one rewinding goes back to.
+   */
+  send(text: string, images: ReadonlyMap<number, ImageAttachment> = new Map()) {
     this.start();
     this.resumeAt = undefined;
     const uuid = randomUUID();
-    const content = images.length
-      ? [
-          ...images.map((image) => ({ type: "image" as const, source: { type: "base64" as const, media_type: image.mediaType, data: image.data } })),
-          { type: "text" as const, text },
-        ]
-      : text;
-    this.options.emit({ kind: "prompt", text, uuid });
-    this.run?.inbox.push({ type: "user", message: { role: "user", content }, parent_tool_use_id: null, uuid });
+    const mentions = mentionsIn(text, images);
+    this.options.emit({ kind: "prompt", text, uuid, images: Object.fromEntries(mentions.map(({ n, image }) => [n, image])) });
+    this.run?.inbox.push({ type: "user", message: { role: "user", content: messageContent(text, mentions) }, parent_tool_use_id: null, uuid });
   }
 
   /**
@@ -425,6 +423,30 @@ function planOf(account: AccountInfo) {
   if (account.apiProvider && account.apiProvider !== "firstParty") return account.apiProvider;
   if (account.apiKeySource && account.apiKeySource !== "none") return "API key";
   return account.subscriptionType;
+}
+
+type Content = SDKUserMessage["message"]["content"];
+type Mention = { n: number; image: ImageAttachment };
+
+/** The images `text` mentions with `[Image #n]`, each once, in the order they're first mentioned. */
+function mentionsIn(text: string, images: ReadonlyMap<number, ImageAttachment>): Mention[] {
+  const seen = new Set<number>();
+  return [...text.matchAll(/\[Image #(\d+)\]/g)].flatMap((match) => {
+    const n = Number(match[1]);
+    const image = images.get(n);
+    if (!image || seen.has(n)) return [];
+    seen.add(n);
+    return [{ n, image }];
+  });
+}
+
+/** A message's content: its images, then its text. */
+function messageContent(text: string, mentions: Mention[]): Content {
+  if (!mentions.length) return text;
+  return [
+    ...mentions.map(({ image }) => ({ type: "image" as const, source: { type: "base64" as const, media_type: image.mediaType, data: image.data } })),
+    { type: "text" as const, text },
+  ];
 }
 
 function commandInfo(command: SlashCommand): CommandInfo {

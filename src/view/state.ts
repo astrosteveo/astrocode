@@ -8,7 +8,7 @@ import type {
   SDKPartialAssistantMessage,
   SDKResultMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { CommandInfo, ModelChoice, PermissionRequest, QuestionRequest, SessionEvent } from "../events";
+import type { CommandInfo, ImageAttachment, ModelChoice, PermissionRequest, QuestionRequest, SessionEvent } from "../events";
 
 type StreamEvent = SDKPartialAssistantMessage["event"];
 type AssistantBlock = SDKAssistantMessage["message"]["content"][number];
@@ -29,8 +29,8 @@ export type ToolCall = {
 };
 
 export type Item =
-  /** `uuid` is the message's id in the transcript, where rewinding goes back to. */
-  | { kind: "prompt"; key: string; text: string; uuid?: string }
+  /** `uuid` is the message's id in the transcript, where rewinding goes back to. `images` go by their `[Image #n]`. */
+  | { kind: "prompt"; key: string; text: string; uuid?: string; images?: Record<number, ImageAttachment> }
   | { kind: "text"; key: string; text: string }
   | { kind: "thinking"; key: string; text: string }
   | { kind: "tool"; key: string; call: ToolCall }
@@ -127,7 +127,7 @@ export function reduce(state: State, event: ViewEvent): State {
     case "commands":
       return { ...state, commands: event.commands };
     case "prompt":
-      return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid }), busy: true };
+      return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images }), busy: true };
     case "shell":
       return add(state, { kind: "shell", id: event.id, command: event.command, status: "running", stdout: "", stderr: "" });
     case "shell-done": {

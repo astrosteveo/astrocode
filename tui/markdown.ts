@@ -425,6 +425,10 @@ export const parse = (text: string): Block[] => {
       continue
     }
 
+    // A run of blank lines is one paragraph break, as in Markdown, however many were typed.
+    if (line.trim() === '' && (prose.at(-1) ?? '').trim() === '') {
+      continue
+    }
     prose.push(line)
   }
   flush()

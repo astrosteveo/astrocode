@@ -9,6 +9,7 @@ import { App } from "./app";
 import { gitInfo } from "./git";
 import { loadKeymap } from "./keys";
 import { Mouse, MouseContext } from "./mouse";
+import { afterFrame, forgetSent, withPictures } from "./pictures";
 import { Store } from "./store";
 
 export type TerminalOptions = { cwd: string; model?: string; effort?: EffortLevel; resume?: string; continue?: boolean; fullscreen?: boolean };
@@ -62,7 +63,7 @@ export async function startTerminal(options: TerminalOptions) {
   for (const problem of problems) store.emit({ kind: "notice", ...problem });
   if (resume) {
     const id = resume;
-    Promise.all([loadHistory(id, options.cwd), sessionTitle(id, options.cwd)])
+    Promise.all([loadHistory(id, options.cwd).then(withPictures), sessionTitle(id, options.cwd)])
       .then(([events, title]) => store.emit({ kind: "history", events, title }))
       .catch((error: unknown) =>
         store.emit({ kind: "notice", tone: "error", text: `Couldn't load the earlier conversation: ${error instanceof Error ? error.message : String(error)}` }),
@@ -78,6 +79,8 @@ export async function startTerminal(options: TerminalOptions) {
     // turn raw mode on. With the terminal still echoing, the answer would land on screen as
     // `^[[?0u`. In raw mode it waits in stdin, unechoed, for Ink to read.
     process.stdin.setRawMode(true);
+    // Each layout gets its own screen, which needs kitty's images sent again.
+    forgetSent();
     const mouse = fullscreen ? new Mouse(process.stdin, process.stdout) : null;
     const app = render(
       <MouseContext value={mouse}>
@@ -99,6 +102,7 @@ export async function startTerminal(options: TerminalOptions) {
         kittyKeyboard: { mode: "auto" },
         incrementalRendering: true,
         alternateScreen: fullscreen,
+        onRender: afterFrame,
       },
     );
     mouse?.start();

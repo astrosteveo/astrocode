@@ -3,6 +3,7 @@ import type { TodoMode } from "../src/settings";
 import type { Stash } from "../src/stash";
 import { imageLabel } from "./images";
 import { DEFAULT_KEYMAP, type Keymap } from "./keys";
+import { prepare } from "./pictures";
 import { initialState, reduce, type State, type ViewEvent } from "../src/view/state";
 
 /**
@@ -66,6 +67,7 @@ export class Store {
       const image = images[old];
       // A label whose image is gone mustn't pick up whichever image gets that number next.
       if (!image) return "[Image missing]";
+      void prepare(image);
       const n = numbers.get(old) ?? this.attach(image);
       numbers.set(old, n);
       return imageLabel(n);

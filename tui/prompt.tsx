@@ -19,6 +19,7 @@ import { fit, Panel } from "./markdown-view";
 import { clipboardImage, imageLabel, pastedImageFile } from "./images";
 import { chordHint, keyFor, startsChord, strokeOf, type Action, type Keymap } from "./keys";
 import { hit, useHover, useMouse } from "./mouse";
+import { prepare } from "./pictures";
 import { PALETTE } from "./theme";
 
 type Props = {
@@ -304,13 +305,17 @@ export function Prompt(props: Props) {
     set(props.prefill.text, props.prefill.text.length);
   }, [props.prefill]);
 
-  /** An image goes in as `[Image #n]`, with a space after it when text follows. */
-  const insertImage = (image: ImageAttachment) => {
-    const { text, cursor } = buffer.current;
-    const label = imageLabel(props.onAttach(image));
-    const before = cursor > 0 && !/\s/.test(text[cursor - 1] ?? "") ? " " : "";
-    insert(`${before}${label} `);
-  };
+  /**
+   * An image goes in as `[Image #n]`, with a space after it when text follows. It goes in once it's
+   * ready to draw, so it's drawn however soon the message is sent.
+   */
+  const insertImage = (image: ImageAttachment) =>
+    void prepare(image).then(() => {
+      const { text, cursor } = buffer.current;
+      const label = imageLabel(props.onAttach(image));
+      const before = cursor > 0 && !/\s/.test(text[cursor - 1] ?? "") ? " " : "";
+      insert(`${before}${label} `);
+    });
 
   const pasteImage = () =>
     void clipboardImage().then(

@@ -7,7 +7,7 @@ import { highlightCode } from "./highlight";
 import { printable } from "./markdown";
 import { Markdown, fit, onPanel, Panel } from "./markdown-view";
 import { PALETTE } from "./theme";
-import { BashOutput, clip, EditDiff } from "./tool-row";
+import { BashOutput, clip, CommandPanel, EditDiff, hiddenCommand } from "./tool-row";
 
 /** The most lines printed for one output; scrollback can hold this much without trouble. */
 const MAX_LINES = 2000;
@@ -22,7 +22,7 @@ export function FullOutput({ call, cwd, home, width }: Props) {
         <Text bold color={PALETTE.teal}>
           {toolLabel(call.name)}
         </Text>
-        <Text>{`  ${fit(toolTarget(call, cwd, home), width - 30, true)}`}</Text>
+        <Text>{`  ${fit(toolTarget(call, cwd, home), width - TARGET_ROOM, true)}`}</Text>
         <Text color={PALETTE.haze}>{"  whole output"}</Text>
       </Text>
       <OutputBody call={call} width={width} />
@@ -30,12 +30,22 @@ export function FullOutput({ call, cwd, home, width }: Props) {
   );
 }
 
+/** About how many cells a row's tool name and summary take, leaving the rest for what the call acts on. */
+const TARGET_ROOM = 30;
+
 export function OutputBody({ call, width }: { call: ToolCall; width: number }) {
   const path = typeof call.input.file_path === "string" ? call.input.file_path : "";
   const language = path.includes(".") ? (path.split(".").pop() ?? "") : "";
   switch (call.name) {
-    case "Bash":
-      return <BashOutput call={call} width={width} limit={MAX_LINES} />;
+    case "Bash": {
+      const command = hiddenCommand(call, typeof call.input.command === "string" ? call.input.command : "", width - TARGET_ROOM);
+      return (
+        <Box flexDirection="column">
+          {command ? <CommandPanel command={command} width={width} limit={MAX_LINES} /> : null}
+          <BashOutput call={call} width={width} limit={MAX_LINES} />
+        </Box>
+      );
+    }
     case "Edit":
       return <EditDiff call={call} width={width} limit={MAX_LINES} />;
     case "Write":

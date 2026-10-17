@@ -2,11 +2,14 @@
 // teal diamond for Claude's replies, hexagons for tool calls, and a curve that closes the turn.
 // The scrollback layout writes them through Ink's <Static>; full screen draws them as lines.
 import { Box, Text } from "ink";
+import type { ReactNode } from "react";
+import type { ImageAttachment } from "../src/events";
 import { compact, duration } from "../src/view/format";
 import type { Item, Live } from "../src/view/state";
 import { cellWidth } from "./markdown";
 import { Markdown } from "./markdown-view";
 import { FullOutput, OutputBody } from "./output";
+import { ImageView, isReady } from "./pictures";
 import { GUTTER, LIVE, Railed, type Rail } from "./rail";
 import { PALETTE } from "./theme";
 import { DraftRow, ShellOutput, toolNode, ToolRow } from "./tool-row";
@@ -14,7 +17,8 @@ import { DraftRow, ShellOutput, toolNode, ToolRow } from "./tool-row";
 /** Lines of a `!` command's output the transcript keeps. */
 const SHELL_LINES = 12;
 
-export type ViewProps = { cwd: string; home: string; width: number };
+/** `pictureRows`: how tall a picture in a message may be. */
+export type ViewProps = { cwd: string; home: string; width: number; pictureRows: number };
 
 type ItemProps = {
   item: Item;
@@ -32,7 +36,7 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
     case "prompt":
       return (
         <Railed node="●" color={PALETTE.gold} rail={rail}>
-          <Markdown text={item.text} width={inner.width} voice="you" />
+          <Message text={item.text} images={item.images} width={inner.width} rows={view.pictureRows} />
         </Railed>
       );
     case "shell":
@@ -89,6 +93,42 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
         </Railed>
       );
   }
+}
+
+/**
+ * What you sent, each image drawn under the line with the first `[Image #n]` that mentions it,
+ * where the terminal draws images. The text breaks only at the ends of lines, so what follows a
+ * picture can't turn into a list item or a heading.
+ */
+function Message({ text, images = {}, width, rows }: { text: string; images?: Record<number, ImageAttachment>; width: number; rows: number }) {
+  const parts: ReactNode[] = [];
+  const seen = new Set<number>();
+  /** Where the text drawn so far ends, and the images waiting for the end of the line they're on. */
+  let from = 0;
+  let waiting: { n: number; image: ImageAttachment }[] = [];
+  let lineEnd = -1;
+  const flush = () => {
+    if (!waiting.length) return;
+    parts.push(<Markdown key={`text${from}`} text={text.slice(from, lineEnd)} width={width} voice="you" />);
+    for (const { n, image } of waiting) parts.push(<ImageView key={`image${n}`} image={image} width={width} rows={rows} />);
+    from = lineEnd + 1;
+    waiting = [];
+  };
+  for (const match of text.matchAll(/\[Image #(\d+)\]/g)) {
+    const n = Number(match[1]);
+    const image = images[n];
+    if (!image || seen.has(n) || !isReady(image)) continue;
+    seen.add(n);
+    const end = text.indexOf("\n", match.index);
+    const line = end === -1 ? text.length : end;
+    if (line !== lineEnd) flush();
+    lineEnd = line;
+    waiting.push({ n, image });
+  }
+  flush();
+  const rest = text.slice(from);
+  if (rest || !parts.length) parts.push(<Markdown key={`text${from}`} text={rest} width={width} voice="you" />);
+  return <>{parts}</>;
 }
 
 /** `╰── 42s   1.2k tokens`: how long the turn took and what Claude wrote, closing the rail. */

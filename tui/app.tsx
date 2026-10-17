@@ -5,7 +5,7 @@ import type { EffortLevel, PermissionMode, RewindFilesResult } from "@anthropic-
 import { Box, Static, useApp, useStdout, useWindowSize } from "ink";
 import { randomUUID } from "node:crypto";
 import { useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { EFFORTS, isEffort, MODES, type CommandInfo, type ImageAttachment } from "../src/events";
+import { EFFORTS, isEffort, MODES, type CommandInfo } from "../src/events";
 import { historyEvents, loadHistory, savedSessions, shellMessages, type SavedSession } from "../src/history";
 import { addMemory, memoryFiles, type MemoryFile } from "../src/memory";
 import type { AgentSession } from "../src/session";
@@ -31,6 +31,7 @@ import { fit } from "./markdown-view";
 import { ModelPicker } from "./model-picker";
 import { MouseContext } from "./mouse";
 import { Picker, type PickerItem } from "./picker";
+import { pictureRows, resendPictures, withPictures } from "./pictures";
 import { PluginManager } from "./plugins";
 import { Prompt } from "./prompt";
 import { QuestionPrompt } from "./question";
@@ -153,7 +154,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   const waiting = new Set([...state.pending.map((request) => request.id), ...state.questions.map((request) => request.id)]);
   const question = state.questions[0];
   const request = state.pending[0];
-  const view = { cwd: state.cwd, home: state.home, width };
+  // In scrollback, what's above the message box and status bar, which take about six rows.
+  const view = { cwd: state.cwd, home: state.home, width, pictureRows: pictureRows(rows - 6) };
 
   const report = (error: unknown) =>
     store.emit({ kind: "notice", tone: "error", text: error instanceof Error ? error.message : String(error) });
@@ -257,6 +259,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     startOver();
     session.resume(id);
     loadHistory(id, state.cwd)
+      .then(withPictures)
       .then((events) => store.emit({ kind: "history", events, title }))
       .catch(report);
   };
@@ -296,13 +299,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   };
 
   /** A message, with the images it still mentions. */
-  const send = (text: string) => {
-    const images = mentionedImages(text).flatMap((n) => {
-      const image = store.images.get(n);
-      return image ? [image] : [];
-    }) satisfies ImageAttachment[];
-    session.send(text, images);
-  };
+  const send = (text: string) => session.send(text, store.images);
 
   /** Runs a command with `!`, then adds it and what it printed to the conversation, as Claude Code does. */
   const runCommand = (command: string) => {
@@ -367,9 +364,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       if (!restored.canRewind) throw new Error(restored.error ?? "Claude Code couldn't put the files back.");
     }
     if (how !== "code") {
-      const kept = await session.rewindConversation(uuid);
+      const events = await withPictures(historyEvents(await session.rewindConversation(uuid)));
       startOver();
-      store.emit({ kind: "history", events: historyEvents(kept), notice: "Went back to before your message, which is in the box to change or send again." });
+      store.emit({ kind: "history", events, notice: "Went back to before your message, which is in the box to change or send again." });
       setPrefill({ text });
     }
     if (how !== "conversation") {
@@ -394,6 +391,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       } finally {
         await suspension.resume();
         mouse?.start();
+        if (fullscreen) resendPictures();
         editing.current = false;
       }
       if (failure !== undefined) report(failure);
@@ -507,6 +505,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       } finally {
         await suspension.resume();
         mouse?.start();
+        if (fullscreen) resendPictures();
         editing.current = false;
       }
       if (!resumed && Date.now() - started < 1000) notice("info", "Ctrl+Z needs a shell with job control to come back to, and this terminal has none.");
@@ -756,18 +755,21 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     }
   };
 
+  const above = question ? (
+    <QuestionPrompt key={question.id} request={question} width={width} onAnswer={(answers) => session.answer(question.id, answers)} />
+  ) : request ? (
+    <DecisionPrompt key={request.id} request={request} {...view} onDecide={(decision) => session.decide(request.id, decision)} />
+  ) : (
+    picker()
+  );
+  const pinned = showTodos && todos ? <PinnedTodos todos={todos} rows={Math.max(3, Math.min(8, rows - 20))} /> : null;
   const panel = (
     <>
       <Activity state={state} width={width} />
-      <Box marginTop={1} flexDirection="column">
-        {showTodos && todos ? <PinnedTodos todos={todos} rows={Math.max(3, Math.min(8, rows - 20))} /> : null}
-        {question ? (
-          <QuestionPrompt key={question.id} request={question} width={width} onAnswer={(answers) => session.answer(question.id, answers)} />
-        ) : request ? (
-          <DecisionPrompt key={request.id} request={request} {...view} onDecide={(decision) => session.decide(request.id, decision)} />
-        ) : (
-          picker()
-        )}
+      {/* The message box's own top edge sets it apart; what sits above it needs a row. */}
+      <Box marginTop={above || pinned ? 1 : 0} flexDirection="column">
+        {pinned}
+        {above}
         <Prompt
           active={!question && !request && !overlay}
           fullscreen={fullscreen}

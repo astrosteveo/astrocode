@@ -59,8 +59,11 @@ export type SessionEvent =
   | { kind: "ready"; plan?: string; models: ModelChoice[]; commands: CommandInfo[] }
   /** The slash commands changed, after plugins were reloaded. */
   | { kind: "commands"; commands: CommandInfo[] }
-  /** A message you sent. `uuid` is its id in the transcript, which rewinding goes back to. */
-  | { kind: "prompt"; text: string; uuid?: string }
+  /**
+   * A message you sent. `uuid` is its id in the transcript, which rewinding goes back to. `images`
+   * are the images it carried, by the number of the `[Image #n]` each went with.
+   */
+  | { kind: "prompt"; text: string; uuid?: string; images?: Record<number, ImageAttachment> }
   /** A command you ran with `!`, before and after it finishes. */
   | { kind: "shell"; id: string; command: string }
   | { kind: "shell-done"; id: string; stdout: string; stderr: string; code: number | null }

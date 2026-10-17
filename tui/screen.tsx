@@ -9,6 +9,7 @@ import { hit, relative, useHover, useMouse } from "./mouse";
 import { band, cellsOn, highlight, selectedText, wordAt, type Cell } from "./selection";
 import { PALETTE } from "./theme";
 import { Welcome, WELCOME_HEIGHT, WELCOME_WIDTH } from "./mirror";
+import { pictureRows, usePictureRows } from "./pictures";
 import { useTranscript, type Transcript } from "./transcript";
 
 const WHEEL_LINES = 3;
@@ -47,11 +48,11 @@ type Props = {
 export function Screen({ state, epoch, branch, columns, rows: height, expanded, waiting, reveal, keys, onToggle, onCopy, children }: Props) {
   // A column for the scrollbar and one to keep it off the text.
   const width = Math.max(10, columns - 2);
-  const transcript = useTranscript({ state, width, branch, expanded, waiting });
   const viewport = useRef<DOMElement>(null);
   const pill = useRef<DOMElement>(null);
   const metrics = useBoxMetrics(viewport);
   const view = Math.max(1, metrics.hasMeasured ? metrics.height : height - 6);
+  const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), branch, expanded, waiting });
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [selection, setSelectionState] = useState<Selection | null>(null);
   /** The selection as of the last event, which may be newer than the last render. */
@@ -73,6 +74,7 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   // rail runs on into what Claude is doing now.
   const pad = wanted === null ? Math.max(0, view - total) : Math.max(0, -wanted);
   const below = Math.max(0, total - top - (view - pad));
+  usePictureRows([...Array<string>(pad).fill(""), ...rows.slice(top, top + view - pad).map((row) => row.text)]);
   const scrollable = total > view;
   const thumb = scrollable ? Math.max(1, Math.round((view * view) / total)) : 0;
   const thumbTop = scrollable && maxTop > 0 ? Math.round(((view - thumb) * top) / maxTop) : 0;
