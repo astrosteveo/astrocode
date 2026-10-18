@@ -130,8 +130,8 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
       value: values.keepWarm ? "on" : "off",
       changed: values.keepWarm !== initial.keepWarm,
       note: values.keepWarm
-        ? "Refreshes the prompt cache before it expires while you're away, up to 8 hours, with a little of your plan"
-        : "The cache expires an hour after Claude last answered, and your next message re-caches the conversation",
+        ? "Refreshes the cache before it expires while you're away, up to 8 hours"
+        : "The cache expires an hour after Claude's last answer",
       step: () => update({ keepWarm: !values.keepWarm }),
     },
     {
