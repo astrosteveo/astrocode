@@ -306,6 +306,21 @@ export class AgentSession {
     this.options.emit({ kind: "resolved", id, outcome: answers ? "answered" : "cancelled" });
   }
 
+  /**
+   * Takes back a message sent while Claude works, if Claude Code hasn't started on it yet. True
+   * when it was taken back; Claude Code then reports it cancelled.
+   */
+  async unqueue(uuid: string) {
+    // In the SDK's code, answering `cancel_async_message`, but not in Query's type.
+    const query = this.run?.query as (Query & { cancelAsyncMessage?: (uuid: string) => Promise<boolean> }) | undefined;
+    if (!query?.cancelAsyncMessage) return false;
+    try {
+      return await query.cancelAsyncMessage(uuid);
+    } catch {
+      return false;
+    }
+  }
+
   async interrupt() {
     await this.run?.query.interrupt();
   }

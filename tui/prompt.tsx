@@ -45,6 +45,8 @@ type Props = {
   onOpenOutput: () => void;
   /** Text to put in the box in place of what's there, such as a message rewound to or edited in $EDITOR. */
   prefill: { text: string } | null;
+  /** ↑ in an empty box: takes back the messages queued while Claude works, to edit. False when there are none. */
+  onEditQueued?: () => boolean;
   /** Keeps an image for the message and gives its number for `[Image #n]`. */
   onAttach: (image: ImageAttachment) => number;
   onNotice: (tone: "info" | "error", text: string) => void;
@@ -522,6 +524,7 @@ export function Prompt(props: Props) {
       if (key.ctrl && input === "k") return cut(cursor, lineEnd(text, cursor));
       if (key.ctrl && input === "w") return cut(wordStart(text, cursor), cursor);
       if (key.upArrow) {
+        if (text === "" && !recall.current && props.onEditQueued?.()) return;
         if (!moveLine(-1)) recallHistory(-1);
         return;
       }

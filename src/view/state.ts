@@ -93,6 +93,9 @@ export type Item =
 
 export type ToolItem = Extract<Item, { kind: "tool" }>;
 
+/** A message sent while Claude works, waiting in Claude Code's queue until Claude takes it. */
+export type Queued = { text: string; uuid: string; images?: Record<number, ImageAttachment>; at?: number };
+
 type NewItem = Item extends infer I ? (I extends Item ? Omit<I, "key"> : never) : never;
 
 /** A block of the message Claude is writing right now, built from stream deltas. */
@@ -156,6 +159,12 @@ export type State = {
   /** This Claude Code process's tasks, running or ended, by id. */
   taskInfo: Record<string, TaskInfo>;
   items: Item[];
+  /**
+   * Messages sent while Claude works that it hasn't taken yet, oldest first. Each goes into `items`
+   * when Claude Code says it started on it, which is where Claude read it, and leaves when it's
+   * taken back to edit.
+   */
+  queue: Queued[];
   /** Tool call id to its index in `items`. */
   tools: Record<string, number>;
   live: Live | null;
@@ -186,6 +195,7 @@ export function initialState(cwd: string, home: string): State {
     tasks: [],
     taskInfo: {},
     items: [],
+    queue: [],
     tools: {},
     live: null,
     pending: [],
@@ -204,6 +214,9 @@ export function reduce(state: State, event: ViewEvent): State {
     case "commands":
       return { ...state, commands: event.commands };
     case "prompt":
+      if (state.busy && event.uuid) {
+        return { ...state, queue: [...state.queue, { text: event.text, uuid: event.uuid, images: event.images, at: event.at }] };
+      }
       return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at }), busy: true };
     case "shell":
       return add(state, { kind: "shell", id: event.id, command: event.command, status: "running", stdout: "", stderr: "", startedAt: event.at, at: event.at });
@@ -251,7 +264,9 @@ export function reduce(state: State, event: ViewEvent): State {
     case "notice":
       return add(state, { kind: "notice", tone: event.tone, text: event.text });
     case "history": {
-      const replayed = closeTurns(event.events.reduce(reduce, state), state.items.length);
+      // A saved conversation has no results to end its turns, so every message in it was taken: none waits in the queue.
+      const replay = (now: State, one: ViewEvent) => reduce(one.kind === "prompt" ? { ...now, busy: false } : now, one);
+      const replayed = closeTurns(event.events.reduce(replay, state), state.items.length);
       const settled = { ...stopRunningTools(replayed), busy: false, live: null, turnTokens: 0 };
       const count = settled.items.length - state.items.length;
       if (event.notice) return add(settled, { kind: "notice", tone: "info", text: event.notice });
@@ -267,6 +282,8 @@ export function reduce(state: State, event: ViewEvent): State {
 }
 
 function applySdk(state: State, message: SDKMessage, images: Record<string, ImageAttachment[]> = {}, at?: number): State {
+  // Not in the SDK's types: where each message you sent is in Claude Code's queue.
+  if (field(message, "type") === "command_lifecycle") return applyLifecycle(state, field(message, "command_uuid"), field(message, "state"));
   switch (message.type) {
     case "system":
       switch (message.subtype) {
@@ -340,6 +357,19 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
     default:
       return state;
   }
+}
+
+/**
+ * A queued message Claude started on goes into the transcript, at the end, where Claude read it; one
+ * that's done or was taken back leaves the queue. Messages that never waited aren't in it.
+ */
+function applyLifecycle(state: State, uuid: unknown, stage: unknown): State {
+  const queued = state.queue.find((one) => one.uuid === uuid);
+  if (!queued) return state;
+  const queue = state.queue.filter((one) => one !== queued);
+  if (stage === "started") return { ...add({ ...state, queue }, { kind: "prompt", ...queued }), busy: true };
+  if (stage === "cancelled" || stage === "completed") return { ...state, queue };
+  return state;
 }
 
 /**

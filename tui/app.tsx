@@ -42,6 +42,7 @@ import { pictureRows, resendPictures } from "./pictures";
 import { PluginManager } from "./plugins";
 import { Prompt } from "./prompt";
 import { QuestionPrompt } from "./question";
+import { QueuedMessages } from "./queued";
 import { GUTTER, rails, type Rail } from "./rail";
 import { Screen } from "./screen";
 import { SessionPreview } from "./session-preview";
@@ -80,6 +81,7 @@ const MAX_SHELL_OUTPUT = 30_000;
 const HELP = [
   "Enter sends. Shift+Enter, Alt+Enter, Ctrl+J, or \\ then Enter starts a new line. Type / for commands; partway through a message, choosing one writes it in.",
   "Esc stops Claude. Esc twice on an empty box rewinds to an earlier message (/rewind).",
+  "A message sent while Claude works waits above the box until Claude takes it; until then, ↑ in an empty box takes it back to edit.",
   "Shift+Tab changes the permission mode. Alt+P switches the model and its effort, Alt+T turns thinking off and on. ↑ and ↓ recall earlier messages; Ctrl+R searches them.",
   "Ctrl+S puts the message aside, and it stays there until Ctrl+S brings it back. Pressed with a message in the box, the two trade places.",
   "Ctrl+_ undoes. Ctrl+K, Ctrl+U, Ctrl+W and Alt+D cut, Ctrl+Y puts back what they cut. Alt+B and Alt+F move by words. Ctrl+L clears the box.",
@@ -679,6 +681,23 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     }, report);
   };
 
+  /**
+   * ↑ in an empty box: the messages queued while Claude works come back into the box, joined, for
+   * you to change and send again. One Claude has already started on stays where it is.
+   */
+  const editQueued = () => {
+    const queued = state.queue;
+    if (!queued.length) return false;
+    void Promise.all(queued.map((one) => session.unqueue(one.uuid))).then((taken) => {
+      const back = queued.filter((_, i) => taken[i]);
+      if (back.length) setPrefill({ text: back.map((one) => one.text).join("\n\n") });
+      if (back.length < queued.length) {
+        notice("info", back.length ? "Claude had already started on some of them, so only the rest came back to edit." : "Claude has already started on that message, so it can't be edited now.");
+      }
+    }, report);
+    return true;
+  };
+
   /** Esc stops Claude. Your commands run on until you stop them yourself, from /tasks. */
   const interrupt = () => {
     if (state.busy) void session.interrupt().catch(report);
@@ -931,9 +950,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     <>
       <Activity state={state} width={width} />
       {/* The message box's own top edge sets it apart; what sits above it needs a row. */}
-      <Box marginTop={above || pinned ? 1 : 0} flexDirection="column">
+      <Box marginTop={above || pinned || state.queue.length ? 1 : 0} flexDirection="column">
         {pinned}
         {above}
+        <QueuedMessages queue={state.queue} width={width} />
         <Prompt
           active={!question && !request && !overlay}
           fullscreen={fullscreen}
@@ -950,6 +970,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           onExit={exit}
           onOpenOutput={() => setOverlay({ kind: "output" })}
           prefill={prefill}
+          onEditQueued={editQueued}
           onAttach={(image) => store.attach(image)}
           onNotice={notice}
           onEdit={openEditor}
