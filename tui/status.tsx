@@ -1,6 +1,8 @@
-// The status bar under the message box. On the left, the permission mode as a solid chip; on the
-// right, readings: the model, what runs in the background, how full the context is, your plan's
-// usage windows, the git branch and the plan, as many as fit, most important first. In full
+// The status bar under the message box. On the left, the permission mode as a solid chip, or for
+// bypass, rose words without the fill, since it stays on all session and a solid rose block would
+// outshout everything else; on the right, readings: how full the context is, the model, what runs
+// in the background, your plan's usage windows once they're half used, the git branch and the
+// plan, as many as fit, most important first. In full
 // screen, clicking the chip changes the mode, clicking the model switches it, clicking the effort
 // sets it, clicking "thinking off" turns it back on, and clicking the running count opens what's
 // running: Claude Code's background tasks and your `!` commands.
@@ -27,6 +29,8 @@ export const MODE_CHIPS: Record<PermissionMode, { label: string; color: string }
 const GAP = "   ";
 /** Cells in the context gauge. */
 const GAUGE = 10;
+/** A usage window shows once it's this full; below it, it's noise. */
+const USAGE_SHOWN = 0.5;
 
 type Segment = { text: string; node: ReactNode; onClick?: () => void };
 
@@ -57,18 +61,6 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, onMo
 
   // In order of importance: the bar keeps what fits from the start of this list.
   const segments: Segment[] = [];
-  const model = state.model ? (state.models.find((one) => one.value === state.model)?.name ?? modelLabel(state.model)) : undefined;
-  if (model) segments.push({ text: model, node: <Text color={PALETTE.star}>{model}</Text>, onClick: onModel });
-  if (state.effort) {
-    const text = `${state.effort} effort`;
-    segments.push({ text, node: <Text color={PALETTE.haze}>{text}</Text>, onClick: onEffort });
-  }
-  // Thinking is on unless turned off, so only off is worth a word, and only on a model that can stop.
-  if (state.thinking === false && canStopThinking(state)) segments.push({ text: "thinking off", node: <Text color={PALETTE.ember}>thinking off</Text>, onClick: onThinking });
-  if (running) {
-    const text = `◌ ${running} running`;
-    segments.push({ text, node: <Text color={PALETTE.teal}>{text}</Text>, onClick: onTasks });
-  }
   if (state.context) {
     const share = state.context.percentage / 100;
     const filled = Math.min(GAUGE, Math.round(share * GAUGE));
@@ -85,11 +77,23 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, onMo
       ),
     });
   }
+  const model = state.model ? (state.models.find((one) => one.value === state.model)?.name ?? modelLabel(state.model)) : undefined;
+  if (model) segments.push({ text: model, node: <Text color={PALETTE.star}>{model}</Text>, onClick: onModel });
+  if (state.effort) {
+    const text = `${state.effort} effort`;
+    segments.push({ text, node: <Text color={PALETTE.haze}>{text}</Text>, onClick: onEffort });
+  }
+  // Thinking is on unless turned off, so only off is worth a word, and only on a model that can stop.
+  if (state.thinking === false && canStopThinking(state)) segments.push({ text: "thinking off", node: <Text color={PALETTE.ember}>thinking off</Text>, onClick: onThinking });
+  if (running) {
+    const text = `◌ ${running} running`;
+    segments.push({ text, node: <Text color={PALETTE.teal}>{text}</Text>, onClick: onTasks });
+  }
   for (const [name, window] of [
     ["5h", state.limits.fiveHour],
     ["7d", state.limits.sevenDay],
   ] as const) {
-    if (window) segments.push(usage(name, window));
+    if (window && window.utilization >= USAGE_SHOWN) segments.push(usage(name, window));
   }
   if (git) {
     const text = `⎇ ${git.branch}${git.changes ? ` ±${git.changes}` : ""}`;
@@ -141,11 +145,17 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, onMo
       ) : (
         <Text>
           <Text backgroundColor={hover("mode")}>
-            <Text color={chip.color}>▐</Text>
-            <Text backgroundColor={chip.color} color={PALETTE.ink} bold>
-              {chip.label}
-            </Text>
-            <Text color={chip.color}>▌</Text>
+            {mode === "bypassPermissions" ? (
+              <Text color={chip.color} bold>{` ${chip.label} `}</Text>
+            ) : (
+              <>
+                <Text color={chip.color}>▐</Text>
+                <Text backgroundColor={chip.color} color={PALETTE.ink} bold>
+                  {chip.label}
+                </Text>
+                <Text color={chip.color}>▌</Text>
+              </>
+            )}
           </Text>
           <Text color={PALETTE.dust}>{"  shift+tab"}</Text>
         </Text>
