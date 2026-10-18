@@ -2,7 +2,20 @@
 // the progress its tab shows, and desktop notifications. Each is an escape code a terminal that
 // doesn't know it ignores, and none draws anything, so they go to the terminal between Ink's
 // frames, as the pointer's shape does.
+import { appendFileSync } from "node:fs";
 import type { NotifyMode } from "../src/settings";
+
+/**
+ * With ASTROCODE_TRACE set to a file, what the window hears and says is written to it, a line
+ * each: focus reports and notifications, and the decisions behind them (`attention.ts`).
+ */
+const TRACE = process.env.ASTROCODE_TRACE;
+export function trace(text: string) {
+  if (!TRACE) return;
+  try {
+    appendFileSync(TRACE, `${new Date().toISOString()} ${text}\n`);
+  } catch {}
+}
 
 /** Focus reports (1004): the terminal sends `ESC [ I` on gaining focus and `ESC [ O` on losing it. */
 const FOCUS_ON = "\x1b[?1004h";
@@ -83,6 +96,7 @@ export class TerminalWindow {
 
   /** Turns focus reports on and keeps the terminal's own title. Again after the terminal was handed over. */
   start() {
+    trace(`start running=${this.running} terminal=${this.name} tmux=${this.tmux}`);
     if (this.running) return;
     this.running = true;
     this.write(FOCUS_ON + PUSH_TITLE);
@@ -94,6 +108,7 @@ export class TerminalWindow {
 
   /** Puts the terminal back as it was: no focus reports, its own title, no progress. Also on exit, crash included. */
   stop = () => {
+    trace(`stop running=${this.running}`);
     if (!this.running) return;
     this.running = false;
     process.off("exit", this.stop);
@@ -133,8 +148,9 @@ export class TerminalWindow {
    * also told to show it only while its window is out of focus.
    */
   notify(mode: NotifyMode, title: string, body: string) {
-    if (mode === "off" || !this.running) return;
     const channel = mode === "bell" ? "bell" : CHANNELS[this.name];
+    trace(`notify ${JSON.stringify(title)} mode=${mode} running=${this.running} channel=${channel} terminal=${this.name}`);
+    if (mode === "off" || !this.running) return;
     const [heading, text] = [plain(title), plain(body)];
     switch (channel) {
       case "kitty": {
@@ -159,6 +175,7 @@ export class TerminalWindow {
       const focused = which === "I";
       changed ||= focused !== this.focused;
       this.focused = focused;
+      trace(`focus ${focused ? "in" : "out"}`);
       return "";
     });
     if (changed) queueMicrotask(() => this.watchers.forEach((update) => update()));

@@ -8,7 +8,7 @@ import type { NotifyMode } from "../src/settings";
 import { permissionTitle } from "../src/view/permissions";
 import type { Item, ShellItem, State } from "../src/view/state";
 import type { GitInfo } from "./git";
-import type { TerminalWindow } from "./window";
+import { trace, type TerminalWindow } from "./window";
 
 /**
  * Where the terminal doesn't report focus, a turn this long is taken as one you've stopped
@@ -57,6 +57,9 @@ export function useAttention({ state, window, notify, title, git }: Input) {
     const running = new Set(state.items.flatMap((item) => (item.kind === "shell" && item.status === "running" ? [item.id] : [])));
     const before = seen.current;
     seen.current = { items: state.items.length, prompts, running };
+    for (const item of state.items.slice(Math.min(before?.items ?? state.items.length, state.items.length))) {
+      if (item.kind === "turn") trace(`turn ${item.outcome} ${item.durationMs}ms replayed=${Boolean(item.replayed)} focused=${focused} window=${window?.focused} notify=${notify}`);
+    }
     if (!window || !before || notify === "off") return;
     const send = (said: { title: string; body: string } | null) => said && window.notify(notify, said.title, said.body);
     for (const item of state.items.slice(Math.min(before.items, state.items.length))) send(turnMessage(item, state.items, focused));
