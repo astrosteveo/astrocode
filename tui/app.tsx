@@ -1050,7 +1050,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
             {entry.kind === "item" ? (
               <ItemView item={entry.item} rail={entry.rail} detailed scrollback {...view} />
             ) : entry.kind === "fold" ? (
-              <FoldView fold={entry.fold} rail={entry.rail} open={false} width={width} />
+              <FoldView fold={entry.fold} rail={entry.rail} open={false} cwd={state.cwd} home={state.home} width={width} />
             ) : (
               <Banner cwd={state.cwd} home={state.home} branch={branch} width={width} />
             )}

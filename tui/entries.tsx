@@ -7,7 +7,7 @@ import type { ImageAttachment } from "../src/events";
 import { foldSpan, foldSummary, type Fold } from "../src/view/folds";
 import { compact, duration } from "../src/view/format";
 import { runOfCall, runOfShell } from "../src/view/runs";
-import { plural, shortPath } from "../src/view/tools";
+import { plural, shortPath, toolLabel, toolTarget } from "../src/view/tools";
 import type { Item, Live } from "../src/view/state";
 import { cellWidth } from "./markdown";
 import { fit, Markdown } from "./markdown-view";
@@ -119,11 +119,15 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
   }
 }
 
+/** The most calls a closed fold lists under its row; past that, a last line says how many more. */
+const FOLD_LISTED = 8;
+
 /**
  * A run of tool calls folded into one row: how many, of what kinds, and how long they took, with
- * ▸ closed or ▾ open. Open, the calls follow it on the rail, each as it would be drawn alone.
+ * ▸ closed or ▾ open. Closed, each call is a line under it, a command as `$ command` and anything
+ * else as its tool and target. Open, the calls follow it on the rail, each as it would be drawn alone.
  */
-export function FoldView({ fold, rail, open, width }: { fold: Fold; rail: Rail; open: boolean; width: number }) {
+export function FoldView({ fold, rail, open, cwd, home, width }: { fold: Fold; rail: Rail; open: boolean; cwd: string; home: string; width: number }) {
   const span = foldSpan(fold);
   const right = `${span !== undefined ? `${duration(span)}  ` : ""}${open ? "▾" : "▸"}`;
   const inner = width - GUTTER;
@@ -136,6 +140,24 @@ export function FoldView({ fold, rail, open, width }: { fold: Fold; rail: Rail; 
         </Text>
         <Text color={PALETTE.dust}>{right}</Text>
       </Box>
+      {open
+        ? null
+        : fold.calls.slice(0, fold.calls.length > FOLD_LISTED ? FOLD_LISTED - 1 : FOLD_LISTED).map(({ key, call }) => (
+            <Text key={key} wrap="truncate-end">
+              {call.name === "Bash" && typeof call.input.command === "string" ? (
+                <>
+                  <Text color={PALETTE.dust}>{"$ "}</Text>
+                  <Text color={PALETTE.haze}>{firstLine(call.input.command)}</Text>
+                </>
+              ) : (
+                <>
+                  <Text color={PALETTE.dust}>{`${toolLabel(call.name)}  `}</Text>
+                  <Text color={PALETTE.haze}>{toolTarget(call, cwd, home)}</Text>
+                </>
+              )}
+            </Text>
+          ))}
+      {!open && fold.calls.length > FOLD_LISTED ? <Text color={PALETTE.dust}>{`… ${fold.calls.length - FOLD_LISTED + 1} more`}</Text> : null}
     </Railed>
   );
 }

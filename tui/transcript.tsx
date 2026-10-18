@@ -99,7 +99,7 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting }:
     if (fold) {
       const open = expanded.has(fold.key);
       const lines = draw(foldOwner(item), `${width}|${open}|${fold.calls.length}|${rail.spaced}${rail.joined}${rail.through}`, width, () => (
-        <FoldView fold={fold} rail={rail} open={open} width={width} />
+        <FoldView fold={fold} rail={rail} open={open} cwd={state.cwd} home={state.home} width={width} />
       ));
       add(fold.key, lines, rail.spaced ? 1 : 0, GUTTER, true, open);
       if (!open) {
