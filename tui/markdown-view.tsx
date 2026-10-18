@@ -68,15 +68,19 @@ function BlockView({ block, width, voice, copyable }: { block: Block; width: num
     case "code": {
       const source = block.source.replace(/\n$/, "");
       const lines = source.split("\n").length;
+      // Under a list item, the panel starts where the item's text does, but always keeps half the width.
+      const indent = Math.min(block.indent ?? 0, Math.floor(width / 2));
       return (
-        <Panel
-          label={block.language}
-          note={lines >= LINE_COUNT_FROM ? plural(lines, "line") : undefined}
-          action={copyable ? { text: "copy", href: copyLink(source) } : undefined}
-          width={width}
-        >
-          <Text>{onPanel(highlightCode(source, block.language))}</Text>
-        </Panel>
+        <Box paddingLeft={indent}>
+          <Panel
+            label={block.language}
+            note={lines >= LINE_COUNT_FROM ? plural(lines, "line") : undefined}
+            action={copyable ? { text: "copy", href: copyLink(source) } : undefined}
+            width={width - indent}
+          >
+            <Text>{onPanel(highlightCode(source, block.language))}</Text>
+          </Panel>
+        </Box>
       );
     }
     case "heading":
@@ -107,7 +111,13 @@ function Prose({ text, width, voice }: { text: string; width: number; voice: Voi
         <Box key={i} flexDirection="column">
           {paragraph.split("\n").flatMap((line, j) => {
             const item = LIST_ITEM.exec(line);
-            if (!item) return rows(wrapSpans(spans(voice === "you" ? line.trimEnd() : line.trim()), width), `${j}`, voice);
+            if (!item) {
+              if (voice === "you") return rows(wrapSpans(spans(line.trimEnd()), width), `${j}`, voice);
+              // A line indented two or more, such as one that goes on with a list item, keeps its indent on every row.
+              const lead = /^ */.exec(line)![0].length;
+              const indent = lead >= 2 ? Math.min(lead, Math.floor(width / 2)) : 0;
+              return rows(wrapSpans(spans(line.trim()), width - indent), `${j}`, voice, indent);
+            }
             const [, indent = "", marker = "", task, body = ""] = item;
             const bullet = task !== undefined ? (task === " " ? "○" : "●") : /\d/.test(marker) ? marker : "•";
             const color = task === undefined ? PALETTE.haze : VOICES[voice].accent;
@@ -128,9 +138,10 @@ function Prose({ text, width, voice }: { text: string; width: number; voice: Voi
   );
 }
 
-function rows(wrapped: Span[][], key: string, voice: Voice) {
+function rows(wrapped: Span[][], key: string, voice: Voice, indent = 0) {
   return wrapped.map((row, i) => (
     <Text key={`${key}:${i}`} wrap="truncate-end" {...VOICES[voice].text}>
+      {" ".repeat(indent)}
       {row.map((run, n) => (
         <Styled key={n} run={run} voice={voice} />
       ))}

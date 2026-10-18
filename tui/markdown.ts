@@ -3,10 +3,10 @@
 import { BARE_URL, isWebLink } from './links'
 
 /**
- * Splits a reply's markdown into the blocks astrocode draws itself (fences,
- * headings, tables, quotes and callouts, rules) and runs of prose, which stay
- * with the engine's own Markdown renderer so lists, links and paragraphs keep
- * working. Also the text helpers the drawing shares: how many terminal cells a
+ * Splits a reply's markdown into blocks: fences, headings, tables, quotes and
+ * callouts, rules, and runs of prose, which hold paragraphs and lists. A fence
+ * indented under a list item is a block of its own that keeps its indent, so it
+ * sits under the item. Also the text helpers the drawing shares: how many terminal cells a
  * string takes, and what a tool or process printed without its control codes.
  */
 
@@ -16,7 +16,8 @@ export type Align = 'left' | 'center' | 'right'
 
 export type Block =
   | { kind: 'prose'; text: string }
-  | { kind: 'code'; language: string; source: string; isOpen: boolean }
+  /** `indent`: cells the block sits in by, under the list item it belongs to. */
+  | { kind: 'code'; language: string; source: string; isOpen: boolean; indent?: number }
   | { kind: 'heading'; level: number; text: string }
   | { kind: 'table'; align: Align[]; header: string[]; rows: string[][] }
   | { kind: 'quote'; callout: Callout | null; title: string; text: string }
@@ -30,6 +31,8 @@ export type Span = {
 }
 
 const FENCE = /^( {0,3})(`{3,}|~{3,})\s*([^\s`]*)/
+/** A fence under a list item, which can be indented further, as under `10. `. */
+const LIST_FENCE = /^(\s+)(`{3,}|~{3,})\s*([^\s`]*)/
 const HEADING = /^ {0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/
 const RULE = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/
 const QUOTE = /^ {0,3}>\s?(.*)$/
@@ -350,7 +353,8 @@ export const parse = (text: string): Block[] => {
   let prose: string[] = []
 
   const flush = () => {
-    const joined = prose.join('\n').trim()
+    // Blank lines at the ends go, but not the first line's indent, which may say it goes on with a list item.
+    const joined = prose.join('\n').replace(/^(?:[ \t]*\n)+/, '').trimEnd()
     if (joined !== '') {
       blocks.push({ kind: 'prose', text: joined })
     }
@@ -360,26 +364,24 @@ export const parse = (text: string): Block[] => {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!
 
-    const fence = FENCE.exec(line)
+    const inList = LIST_ITEM.test(prose.findLast(one => one.trim() !== '') ?? '')
+    const fence = FENCE.exec(line) ?? (inList ? LIST_FENCE.exec(line) : null)
     if (fence !== null) {
       const marker = fence[2]!
+      const indent = fence[1]!.length
       const body: string[] = []
       i++
       while (i < lines.length && !closesFence(lines[i]!, marker)) {
         body.push(lines[i]!)
         i++
       }
-      const lastProse = prose.findLast(one => one.trim() !== '') ?? ''
-      if (fence[1]!.length > 0 && LIST_ITEM.test(lastProse)) {
-        prose.push(line, ...body, ...(i < lines.length ? [lines[i]!] : []))
-        continue
-      }
       flush()
       blocks.push({
         kind: 'code',
         language: fence[3]!.toLowerCase(),
-        source: dedent(body, fence[1]!.length).join('\n'),
+        source: dedent(body, indent).join('\n'),
         isOpen: i >= lines.length,
+        ...(indent > 0 && inList ? { indent } : {}),
       })
       continue
     }
