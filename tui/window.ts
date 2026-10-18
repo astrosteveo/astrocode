@@ -76,6 +76,8 @@ export class TerminalWindow {
   private readonly name: ReturnType<typeof terminalName>;
   private readonly tmux: boolean;
   private watchers = new Set<() => void>();
+  /** Notifications sent so far, for each to have an id of its own. */
+  private notified = 0;
 
   constructor(
     stdin: Stdin,
@@ -155,7 +157,10 @@ export class TerminalWindow {
     switch (channel) {
       case "kitty": {
         const base64 = (value: string) => Buffer.from(value, "utf8").toString("base64");
-        return this.send(`\x1b]99;i=astrocode:d=0:e=1:o=unfocused:p=title;${base64(heading)}\x1b\\\x1b]99;i=astrocode:d=1:e=1:p=body;${base64(text)}\x1b\\`);
+        // Each notification gets an id of its own. kitty replaces the one before when an id comes
+        // again, and KDE puts a replacement into its history without showing it.
+        const id = `astrocode-${process.pid}-${++this.notified}`;
+        return this.send(`\x1b]99;i=${id}:d=0:e=1:o=unfocused:p=title;${base64(heading)}\x1b\\\x1b]99;i=${id}:d=1:e=1:p=body;${base64(text)}\x1b\\`);
       }
       case "osc777":
         return this.send(`\x1b]777;notify;${heading.replaceAll(";", ",")};${text}\x1b\\`);
