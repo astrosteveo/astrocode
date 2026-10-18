@@ -26,7 +26,7 @@ import { DecisionPrompt } from "./decision";
 import { EFFORT_NOTES, effortsOf } from "./effort";
 import { editText } from "./editor";
 import { FindBar, type Find } from "./find";
-import { ItemView, LiveView } from "./entries";
+import { ItemView, LiveView, opensByDefault } from "./entries";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
 import { keyFor, keyLabel } from "./keys";
@@ -122,7 +122,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   const wanted = useRef<PermissionMode | null>(null);
   const turns = state.items.filter((item) => item.kind === "turn").length;
   const git = useGit(state.cwd, turns);
-  // Full screen's own: tool calls opened to their whole output, one to scroll to, and what was copied.
+  // Full screen's own: entries a click opened or closed, away from how they start, one to scroll to, and what was copied.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [reveal, setReveal] = useState<{ key: string } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -340,7 +340,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     const index = state.tools[id];
     const item = index === undefined ? state.items.find((one) => one.kind === "shell" && one.id === id) : state.items[index];
     if (!fullscreen || !item) return store.emit({ kind: "output", id });
-    setExpanded((open) => new Set(open).add(item.key));
+    // Open it, whichever way it starts.
+    setExpanded((open) => {
+      const next = new Set(open);
+      if (opensByDefault(item)) next.delete(item.key);
+      else next.add(item.key);
+      return next;
+    });
     setReveal({ key: item.key });
   };
 

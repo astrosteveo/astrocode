@@ -43,7 +43,7 @@ export function ShellCard({ run, width, expanded = false }: Props) {
       </Box>
       <Box flexDirection="column" backgroundColor={PALETTE.surface} paddingX={1} width={width}>
         {run.yours ? null : <CommandRows command={run.command} expanded={expanded} />}
-        {live ? <LiveTail run={run} width={width - 2} /> : <Insight run={run} insight={insight} width={width - 2} />}
+        {live ? <LiveTail run={run} width={width - 2} /> : <Insight run={run} insight={insight} width={width - 2} open={expanded} />}
         {failures.map((line, i) => (
           <Text key={i} wrap="truncate-end" color={PALETTE.rose}>
             {line}
@@ -77,8 +77,8 @@ function CommandRows({ command, expanded }: { command: string; expanded: boolean
   );
 }
 
-/** The line that says the most, and how much there is to open, set against the right edge. */
-function Insight({ run, insight, width }: { run: Run; insight: ReturnType<typeof runInsight>; width: number }) {
+/** The line that says the most, and how much output there is, set against the right edge, with ▸ closed or ▾ open. */
+function Insight({ run, insight, width, open }: { run: Run; insight: ReturnType<typeof runInsight>; width: number; open: boolean }) {
   const size = runSize(run);
   const room = width - (size ? cellWidth(size) + 4 : 0);
   return (
@@ -86,7 +86,7 @@ function Insight({ run, insight, width }: { run: Run; insight: ReturnType<typeof
       <Text wrap="truncate-end" color={TONES[insight.tone]}>
         {fit(printable(insight.text), room, false)}
       </Text>
-      {size ? <Text color={PALETTE.dust}>{`${size} ▸`}</Text> : null}
+      {size ? <Text color={PALETTE.dust}>{`${size} ${open ? "▾" : "▸"}`}</Text> : null}
     </Box>
   );
 }

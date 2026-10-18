@@ -5,7 +5,7 @@ import { renderToString } from "ink";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { State } from "../src/view/state";
 import { Banner } from "./banner";
-import { ItemView, LiveView, turnWork } from "./entries";
+import { ItemView, LiveView, opensByDefault, turnWork } from "./entries";
 import { imagesOf, wantPictures } from "./pictures";
 import { GUTTER, rails } from "./rail";
 
@@ -38,7 +38,7 @@ export type TranscriptInput = {
   /** How tall a picture in an entry may be. */
   pictureRows: number;
   branch?: string;
-  /** Tool calls and `!` commands opened to their whole output, by item key. */
+  /** Entries opened or closed by a click, away from how they start (`opensByDefault()`), by item key. */
   expanded: ReadonlySet<string>;
   /** Tool calls waiting on a permission prompt or a question, by call id. */
   waiting: ReadonlySet<string>;
@@ -90,7 +90,7 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting }:
     const isWaiting = item.kind === "tool" && waiting.has(item.call.id);
     // A turn that changed files or ran commands opens to list them.
     const opens = item.kind === "tool" || item.kind === "shell" || (item.kind === "turn" && turnWork(item) !== "");
-    const isOpen = opens && expanded.has(item.key);
+    const isOpen = opens && opensByDefault(item) !== expanded.has(item.key);
     const pictures = imagesOf(item).length ? pictureRows : "";
     const lines = draw(item, `${width}|${pictures}|${isWaiting}|${isOpen}|${rail.spaced}${rail.joined}${rail.through}`, width, () => (
       <ItemView item={item} rail={rail} detailed waiting={isWaiting} expanded={isOpen} copyable {...view} />

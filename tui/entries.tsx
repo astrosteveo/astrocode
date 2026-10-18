@@ -28,7 +28,10 @@ type ItemProps = {
   /** With what matters from a finished tool call's result under its row. */
   detailed?: boolean;
   waiting?: boolean;
-  /** A tool call or a `!` command opened in full screen, with its whole output under its row. */
+  /**
+   * Whether a tool call, a `!` command or a turn's closer is open, with its whole output under its
+   * row. Unset, it's as `opensByDefault()` says.
+   */
   expanded?: boolean;
   /**
    * Written into the terminal's own scrollback, where the mouse is the terminal's: a message of
@@ -39,8 +42,9 @@ type ItemProps = {
   copyable?: boolean;
 } & ViewProps;
 
-export function ItemView({ item, rail, detailed = false, waiting = false, expanded = false, scrollback = false, copyable = false, ...view }: ItemProps) {
+export function ItemView({ item, rail, detailed = false, waiting = false, expanded: open, scrollback = false, copyable = false, ...view }: ItemProps) {
   const inner = { ...view, width: view.width - GUTTER };
+  const expanded = open ?? opensByDefault(item);
   switch (item.kind) {
     case "prompt":
       return (
@@ -112,6 +116,16 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
         </Railed>
       );
   }
+}
+
+/**
+ * Whether an entry is open until you close it: a `!` command of yours once it has ended, its whole
+ * output under it, as a terminal would show it. Claude's calls stay closed, and so does a command
+ * still running, whose live card shows the end of its output; in scrollback one that went to the
+ * background while running is drawn for good then, and open it would keep half its output.
+ */
+export function opensByDefault(item: Item) {
+  return item.kind === "shell" && item.status !== "running";
 }
 
 /**
