@@ -7,7 +7,7 @@ import { Box, Text } from "ink";
 import { FAILURE_LINES, failureLines, runInsight, runSize, runStatus, tailLines, type Run, type Tone } from "../src/view/runs";
 import { highlightCode } from "./highlight";
 import { linked } from "./links";
-import { cellWidth, printable, printableColored } from "./markdown";
+import { cellWidth, printable, printableColored, takeCells } from "./markdown";
 import { fit, onPanel } from "./markdown-view";
 import { PALETTE } from "./theme";
 import { clip } from "./tool-row";
@@ -37,13 +37,14 @@ export function ShellCard({ run, width, expanded = false }: Props) {
   return (
     <Box flexDirection="column" width={width}>
       <Box justifyContent="space-between" width={width}>
-        <Text wrap="truncate-end" bold color={PALETTE.star}>
+        {/* Claude's commands step back from its prose; yours stand out as what you typed. */}
+        <Text wrap="truncate-end" bold={run.yours} color={run.yours ? PALETTE.star : PALETTE.haze}>
           {fit(run.headline, room, false)}
         </Text>
         <Text color={TONES[status.tone]}>{status.text}</Text>
       </Box>
       <Box flexDirection="column" backgroundColor={PALETTE.surface} paddingX={1} width={width}>
-        {run.yours ? null : <CommandRows command={run.command} expanded={expanded} />}
+        {run.yours ? null : <CommandRows command={run.command} expanded={expanded} width={width - 2} />}
         {live ? (
           <LiveTail run={run} width={width - 2} />
         ) : expanded && hasOutput(run) ? (
@@ -88,8 +89,11 @@ function OutputRows({ run, spaced }: { run: Run; spaced: boolean }) {
   );
 }
 
-/** `$ command`: its first line, or all of it once the card is open. */
-function CommandRows({ command, expanded }: { command: string; expanded: boolean }) {
+/**
+ * `$ command`: its first line, or all of it once the card is open. A first line too long for the
+ * card is cut where a note on what's left fits, `… +80 chars`, as a longer command gets `… 3 more`.
+ */
+function CommandRows({ command, expanded, width }: { command: string; expanded: boolean; width: number }) {
   const lines = command.replace(/\n+$/, "").split("\n");
   if (expanded) {
     return (
@@ -99,11 +103,23 @@ function CommandRows({ command, expanded }: { command: string; expanded: boolean
       </Text>
     );
   }
+  const first = lines[0] ?? "";
+  const more = lines.length > 1 ? `${lines.length - 1} more` : "";
+  const room = width - 2;
+  const whole = cellWidth(first) + (more ? cellWidth(more) + 3 : 0) <= room;
+  let shown = first;
+  let note = more ? ` … ${more}` : "";
+  if (!whole) {
+    // The note's length depends on how much is cut, so it's measured with the most it could say.
+    const widest = ` … +${[...first].length} chars${more ? `, ${more}` : ""}`;
+    shown = takeCells(first, Math.max(1, room - cellWidth(widest)))[0].trimEnd();
+    note = ` … +${[...first].length - [...shown].length} chars${more ? `, ${more}` : ""}`;
+  }
   return (
     <Text wrap="truncate-end">
       <Text color={PALETTE.dust}>$ </Text>
-      {onPanel(highlightCode(lines[0] ?? "", "bash"))}
-      {lines.length > 1 ? <Text color={PALETTE.dust}>{` … ${lines.length - 1} more`}</Text> : null}
+      {onPanel(highlightCode(shown, "bash"))}
+      {note ? <Text color={PALETTE.dust}>{note}</Text> : null}
     </Text>
   );
 }

@@ -53,10 +53,8 @@ export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, 
     <Box flexDirection="column" width={width}>
       <Box justifyContent="space-between" width={width}>
         <Text wrap="truncate-end">
-          <Text bold color={PALETTE.teal}>
-            {name}
-          </Text>
-          {target ? `  ${target}` : ""}
+          <Text color={PALETTE.teal}>{name}</Text>
+          {target ? <Text color={PALETTE.haze}>{`  ${target}`}</Text> : null}
         </Text>
         {summary ? <Text color={summaryColor}>{summary}</Text> : null}
       </Box>
