@@ -40,7 +40,7 @@ const REPORT = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
 /** The start of a report cut off at the end of a chunk; the rest is in the next one. */
 const PARTIAL = /\x1b\[<[\d;]*$/;
 /** Presses this close together, on the same cell, count as a double or triple click. */
-export const MULTI_CLICK_MS = 400;
+export const MULTI_CLICK_MS = 300;
 
 type Stdin = NodeJS.ReadStream;
 

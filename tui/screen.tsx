@@ -287,12 +287,16 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
             return;
           }
           // Inside what's open, a click closes it. The entry's first row then takes the place of the
-          // row clicked, so the card is where you were reading, not wherever its top had been.
+          // row clicked, so the card is where you were reading, not wherever its top had been. On
+          // text it waits out a double click, which copies a word or a line; on blank cells there's
+          // nothing to copy, so it closes at once.
           const { key } = row;
-          later(() => {
+          const close = () => {
             const { transcript, view } = now.current;
             if (onToggle(key)) setAnchor({ key, line: headLine(transcript, key), y: Math.max(0, Math.min(y, view - 4)) });
-          });
+          };
+          if (isTextAt(row.text, point.col, row.inset)) later(close);
+          else close();
           return;
         }
         copy(current);
