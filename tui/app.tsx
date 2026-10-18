@@ -893,6 +893,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           active={!question && !request && !overlay}
           fullscreen={fullscreen}
           busy={state.busy}
+          waitingOn={question ? "question" : request ? "permission" : undefined}
           width={width}
           cwd={state.cwd}
           history={store.sent}

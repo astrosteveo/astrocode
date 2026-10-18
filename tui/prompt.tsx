@@ -28,6 +28,8 @@ type Props = {
   /** Full screen, where the menu covers the transcript; in scrollback it makes room for itself. */
   fullscreen: boolean;
   busy: boolean;
+  /** What the box says while a prompt above it has the keys: a question, or a tool call to allow. */
+  waitingOn?: "question" | "permission";
   width: number;
   /** The project, whose files `@` offers. */
   cwd: string;
@@ -576,7 +578,14 @@ export function Prompt(props: Props) {
   const cursor = Math.max(0, buffer.current.cursor - skip);
   const end = next(text, cursor);
   const under = text.slice(cursor, end);
-  const placeholder = busy ? "Claude is working. Type to queue a message" : "Message Claude, / for commands, @ for files, ! for a shell";
+  const placeholder =
+    props.waitingOn === "question"
+      ? "Claude is waiting for your answer above"
+      : props.waitingOn === "permission"
+        ? "Claude is waiting for your OK above"
+        : busy
+          ? "Claude is working. Type to queue a message"
+          : "Message Claude, / for commands, @ for files, ! for a shell";
   const caret = (character: string) =>
     active ? (
       <Text backgroundColor={PALETTE.gold} color={PALETTE.ink}>

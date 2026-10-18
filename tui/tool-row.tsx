@@ -44,7 +44,8 @@ export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, 
   const summaryColor =
     status === "error" ? PALETTE.rose : status === "denied" || status === "stopped" ? PALETTE.ember : status === "waiting" ? PALETTE.gold : PALETTE.haze;
   const room = width - cellWidth(name) - 2 - (summary ? cellWidth(summary) + 2 : 0);
-  const whole = toolTarget(call, cwd, home);
+  // A question waiting for you is spelled out in its prompt, under the transcript.
+  const whole = waiting && call.name === "AskUserQuestion" ? "" : toolTarget(call, cwd, home);
   const fitted = fit(whole, room, PATHLIKE.has(call.name));
   const file = typeof call.input.file_path === "string" ? call.input.file_path : typeof call.input.notebook_path === "string" ? call.input.notebook_path : "";
   const target = fileLink && file && fitted ? hyperlink(fileUrl(resolve(cwd, file)), fitted) : fitted;
