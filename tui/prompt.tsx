@@ -578,6 +578,7 @@ export function Prompt(props: Props) {
   const cursor = Math.max(0, buffer.current.cursor - skip);
   const end = next(text, cursor);
   const under = text.slice(cursor, end);
+  // An idle, empty box says nothing; it speaks up only while Claude works or waits on you.
   const placeholder =
     props.waitingOn === "question"
       ? "Claude is waiting for your answer above"
@@ -585,7 +586,7 @@ export function Prompt(props: Props) {
         ? "Claude is waiting for your OK above"
         : busy
           ? "Claude is working. Type to queue a message"
-          : "Message Claude, / for commands, @ for files, ! for a shell";
+          : "";
   const caret = (character: string) =>
     active ? (
       <Text backgroundColor={PALETTE.gold} color={PALETTE.ink}>
