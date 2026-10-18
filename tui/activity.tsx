@@ -1,25 +1,30 @@
-// The tip of the rail while Claude works: a dot in orbit, what Claude is doing with light passing
-// over the words, the time so far and the tokens written. While it waits on you, the tip turns
-// gold and holds still.
+// The tip of the rail while Claude works: a cell in orbit, what Claude is doing with light passing
+// over the words, the time so far and the tokens written. While a tool runs, it names the call, so
+// you needn't look for it above. While it waits on you, the tip turns gold and holds still.
 import { Box, Text, useAnimation } from "ink";
 import { compact, duration } from "../src/view/format";
 import type { State } from "../src/view/state";
-import { toolLabel } from "../src/view/tools";
+import { toolLabel, toolTarget } from "../src/view/tools";
+import { cellWidth } from "./markdown";
+import { fit } from "./markdown-view";
 import { GUTTER } from "./rail";
 import { mix, PALETTE } from "./theme";
 
-/** One dot going round a braille cell: down the left column, up the right. */
-const ORBIT = ["⠁", "⠂", "⠄", "⡀", "⢀", "⠠", "⠐", "⠈"];
+/**
+ * A gap going round a full braille cell. A single dot going round was too faint to see at most
+ * font sizes; seven lit dots read as a solid mark that turns.
+ */
+const ORBIT = ["⣾", "⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽"];
 
 export function Activity({ state, width }: { state: State; width: number }) {
   const waiting = state.pending.length > 0 || state.questions.length > 0;
   const active = state.busy || waiting;
   const { frame, time } = useAnimation({ interval: 90, isActive: active });
   if (!active) return null;
-  const label = describe(state);
   const live = state.live?.blocks.slice(state.live.finalized).reduce((sum, block) => sum + (block?.text.length ?? 0), 0) ?? 0;
   const tokens = state.turnTokens + Math.round(live / 4);
   const stats = `   ${duration(time)}${tokens > 0 ? `   ${compact(tokens)} tokens` : ""}`;
+  const label = fit(describe(state), width - GUTTER - cellWidth(stats) - (waiting ? 0 : cellWidth("esc to stop") + 2), false);
   return (
     <Box flexDirection="column">
       <Text color={PALETTE.dust}>│</Text>
@@ -62,6 +67,10 @@ function describe(state: State) {
   if (block?.kind === "text") return "Writing";
   if (block?.kind === "tool") return `Getting ${toolLabel(block.name ?? "a tool")} ready`;
   const running = state.items.findLast((item) => item.kind === "tool" && item.call.status === "running");
-  if (running?.kind === "tool") return `Running ${toolLabel(running.call.name)}`;
+  if (running?.kind === "tool") {
+    const { call } = running;
+    const what = call.name === "Bash" && typeof call.input.description === "string" ? call.input.description : toolTarget(call, state.cwd, state.home);
+    return `Running ${toolLabel(call.name)}${what ? ` · ${what.split("\n")[0]}` : ""}`;
+  }
   return "Working";
 }
