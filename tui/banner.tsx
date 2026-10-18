@@ -20,13 +20,14 @@ const MIRROR_ROWS = 5;
 /** The mirror and the gap after it. */
 const TEXT_AT = MIRROR_WIDTH + 4;
 
-type Props = { cwd: string; home: string; branch?: string; width: number; fullscreen?: boolean };
+type Props = { cwd: string; home: string; branch?: string; width: number };
 
-export function Banner({ cwd, home, branch, width, fullscreen = false }: Props) {
+export function Banner({ cwd, home, branch, width }: Props) {
   const room = width - TEXT_AT;
   const where = fit(shortPath(cwd, "", home), room - (branch ? branch.length + 4 : 0), true);
-  const hint = fullscreen ? "Drag to copy. Click a tool call or a command to open it. /help for more." : "Type / for commands, /help for keys.";
+  // The name sits level with the mirror's middle row.
   const lines = [
+    null,
     null,
     <Text key="name" bold color={PALETTE.star}>
       astrocode
@@ -35,10 +36,6 @@ export function Banner({ cwd, home, branch, width, fullscreen = false }: Props) 
       <Text color={PALETTE.haze}>{where}</Text>
       {branch ? <Text color={PALETTE.dust}>{`  ⎇ ${branch}`}</Text> : null}
     </Text>,
-    <Text key="hint" color={PALETTE.dust}>
-      {fit(hint, room, false)}
-    </Text>,
-    null,
   ];
   if (room < 12) {
     return (
@@ -69,6 +66,7 @@ export function Banner({ cwd, home, branch, width, fullscreen = false }: Props) 
       </Box>
       <Box flexDirection="column" flexShrink={1}>
         {lines.map((line, i) => line ?? <Text key={i}> </Text>)}
+        <Text> </Text>
       </Box>
     </Box>
   );

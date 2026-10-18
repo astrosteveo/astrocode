@@ -210,11 +210,7 @@ export function Welcome({ cwd, home, branch, width }: Props) {
         {branch ? <Text color={PALETTE.dust}>{`  ⎇ ${branch}`}</Text> : null}
       </Text>
       <Box marginTop={2}>
-        {fact ? (
-          <Text color={PALETTE.haze}>{fit(fact, width - 4, false)}</Text>
-        ) : (
-          <Text color={PALETTE.dust}>Type a message to start, / for commands, or @ for files.</Text>
-        )}
+        <Text color={PALETTE.haze}>{fact ? fit(fact, width - 4, false) : " "}</Text>
       </Box>
     </Box>
   );

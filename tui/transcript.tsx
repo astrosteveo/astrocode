@@ -84,7 +84,7 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting }:
 
   add(
     "banner",
-    draw(BANNER, `${width}|${state.cwd}|${branch}`, width, () => <Banner cwd={state.cwd} home={state.home} branch={branch} width={width} fullscreen />),
+    draw(BANNER, `${width}|${state.cwd}|${branch}`, width, () => <Banner cwd={state.cwd} home={state.home} branch={branch} width={width} />),
     0,
     0,
   );
