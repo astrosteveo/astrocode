@@ -3,9 +3,10 @@
 // redraw the rows on screen, and a selection knows exactly what text it covers.
 import { renderToString } from "ink";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { State } from "../src/view/state";
+import { folds } from "../src/view/folds";
+import type { Item, State } from "../src/view/state";
 import { Banner } from "./banner";
-import { ItemView, LiveView, opensByDefault, turnWork } from "./entries";
+import { FoldView, ItemView, LiveView, opensByDefault, turnWork } from "./entries";
 import { imagesOf, wantPictures } from "./pictures";
 import { GUTTER, rails } from "./rail";
 
@@ -18,7 +19,7 @@ export type Row = {
   line: number;
   /** The entry's first line of content, which for a tool call is its row. */
   head: boolean;
-  /** A click here opens or closes the entry: any row of a tool call, a `!` command, or a turn's closer that did work. */
+  /** A click here opens or closes the entry: any row of a tool call, a `!` command, a fold of calls, or a turn's closer that did work. */
   hot: boolean;
   /** The entry is open, with its whole output under its first row. */
   open: boolean;
@@ -38,7 +39,7 @@ export type TranscriptInput = {
   /** How tall a picture in an entry may be. */
   pictureRows: number;
   branch?: string;
-  /** Entries opened or closed by a click, away from how they start (`opensByDefault()`), by item key. */
+  /** Entries opened or closed by a click, away from how they start (`opensByDefault()`), by item key, and folds opened, by fold key. */
   expanded: ReadonlySet<string>;
   /** Tool calls waiting on a permission prompt or a question, by call id. */
   waiting: ReadonlySet<string>;
@@ -52,6 +53,9 @@ const RESIZE_SETTLE_MS = 80;
 /** Each entry's lines, kept with what they were drawn for. Items are replaced, not changed, when they change. */
 const drawn = new WeakMap<object, { drawnFor: string; lines: string[] }>();
 const BANNER = {};
+/** A fold's row is kept by its first call, under an owner of its own, since the call has lines of its own too. */
+const foldRows = new WeakMap<Item, object>();
+const foldOwner = (first: Item) => foldRows.get(first) ?? foldRows.set(first, {}).get(first)!;
 
 function draw(owner: object, drawnFor: string, width: number, element: () => ReactNode) {
   const kept = drawn.get(owner);
@@ -85,8 +89,26 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting }:
     0,
   );
   const placed = rails(state.items);
+  const folded = folds(state.items);
+  /** Where the closed fold being passed over ends. Its calls have no rows, so they have no start either. */
+  let skipUntil = -1;
   state.items.forEach((item, i) => {
-    const rail = placed[i]!;
+    if (i < skipUntil) return;
+    let rail = placed[i]!;
+    const fold = folded.get(i);
+    if (fold) {
+      const open = expanded.has(fold.key);
+      const lines = draw(foldOwner(item), `${width}|${open}|${fold.calls.length}|${rail.spaced}${rail.joined}${rail.through}`, width, () => (
+        <FoldView fold={fold} rail={rail} open={open} width={width} />
+      ));
+      add(fold.key, lines, rail.spaced ? 1 : 0, GUTTER, true, open);
+      if (!open) {
+        skipUntil = i + fold.calls.length;
+        return;
+      }
+      // Open, the first call stacks under the fold's row as calls stack under each other.
+      rail = { ...rail, spaced: isCard(item) };
+    }
     const isWaiting = item.kind === "tool" && waiting.has(item.call.id);
     // A turn that changed files or ran commands opens to list them.
     const opens = item.kind === "tool" || item.kind === "shell" || (item.kind === "turn" && turnWork(item) !== "");
@@ -102,6 +124,8 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting }:
   if (live) add("live", draw(live, `${width}`, width, () => <LiveView live={live} width={width} />), 1, GUTTER);
   return { rows, starts };
 }
+
+const isCard = (item: Item) => item.kind === "tool" && item.call.name === "Bash";
 
 /**
  * The transcript for what's on screen now. It's drawn just after React commits, since Ink can't

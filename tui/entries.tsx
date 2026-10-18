@@ -4,6 +4,7 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
+import { foldSpan, foldSummary, type Fold } from "../src/view/folds";
 import { compact, duration } from "../src/view/format";
 import { runOfCall, runOfShell } from "../src/view/runs";
 import { plural, shortPath } from "../src/view/tools";
@@ -116,6 +117,27 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
         </Railed>
       );
   }
+}
+
+/**
+ * A run of tool calls folded into one row: how many, of what kinds, and how long they took, with
+ * ▸ closed or ▾ open. Open, the calls follow it on the rail, each as it would be drawn alone.
+ */
+export function FoldView({ fold, rail, open, width }: { fold: Fold; rail: Rail; open: boolean; width: number }) {
+  const span = foldSpan(fold);
+  const right = `${span !== undefined ? `${duration(span)}  ` : ""}${open ? "▾" : "▸"}`;
+  const inner = width - GUTTER;
+  return (
+    <Railed node="⬢" color={PALETTE.teal} rail={rail}>
+      <Box justifyContent="space-between" width={inner}>
+        <Text wrap="truncate-end">
+          <Text color={PALETTE.teal}>{`${fold.calls.length} tool calls`}</Text>
+          <Text color={PALETTE.haze}>{`  ${fit(foldSummary(fold), inner - cellWidth(right) - 16, false)}`}</Text>
+        </Text>
+        <Text color={PALETTE.dust}>{right}</Text>
+      </Box>
+    </Railed>
+  );
 }
 
 /**
