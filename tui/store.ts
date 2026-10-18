@@ -1,5 +1,5 @@
 import type { ImageAttachment } from "../src/events";
-import type { NotifyMode, TodoMode } from "../src/settings";
+import type { NotifyMode, TodoMode, UsageMode } from "../src/settings";
 import type { Stash } from "../src/stash";
 import { imageLabel } from "./images";
 import { DEFAULT_KEYMAP, type Keymap } from "./keys";
@@ -24,6 +24,8 @@ export class Store {
   todos: TodoMode = "auto";
   /** How a turn's end or a prompt is announced while you're in another window, as /config set it. */
   notifyMode: NotifyMode = "desktop";
+  /** When the status bar shows the plan's usage, as /config set it. */
+  usageMode: UsageMode = "auto";
   /** Whether the prompt cache is kept warm while you're away, as /config or a click on the status bar set it. */
   keepWarm = false;
   /** The terminal window's focus, title, progress and notifications. */

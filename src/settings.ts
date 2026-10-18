@@ -14,6 +14,9 @@ export type TodoMode = "auto" | "on" | "off";
 /** How astrocode tells you a turn ended or it needs you, while you're elsewhere: a desktop notification, the terminal's bell, or not at all. */
 export type NotifyMode = "desktop" | "bell" | "off";
 
+/** When the status bar shows the plan's 5-hour and 7-day usage: once half used, always, or never. */
+export type UsageMode = "auto" | "on" | "off";
+
 export type Remembered = {
   model?: string;
   effort?: EffortLevel;
@@ -22,6 +25,7 @@ export type Remembered = {
   fullscreen?: boolean;
   todos?: TodoMode;
   notify?: NotifyMode;
+  usage?: UsageMode;
   keepWarm?: boolean;
 };
 
@@ -32,7 +36,7 @@ export function settingsPath() {
 
 /** What was remembered, leaving out anything missing or not understood. */
 export async function loadSettings(): Promise<Remembered> {
-  const { model, effort, thinking, mode, fullscreen, todos, notify, keepWarm } = await readSaved();
+  const { model, effort, thinking, mode, fullscreen, todos, notify, usage, keepWarm } = await readSaved();
   return lasting({
     model: typeof model === "string" && model ? model : undefined,
     effort: typeof effort === "string" && isEffort(effort) ? effort : undefined,
@@ -41,6 +45,7 @@ export async function loadSettings(): Promise<Remembered> {
     fullscreen: typeof fullscreen === "boolean" ? fullscreen : undefined,
     todos: todos === "auto" || todos === "on" || todos === "off" ? todos : undefined,
     notify: notify === "desktop" || notify === "bell" || notify === "off" ? notify : undefined,
+    usage: usage === "auto" || usage === "on" || usage === "off" ? usage : undefined,
     keepWarm: typeof keepWarm === "boolean" ? keepWarm : undefined,
   });
 }
@@ -71,8 +76,8 @@ export function saved() {
 }
 
 /** Plan mode and max effort are for one session only, as in Claude Code, so they aren't remembered. */
-function lasting({ model, effort, thinking, mode, fullscreen, todos, notify, keepWarm }: Remembered): Remembered {
-  return { model, effort: effort === "max" ? undefined : effort, thinking, mode: mode === "plan" ? undefined : mode, fullscreen, todos, notify, keepWarm };
+function lasting({ model, effort, thinking, mode, fullscreen, todos, notify, usage, keepWarm }: Remembered): Remembered {
+  return { model, effort: effort === "max" ? undefined : effort, thinking, mode: mode === "plan" ? undefined : mode, fullscreen, todos, notify, usage, keepWarm };
 }
 
 async function readSaved(): Promise<Record<string, unknown>> {

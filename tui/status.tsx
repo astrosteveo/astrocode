@@ -1,7 +1,8 @@
 // The status bar under the message box. On the left, the permission mode as a solid chip, or for
 // bypass, rose words without the fill, since it stays on all session and a solid rose block would
 // outshout everything else; on the right, readings: how full the context is, the model, what runs
-// in the background, your plan's usage windows once they're half used, the git branch and the
+// in the background, your plan's usage windows once they're half used (or always, or never, as
+// /config says), the git branch and the
 // plan, as many as fit, most important first. After the context, how long the prompt cache stays
 // warm, `cache 54m`, with ↻ while astrocode keeps it warm, or `cache cold`. In full
 // screen, clicking the chip changes the mode, clicking the model switches it, clicking the effort
@@ -14,6 +15,7 @@ import { useRef, type ReactNode } from "react";
 import { canStopThinking, modelLabel, resetTime } from "../src/view/format";
 import { cacheLeft, keptWarm, minutesLeft, useNow } from "./cache";
 import type { State, UsageWindow } from "../src/view/state";
+import type { UsageMode } from "../src/settings";
 import type { GitInfo } from "./git";
 import { cellWidth } from "./markdown";
 import { hit, useHover, useMouse } from "./mouse";
@@ -50,6 +52,8 @@ type Props = {
   toast?: string | null;
   /** Whether keep-warm is on. */
   keepWarm: boolean;
+  /** When the plan's usage windows show: once half used, always, or never. */
+  usageMode: UsageMode;
   onMode?: () => void;
   onModel?: () => void;
   onEffort?: () => void;
@@ -58,7 +62,7 @@ type Props = {
   onCache?: () => void;
 };
 
-export function StatusBar({ state, mode, git, width, armed, running, toast, keepWarm, onMode, onModel, onEffort, onThinking, onTasks, onCache }: Props) {
+export function StatusBar({ state, mode, git, width, armed, running, toast, keepWarm, usageMode, onMode, onModel, onEffort, onThinking, onTasks, onCache }: Props) {
   const bar = useRef<DOMElement>(null);
   const now = useNow(15_000, state.cache !== undefined);
   const chip = MODE_CHIPS[mode];
@@ -115,7 +119,7 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, keep
     ["5h", state.limits.fiveHour],
     ["7d", state.limits.sevenDay],
   ] as const) {
-    if (window && window.utilization >= USAGE_SHOWN) segments.push(usage(name, window));
+    if (window && (usageMode === "on" || (usageMode === "auto" && window.utilization >= USAGE_SHOWN))) segments.push(usage(name, window));
   }
   if (git) {
     const text = `⎇ ${git.branch}${git.changes ? ` ±${git.changes}` : ""}`;

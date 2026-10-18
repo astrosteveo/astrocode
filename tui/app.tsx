@@ -9,7 +9,7 @@ import { EFFORTS, isEffort, MODES, type CommandInfo } from "../src/events";
 import { historyEvents, loadHistory, savedSessions, sessionTitle, shellMessages, type SavedSession } from "../src/history";
 import { addMemory, memoryFiles, type MemoryFile } from "../src/memory";
 import type { AgentSession } from "../src/session";
-import { remember, settingsPath, type NotifyMode, type Remembered, type TodoMode } from "../src/settings";
+import { remember, settingsPath, type NotifyMode, type Remembered, type TodoMode, type UsageMode } from "../src/settings";
 import { runShell } from "../src/shell";
 import { saveStash } from "../src/stash";
 import { ago, canStopThinking, currentModel, duration } from "../src/view/format";
@@ -90,7 +90,7 @@ const HELP = [
   "Ctrl+O opens a tool call's whole output. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
-  "/config changes the model, effort, thinking, mode, to-do list, full screen, notifications and keeping the cache warm, and keeps them for next time, except plan mode and max effort. /fullscreen switches layouts.",
+  "/config changes the model, effort, thinking, mode, to-do list, full screen, notifications, when plan usage shows and keeping the cache warm, and keeps them for next time, except plan mode and max effort. /fullscreen switches layouts.",
   "The status bar's cache says how long the prompt cache stays warm; past that, your next message re-caches the conversation. With keep warm on (/config, or click it in full screen) it shows ↻, and astrocode refreshes the cache before it expires while you're away, for up to 8 hours.",
 ].join("\n");
 
@@ -145,6 +145,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   const setNotifyMode = (mode: NotifyMode) => {
     store.notifyMode = mode;
     setNotifyState(mode);
+  };
+  /** When the status bar shows the plan's usage, as /config set it. */
+  const [usageMode, setUsageState] = useState(store.usageMode);
+  const setUsageMode = (mode: UsageMode) => {
+    store.usageMode = mode;
+    setUsageState(mode);
   };
   /** Whether the prompt cache is kept warm while you're away, as /config or a click on the status bar set it. */
   const [keepWarm, setKeepWarmState] = useState(store.keepWarm);
@@ -248,7 +254,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         report(error);
       }
     };
-    const { model, effort, thinking, mode, todos, notify, keepWarm: warm, fullscreen: layout } = changes;
+    const { model, effort, thinking, mode, todos, notify, usage, keepWarm: warm, fullscreen: layout } = changes;
     if (model) await attempt(() => session.setModel(model), () => (kept.model = model));
     if (effort) await attempt(() => session.setEffort(effort), () => (kept.effort = effort));
     if (thinking !== undefined) await attempt(() => session.setThinking(thinking), () => (kept.thinking = thinking));
@@ -260,6 +266,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     if (notify) {
       setNotifyMode(notify);
       kept.notify = notify;
+    }
+    if (usage) {
+      setUsageMode(usage);
+      kept.usage = usage;
     }
     if (warm !== undefined) {
       setKeepWarm(warm);
@@ -571,7 +581,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         if (!rest.length) {
           return setOverlay({
             kind: "config",
-            initial: { model: state.model, effort: state.effort, thinking: state.thinking ?? true, mode: wanted.current ?? state.mode, todos: todoMode, fullscreen, notify: notifyMode, keepWarm },
+            initial: { model: state.model, effort: state.effort, thinking: state.thinking ?? true, mode: wanted.current ?? state.mode, todos: todoMode, fullscreen, notify: notifyMode, usage: usageMode, keepWarm },
           });
         }
         // fullscreen= is astrocode's own key; Claude Code gets the rest.
@@ -694,7 +704,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     { name: "rewind", description: "Go back to an earlier message, its files, or both (Esc Esc)", argumentHint: "" },
     { name: "tasks", description: "What runs in the background and your ! commands, to watch or stop", argumentHint: "" },
     { name: "plugins", description: "Install, turn on or off, and remove plugins", argumentHint: "" },
-    { name: "config", description: "astrocode's settings: model, effort, thinking, mode, to-dos, full screen, notifications and keeping the cache warm", argumentHint: "" },
+    { name: "config", description: "astrocode's settings: model, effort, thinking, mode, to-dos, full screen, notifications, plan usage and keeping the cache warm", argumentHint: "" },
     {
       name: "fullscreen",
       description: fullscreen ? "Go back to the terminal's own scrollback" : "Use the whole terminal, with the mouse",
@@ -983,6 +993,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           running={runningNow}
           toast={toast}
           keepWarm={keepWarm}
+          usageMode={usageMode}
           onCache={toggleKeepWarm}
           onMode={cycleMode}
           onModel={() => setOverlay({ kind: "model" })}

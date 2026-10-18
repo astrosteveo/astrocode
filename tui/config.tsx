@@ -6,7 +6,7 @@ import type { EffortLevel, PermissionMode } from "@anthropic-ai/claude-agent-sdk
 import { Box, Text, useInput, type DOMElement } from "ink";
 import { useRef, useState } from "react";
 import { MODES, type ModelChoice } from "../src/events";
-import type { NotifyMode, TodoMode } from "../src/settings";
+import type { NotifyMode, TodoMode, UsageMode } from "../src/settings";
 import { isCurrentModel, modelLabel } from "../src/view/format";
 import { ChoiceRow } from "./choice";
 import { Dial, EFFORT_NOTES, effortOn, effortsOf } from "./effort";
@@ -24,6 +24,7 @@ export type ConfigValues = {
   todos: TodoMode;
   fullscreen: boolean;
   notify: NotifyMode;
+  usage: UsageMode;
   keepWarm: boolean;
 };
 
@@ -37,6 +38,12 @@ const NOTIFY: { mode: NotifyMode; label: string; note: string }[] = [
   { mode: "desktop", label: "desktop", note: "When a turn ends or Claude needs you while you're in another window" },
   { mode: "bell", label: "bell", note: "The terminal's bell, at the same moments" },
   { mode: "off", label: "off", note: "Only the window title says when Claude needs you" },
+];
+
+const USAGE: { mode: UsageMode; label: string; note: string }[] = [
+  { mode: "auto", label: "past half", note: "The 5-hour and 7-day usage show in the status bar once half used" },
+  { mode: "on", label: "always", note: "The 5-hour and 7-day usage always show in the status bar" },
+  { mode: "off", label: "hidden", note: "The status bar never shows the plan's usage" },
 ];
 
 const MODE_NOTES: Partial<Record<PermissionMode, string>> = {
@@ -76,6 +83,7 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
   const modeAt = MODES.findIndex((mode) => mode === values.mode);
   const todosAt = TODOS.findIndex((one) => one.mode === values.todos);
   const notifyAt = NOTIFY.findIndex((one) => one.mode === values.notify);
+  const usageAt = USAGE.findIndex((one) => one.mode === values.usage);
   const update = (change: Partial<ConfigValues>) => setValues((now) => ({ ...now, ...change }));
   const clamp = (at: number, length: number) => Math.max(0, Math.min(length - 1, at));
 
@@ -126,6 +134,13 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
       step: () => update({ fullscreen: !values.fullscreen }),
     },
     {
+      label: "Plan usage",
+      value: USAGE[usageAt]?.label ?? "",
+      changed: values.usage !== initial.usage,
+      note: USAGE[usageAt]?.note ?? "",
+      step: (by) => update({ usage: USAGE[clamp(usageAt + by, USAGE.length)]?.mode }),
+    },
+    {
       label: "Keep warm",
       value: values.keepWarm ? "on" : "off",
       changed: values.keepWarm !== initial.keepWarm,
@@ -152,6 +167,7 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
     if (values.todos !== initial.todos) changes.todos = values.todos;
     if (values.fullscreen !== initial.fullscreen) changes.fullscreen = values.fullscreen;
     if (values.notify !== initial.notify) changes.notify = values.notify;
+    if (values.usage !== initial.usage) changes.usage = values.usage;
     if (values.keepWarm !== initial.keepWarm) changes.keepWarm = values.keepWarm;
     onClose(changes);
   };

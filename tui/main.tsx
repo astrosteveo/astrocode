@@ -37,6 +37,7 @@ export async function startTerminal(options: TerminalOptions) {
   if (stash) store.unstash(stash);
   if (saved.todos) store.todos = saved.todos;
   if (saved.notify) store.notifyMode = saved.notify;
+  if (saved.usage) store.usageMode = saved.usage;
   if (saved.keepWarm !== undefined) store.keepWarm = saved.keepWarm;
   // Focus reports, the title and the tab's progress, for both layouts and every switch between them.
   store.window = new TerminalWindow(process.stdin, process.stdout);
