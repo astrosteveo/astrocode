@@ -8,11 +8,11 @@ import type { ToolCall } from "../src/view/state";
 import type { Todo } from "../src/view/todos";
 import { field, plural, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
 import { Diff, editLines } from "./diff";
-import { fileUrl, hyperlink, linked } from "./links";
-import { cellWidth, printable, printableColored } from "./markdown";
-import { fit, onPanel, Panel } from "./markdown-view";
+import { fileUrl, hyperlink } from "./links";
+import { cellWidth, printable } from "./markdown";
+import { fit } from "./markdown-view";
 import { isReady, Pictures } from "./pictures";
-import { PALETTE, TINT } from "./theme";
+import { PALETTE } from "./theme";
 
 export const STATUS = {
   running: { glyph: "⬡", color: PALETTE.haze },
@@ -96,42 +96,6 @@ function Detail({ call, width }: { call: ToolCall; width: number }) {
     default:
       return null;
   }
-}
-
-/**
- * What a command printed, on a panel. When it failed, what it printed as errors goes in rose on a
- * panel of its own. When it succeeded, that's just more output: git, curl and others print their
- * progress and results to stderr.
- */
-export function ShellOutput({ stdout: out, stderr: err, failed, width, limit }: { stdout: string; stderr: string; failed: boolean; width: number; limit: number }) {
-  // Claude Code's words for a command that printed nothing.
-  const said = /^\(\w+ completed with no output\)$/.test(out.trim()) ? "" : out;
-  if (!failed) {
-    const all = clip([printableColored(said).trimEnd(), printable(err).trimEnd()].filter(Boolean).join("\n"), limit);
-    if (!all.text) return null;
-    return (
-      <Panel note={all.hidden ? all.note : undefined} width={width}>
-        <Text>{onPanel(linked(all.text))}</Text>
-      </Panel>
-    );
-  }
-  const stdout = clip(printableColored(said), limit);
-  const stderr = clip(printable(err), limit);
-  if (!stdout.text && !stderr.text) return null;
-  return (
-    <Box flexDirection="column">
-      {stdout.text ? (
-        <Panel note={stdout.hidden ? stdout.note : undefined} width={width}>
-          <Text>{onPanel(linked(stdout.text))}</Text>
-        </Panel>
-      ) : null}
-      {stderr.text ? (
-        <Panel label="stderr" note={stderr.hidden ? stderr.note : undefined} width={width}>
-          <Text color={PALETTE.rose}>{linked(stderr.text)}</Text>
-        </Panel>
-      ) : null}
-    </Box>
-  );
 }
 
 function Todos({ call }: { call: ToolCall }) {

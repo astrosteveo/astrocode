@@ -1,15 +1,16 @@
 // A shell command as a card, the same for Claude's Bash calls and the commands you run with `!`.
 // The headline says what it does and how it went; under it, on a band of the panel color, the
 // command and the one line of output that says the most, with the last error lines when it
-// failed. Opened, the band holds the whole command and the whole output follows it. A command of
-// yours that's still the newest thing shows the end of its output as it streams.
+// failed. Opened, the band holds the whole command and then the whole output, one surface. A
+// command of yours that's still the newest thing shows the end of its output as it streams.
 import { Box, Text } from "ink";
 import { FAILURE_LINES, failureLines, runInsight, runSize, runStatus, tailLines, type Run, type Tone } from "../src/view/runs";
 import { highlightCode } from "./highlight";
+import { linked } from "./links";
 import { cellWidth, printable, printableColored } from "./markdown";
 import { fit, onPanel } from "./markdown-view";
 import { PALETTE } from "./theme";
-import { ShellOutput } from "./tool-row";
+import { clip } from "./tool-row";
 
 /** Lines of a running command's output its live card shows. */
 const TAIL_LINES = 6;
@@ -43,16 +44,46 @@ export function ShellCard({ run, width, expanded = false }: Props) {
       </Box>
       <Box flexDirection="column" backgroundColor={PALETTE.surface} paddingX={1} width={width}>
         {run.yours ? null : <CommandRows command={run.command} expanded={expanded} />}
-        {live ? <LiveTail run={run} width={width - 2} /> : <Insight run={run} insight={insight} width={width - 2} open={expanded} />}
+        {live ? (
+          <LiveTail run={run} width={width - 2} />
+        ) : expanded && hasOutput(run) ? (
+          <OutputRows run={run} spaced={!run.yours} />
+        ) : (
+          <Insight run={run} insight={insight} width={width - 2} open={expanded} />
+        )}
         {failures.map((line, i) => (
           <Text key={i} wrap="truncate-end" color={PALETTE.rose}>
             {line}
           </Text>
         ))}
       </Box>
-      {expanded && !live ? (
-        <ShellOutput stdout={run.stdout} stderr={run.stderr} failed={run.status === "error"} width={width} limit={MAX_LINES} />
-      ) : null}
+    </Box>
+  );
+}
+
+/** Claude Code's words for a command that printed nothing. */
+const NO_OUTPUT = /^\(\w+ completed with no output\)$/;
+
+const hasOutput = (run: Run) => Boolean((NO_OUTPUT.test(run.stdout.trim()) ? "" : run.stdout.trim()) || run.stderr.trim());
+
+/**
+ * What a command printed, in the band under its command, a blank row apart when the command is
+ * shown. When it failed, what it printed as errors follows in rose. When it succeeded, that's just
+ * more output: git, curl and others print their progress and results to stderr. Past `MAX_LINES`,
+ * a last line says how many more there were.
+ */
+function OutputRows({ run, spaced }: { run: Run; spaced: boolean }) {
+  const said = NO_OUTPUT.test(run.stdout.trim()) ? "" : run.stdout;
+  const failed = run.status === "error";
+  const out = clip(failed ? printableColored(said).trimEnd() : [printableColored(said).trimEnd(), printable(run.stderr).trimEnd()].filter(Boolean).join("\n"), MAX_LINES);
+  const err = failed ? clip(printable(run.stderr).trimEnd(), MAX_LINES) : null;
+  return (
+    <Box flexDirection="column">
+      {spaced ? <Text> </Text> : null}
+      {out.text ? <Text>{onPanel(linked(out.text))}</Text> : null}
+      {out.hidden ? <Text color={PALETTE.dust}>{`… ${out.note}`}</Text> : null}
+      {err?.text ? <Text color={PALETTE.rose}>{linked(err.text)}</Text> : null}
+      {err?.hidden ? <Text color={PALETTE.dust}>{`… ${err.note}`}</Text> : null}
     </Box>
   );
 }
