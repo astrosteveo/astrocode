@@ -127,6 +127,15 @@ export type TaskInfo = {
 /** A plan usage window, from Claude Code's rate-limit events. `utilization` is 0 to 1. */
 export type UsageWindow = { utilization: number; resetsAt: number };
 
+/**
+ * The conversation's prompt cache: when a request last read or wrote it, which keeps it for `ttl`
+ * ms from then, and when Claude last answered you, as opposed to a keep-warm request.
+ */
+export type Cache = { at: number; ttl: number; workedAt: number };
+
+/** Claude Code's cache TTL on a subscription within its limits, until a response says otherwise. */
+const CACHE_TTL = 60 * 60_000;
+
 export type State = {
   cwd: string;
   home: string;
@@ -140,6 +149,8 @@ export type State = {
   mode: PermissionMode;
   context?: { percentage: number; tokens: number; max: number };
   limits: { fiveHour?: UsageWindow; sevenDay?: UsageWindow };
+  /** Unknown until Claude answers, live or in a replay. */
+  cache?: Cache;
   /** What runs in the background right now. */
   tasks: BackgroundTask[];
   /** This Claude Code process's tasks, running or ended, by id. */
@@ -235,6 +246,8 @@ export function reduce(state: State, event: ViewEvent): State {
       return { ...state, thinking: event.on };
     case "context":
       return { ...state, context: { percentage: event.percentage, tokens: event.tokens, max: event.max } };
+    case "cache-warmed":
+      return state.cache ? { ...state, cache: { ...state.cache, at: event.at } } : state;
     case "notice":
       return add(state, { kind: "notice", tone: event.tone, text: event.text });
     case "history": {
@@ -319,7 +332,7 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
     case "stream_event":
       return message.parent_tool_use_id ? state : applyStream({ ...state, busy: true }, message.event);
     case "assistant":
-      return applyAssistant({ ...state, busy: true }, message, at);
+      return applyAssistant({ ...state, busy: true, cache: cacheAfter(state.cache, message, at) }, message, at);
     case "user":
       return applyUser(state, message, images, at);
     case "result":
@@ -327,6 +340,18 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
     default:
       return state;
   }
+}
+
+/**
+ * The cache after one of Claude's main-thread messages: refreshed when it came, for as long as its
+ * usage says it wrote for. A message that wrote nothing keeps the TTL known before. A subagent's
+ * messages have a cache of their own, and an error Claude Code made up made no request.
+ */
+function cacheAfter(cache: Cache | undefined, message: SDKAssistantMessage, at: number | undefined): Cache | undefined {
+  if (at === undefined || message.parent_tool_use_id || message.message.model === "<synthetic>") return cache;
+  const written = message.message.usage?.cache_creation;
+  const ttl = written?.ephemeral_1h_input_tokens ? 60 * 60_000 : written?.ephemeral_5m_input_tokens ? 5 * 60_000 : (cache?.ttl ?? CACHE_TTL);
+  return { at, ttl, workedAt: at };
 }
 
 /** Claude Code's plan windows. `unifiedWindows` isn't in the SDK's types yet, so it's read with care. */

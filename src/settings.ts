@@ -1,5 +1,6 @@
 // What astrocode remembers between sessions: the model, effort, thinking and permission mode you
-// last picked, whether it runs full screen, when the to-do list shows, and how it tells you it needs you.
+// last picked, whether it runs full screen, when the to-do list shows, how it tells you it needs you,
+// and whether it keeps the prompt cache warm while you're away.
 // They live in astrocode's own file, not Claude Code's settings, so `claude` keeps its own.
 import type { EffortLevel, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -21,6 +22,7 @@ export type Remembered = {
   fullscreen?: boolean;
   todos?: TodoMode;
   notify?: NotifyMode;
+  keepWarm?: boolean;
 };
 
 /** `$XDG_CONFIG_HOME/astrocode/settings.json`, which is `~/.config/astrocode/settings.json` unless set. */
@@ -30,7 +32,7 @@ export function settingsPath() {
 
 /** What was remembered, leaving out anything missing or not understood. */
 export async function loadSettings(): Promise<Remembered> {
-  const { model, effort, thinking, mode, fullscreen, todos, notify } = await readSaved();
+  const { model, effort, thinking, mode, fullscreen, todos, notify, keepWarm } = await readSaved();
   return lasting({
     model: typeof model === "string" && model ? model : undefined,
     effort: typeof effort === "string" && isEffort(effort) ? effort : undefined,
@@ -39,6 +41,7 @@ export async function loadSettings(): Promise<Remembered> {
     fullscreen: typeof fullscreen === "boolean" ? fullscreen : undefined,
     todos: todos === "auto" || todos === "on" || todos === "off" ? todos : undefined,
     notify: notify === "desktop" || notify === "bell" || notify === "off" ? notify : undefined,
+    keepWarm: typeof keepWarm === "boolean" ? keepWarm : undefined,
   });
 }
 
@@ -68,8 +71,8 @@ export function saved() {
 }
 
 /** Plan mode and max effort are for one session only, as in Claude Code, so they aren't remembered. */
-function lasting({ model, effort, thinking, mode, fullscreen, todos, notify }: Remembered): Remembered {
-  return { model, effort: effort === "max" ? undefined : effort, thinking, mode: mode === "plan" ? undefined : mode, fullscreen, todos, notify };
+function lasting({ model, effort, thinking, mode, fullscreen, todos, notify, keepWarm }: Remembered): Remembered {
+  return { model, effort: effort === "max" ? undefined : effort, thinking, mode: mode === "plan" ? undefined : mode, fullscreen, todos, notify, keepWarm };
 }
 
 async function readSaved(): Promise<Record<string, unknown>> {

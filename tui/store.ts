@@ -24,6 +24,8 @@ export class Store {
   todos: TodoMode = "auto";
   /** How a turn's end or a prompt is announced while you're in another window, as /config set it. */
   notifyMode: NotifyMode = "desktop";
+  /** Whether the prompt cache is kept warm while you're away, as /config or a click on the status bar set it. */
+  keepWarm = false;
   /** The terminal window's focus, title, progress and notifications. */
   window: TerminalWindow | null = null;
   /** What the message box's keys do, read from keybindings.json as astrocode starts. */

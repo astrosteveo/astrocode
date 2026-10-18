@@ -2,14 +2,17 @@
 // bypass, rose words without the fill, since it stays on all session and a solid rose block would
 // outshout everything else; on the right, readings: how full the context is, the model, what runs
 // in the background, your plan's usage windows once they're half used, the git branch and the
-// plan, as many as fit, most important first. In full
+// plan, as many as fit, most important first. After the context, how long the prompt cache stays
+// warm, `cache 54m`, with ↻ while astrocode keeps it warm, or `cache cold`. In full
 // screen, clicking the chip changes the mode, clicking the model switches it, clicking the effort
-// sets it, clicking "thinking off" turns it back on, and clicking the running count opens what's
-// running: Claude Code's background tasks and your `!` commands.
+// sets it, clicking "thinking off" turns it back on, clicking the cache turns keep-warm on or off,
+// and clicking the running count opens what's running: Claude Code's background tasks and your
+// `!` commands.
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { Box, Text, type DOMElement } from "ink";
 import { useRef, type ReactNode } from "react";
 import { canStopThinking, modelLabel, resetTime } from "../src/view/format";
+import { cacheLeft, keptWarm, minutesLeft, useNow } from "./cache";
 import type { State, UsageWindow } from "../src/view/state";
 import type { GitInfo } from "./git";
 import { cellWidth } from "./markdown";
@@ -45,15 +48,19 @@ type Props = {
   running: number;
   /** A word on something just done, such as copying, in place of the readings for a moment. */
   toast?: string | null;
+  /** Whether keep-warm is on. */
+  keepWarm: boolean;
   onMode?: () => void;
   onModel?: () => void;
   onEffort?: () => void;
   onThinking?: () => void;
   onTasks?: () => void;
+  onCache?: () => void;
 };
 
-export function StatusBar({ state, mode, git, width, armed, running, toast, onMode, onModel, onEffort, onThinking, onTasks }: Props) {
+export function StatusBar({ state, mode, git, width, armed, running, toast, keepWarm, onMode, onModel, onEffort, onThinking, onTasks, onCache }: Props) {
   const bar = useRef<DOMElement>(null);
+  const now = useNow(15_000, state.cache !== undefined);
   const chip = MODE_CHIPS[mode];
   // The chip's caps are half blocks, so it reads as a solid lozenge.
   const left = armed ?? `▐${chip.label}▌`;
@@ -75,6 +82,21 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, onMo
           <Text color={PALETTE.haze}>{` ${state.context.percentage}%`}</Text>
         </Text>
       ),
+    });
+  }
+  if (state.cache) {
+    const left = cacheLeft(state.cache, now);
+    const kept = keptWarm(state.cache, keepWarm, now);
+    const value = left > 0 ? `${minutesLeft(left)}${kept ? " ↻" : ""}` : "cold";
+    segments.push({
+      text: `cache ${value}`,
+      node: (
+        <Text>
+          <Text color={PALETTE.dust}>cache </Text>
+          <Text color={left > 0 ? PALETTE.teal : PALETTE.haze}>{value}</Text>
+        </Text>
+      ),
+      onClick: onCache,
     });
   }
   const model = state.model ? (state.models.find((one) => one.value === state.model)?.name ?? modelLabel(state.model)) : undefined;

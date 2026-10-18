@@ -114,4 +114,6 @@ export type SessionEvent =
   /** Thinking turned on or off. Only reported once astrocode has set it. */
   | { kind: "thinking"; on: boolean }
   | { kind: "context"; percentage: number; tokens: number; max: number }
+  /** A keep-warm request read the conversation's prompt cache at `at`, so it's warm for its TTL from then. */
+  | { kind: "cache-warmed"; at: number }
   | { kind: "notice"; tone: "info" | "error"; text: string };

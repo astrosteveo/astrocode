@@ -4,6 +4,7 @@ import {
   type AccountInfo,
   type CanUseTool,
   type EffortLevel,
+  type Options,
   type PermissionMode,
   type PermissionResult,
   type PermissionUpdate,
@@ -52,6 +53,12 @@ export type TaskOutput = { output: string; total_bytes: number; truncated: boole
 
 /** Thinking turned back on in a Claude Code that started without it: Claude Code's own largest default budget. */
 const THINKING_BUDGET = 31_999;
+
+/** What a keep-warm request asks for: as little as Claude can say. */
+const WARM_PROMPT = "Reply with only the word ok.";
+
+/** How a keep-warm request went: the tokens it read from the cache and wrote to it. */
+export type Warmed = { read: number; written: number };
 
 /** One running Claude Code process. A session starts a new run after a reset, a resume or a crash. */
 type Run = { query: Query; inbox: AsyncQueue<SDKUserMessage>; closing: boolean };
@@ -109,25 +116,15 @@ export class AgentSession {
     const q = query({
       prompt: inbox,
       options: {
-        cwd: this.options.cwd,
-        model: this.model,
-        effort: this.effort,
-        thinking: this.thinking === false ? { type: "disabled" } : undefined,
+        ...this.shared(),
         resume: this.sessionId ?? this.resumeFrom,
         resumeSessionAt: this.resumeAt,
         continue: this.sessionId === undefined && this.resumeFrom === undefined && this.continueLast ? true : undefined,
-        // Without an explicit mode, Claude Code starts in the mode from your settings, which can
-        // skip our prompts. Start in auto, Claude Code's own default, unless you picked another:
-        // its classifier allows what's safe and asks through canUseTool about the rest.
-        permissionMode: this.mode,
-        allowDangerouslySkipPermissions: true,
         includePartialMessages: true,
         // Backups of the files Claude changes, so rewinding can put them back.
         enableFileCheckpointing: true,
-        systemPrompt: { type: "preset", preset: "claude_code" },
         canUseTool: (toolName, input, context) => this.ask(run, toolName, input, context),
         stderr: this.options.onStderr ?? ((data) => process.stderr.write(`[claude] ${data}`)),
-        env: topLevelEnv(),
       },
     });
     run = { query: q, inbox, closing: false };
@@ -135,6 +132,65 @@ export class AgentSession {
     this.run = run;
     void this.pump(run);
     void this.announce(run);
+  }
+
+  /**
+   * What the session's requests are made of, which a keep-warm request must match to read the same
+   * prompt cache: the model, effort, thinking, mode, system prompt and environment.
+   */
+  private shared(): Options {
+    return {
+      cwd: this.options.cwd,
+      model: this.model,
+      effort: this.effort,
+      thinking: this.thinking === false ? { type: "disabled" } : undefined,
+      // Without an explicit mode, Claude Code starts in the mode from your settings, which can
+      // skip our prompts. Start in auto, Claude Code's own default, unless you picked another:
+      // its classifier allows what's safe and asks through canUseTool about the rest.
+      permissionMode: this.mode,
+      allowDangerouslySkipPermissions: true,
+      systemPrompt: { type: "preset", preset: "claude_code" },
+      env: topLevelEnv(),
+    };
+  }
+
+  /**
+   * Keeps the conversation's prompt cache warm: one short request on a copy of the conversation
+   * that isn't saved (`forkSession` with `persistSession: false`), so nothing is added to it. The
+   * request starts with the same system prompt, tools and messages as the conversation's next one
+   * would, so reading them from the cache keeps them there for another TTL. It runs in a Claude
+   * Code of its own, which starts as any session does, hooks and MCP servers included. Null when
+   * there's no conversation yet.
+   */
+  async warm(): Promise<Warmed | null> {
+    const id = this.sessionId ?? this.resumeFrom;
+    if (!id) return null;
+    const q = query({
+      prompt: WARM_PROMPT,
+      options: {
+        ...this.shared(),
+        resume: id,
+        resumeSessionAt: this.resumeAt,
+        forkSession: true,
+        persistSession: false,
+        maxTurns: 1,
+        canUseTool: async () => ({ behavior: "deny", message: "This request only keeps the cache warm." }),
+        stderr: () => {},
+      },
+    });
+    let warmed: Warmed | null = null;
+    try {
+      for await (const message of q) {
+        if (message.type === "assistant" && !message.parent_tool_use_id) {
+          const usage = message.message.usage;
+          warmed = { read: usage?.cache_read_input_tokens ?? 0, written: usage?.cache_creation_input_tokens ?? 0 };
+        }
+        if (message.type === "result") break;
+      }
+    } finally {
+      q.close();
+    }
+    return warmed;
   }
 
   /**
@@ -146,7 +202,7 @@ export class AgentSession {
     this.resumeAt = undefined;
     const uuid = randomUUID();
     const mentions = mentionsIn(text, images);
-    this.options.emit({ kind: "prompt", text, uuid, images: Object.fromEntries(mentions.map(({ n, image }) => [n, image])) });
+    this.options.emit({ kind: "prompt", text, uuid, images: Object.fromEntries(mentions.map(({ n, image }) => [n, image])), at: Date.now() });
     this.run?.inbox.push({ type: "user", message: { role: "user", content: messageContent(text, mentions) }, parent_tool_use_id: null, uuid });
   }
 

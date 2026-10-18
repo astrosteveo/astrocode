@@ -24,6 +24,7 @@ export type ConfigValues = {
   todos: TodoMode;
   fullscreen: boolean;
   notify: NotifyMode;
+  keepWarm: boolean;
 };
 
 const TODOS: { mode: TodoMode; label: string; note: string }[] = [
@@ -125,6 +126,15 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
       step: () => update({ fullscreen: !values.fullscreen }),
     },
     {
+      label: "Keep warm",
+      value: values.keepWarm ? "on" : "off",
+      changed: values.keepWarm !== initial.keepWarm,
+      note: values.keepWarm
+        ? "Refreshes the prompt cache before it expires while you're away, up to 8 hours, with a little of your plan"
+        : "The cache expires an hour after Claude last answered, and your next message re-caches the conversation",
+      step: () => update({ keepWarm: !values.keepWarm }),
+    },
+    {
       label: "Notifications",
       value: NOTIFY[notifyAt]?.label ?? "",
       changed: values.notify !== initial.notify,
@@ -142,6 +152,7 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
     if (values.todos !== initial.todos) changes.todos = values.todos;
     if (values.fullscreen !== initial.fullscreen) changes.fullscreen = values.fullscreen;
     if (values.notify !== initial.notify) changes.notify = values.notify;
+    if (values.keepWarm !== initial.keepWarm) changes.keepWarm = values.keepWarm;
     onClose(changes);
   };
 
