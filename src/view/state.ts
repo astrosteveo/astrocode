@@ -62,10 +62,13 @@ export type ShellItem = {
 };
 
 export type Item =
-  /** `uuid` is the message's id in the transcript, where rewinding goes back to. `images` go by their `[Image #n]`. */
-  | { kind: "prompt"; key: string; text: string; uuid?: string; images?: Record<number, ImageAttachment> }
-  | { kind: "text"; key: string; text: string }
-  | { kind: "thinking"; key: string; text: string }
+  /**
+   * `uuid` is the message's id in the transcript, where rewinding goes back to. `images` go by their
+   * `[Image #n]`. `at` is when it was sent or written, where known, which times a replayed turn.
+   */
+  | { kind: "prompt"; key: string; text: string; uuid?: string; images?: Record<number, ImageAttachment>; at?: number }
+  | { kind: "text"; key: string; text: string; at?: number }
+  | { kind: "thinking"; key: string; text: string; at?: number }
   | { kind: "tool"; key: string; call: ToolCall }
   | {
       kind: "turn";
@@ -74,7 +77,10 @@ export type Item =
       durationMs: number;
       tokens: number;
       detail?: string;
-      /** The end of a turn from a saved conversation, which doesn't record how long it took. */
+      /**
+       * The end of a turn from a saved conversation, which records when its messages were saved but
+       * not the turn's tokens. `durationMs` is from your message to the last thing saved in the turn.
+       */
       replayed?: boolean;
       /** The files the turn's edits and writes changed, and the commands Claude ran, in order. */
       files?: string[];
@@ -187,7 +193,7 @@ export function reduce(state: State, event: ViewEvent): State {
     case "commands":
       return { ...state, commands: event.commands };
     case "prompt":
-      return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images }), busy: true };
+      return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at }), busy: true };
     case "shell":
       return add(state, { kind: "shell", id: event.id, command: event.command, status: "running", stdout: "", stderr: "", startedAt: event.at, at: event.at });
     case "shell-output":
@@ -390,9 +396,9 @@ function applyAssistant(state: State, message: SDKAssistantMessage, at?: number)
   for (const block of content) {
     next = finalizeLive(next, message.message.id, block);
     if (block.type === "text" && block.text.trim()) {
-      next = add(next, { kind: "text", text: block.text });
+      next = add(next, { kind: "text", text: block.text, at });
     } else if (block.type === "thinking" && block.thinking.trim()) {
-      next = add(next, { kind: "thinking", text: block.thinking });
+      next = add(next, { kind: "thinking", text: block.thinking, at });
     } else if (block.type === "tool_use") {
       next = addTool(next, { id: block.id, name: block.name, input: asRecord(block.input), status: "running", subagentCalls: 0, startedAt: at });
     }
@@ -480,21 +486,28 @@ function turnWork(items: Item[]) {
 
 /**
  * A saved conversation doesn't record where its turns ended, so each replayed turn ends where the
- * next prompt starts, and the last one at the end. Items from `from` on are the replayed ones.
+ * next prompt starts, and the last one at the end, timed from your message to the last thing saved
+ * in it, with the files it changed and the commands it ran. Items from `from` on are the replayed ones.
  */
 function closeTurns(state: State, from: number): State {
   let seq = state.seq;
   const items = state.items.slice(0, from);
-  let open = false;
+  /** Where the open turn's prompt is in `items`, or -1 outside a turn. */
+  let start = -1;
   const close = () => {
-    if (open) items.push({ kind: "turn", key: `i${seq++}`, outcome: "finished", durationMs: 0, tokens: 0, replayed: true });
-    open = false;
+    if (start === -1) return;
+    const turn = items.slice(start);
+    const began = turn[0]?.kind === "prompt" ? turn[0].at : undefined;
+    const ended = Math.max(...turn.map(lastAt).filter((at) => at !== undefined));
+    const durationMs = began !== undefined && ended > began ? ended - began : 0;
+    items.push({ kind: "turn", key: `i${seq++}`, outcome: "finished", durationMs, tokens: 0, replayed: true, ...turnWork(turn) });
+    start = -1;
   };
   for (const item of state.items.slice(from)) {
     if (item.kind === "prompt") {
       close();
-      open = true;
-    } else if (item.kind === "turn") open = false;
+      start = items.length;
+    } else if (item.kind === "turn") start = -1;
     items.push(item);
   }
   close();
@@ -503,6 +516,22 @@ function closeTurns(state: State, from: number): State {
     if (item.kind === "tool") tools[item.call.id] = index;
   });
   return { ...state, items, tools, seq };
+}
+
+/** The last moment an entry was known to be at, if any. */
+function lastAt(item: Item): number | undefined {
+  switch (item.kind) {
+    case "prompt":
+    case "text":
+    case "thinking":
+      return item.at;
+    case "tool":
+      return item.call.endedAt ?? item.call.startedAt;
+    case "shell":
+      return item.endedAt ?? item.at;
+    default:
+      return undefined;
+  }
 }
 
 /** Whatever was still running when a turn ended won't report back. */

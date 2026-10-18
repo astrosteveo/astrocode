@@ -87,12 +87,13 @@ export type SessionEvent =
   | { kind: "commands"; commands: CommandInfo[] }
   /**
    * A message you sent. `uuid` is its id in the transcript, which rewinding goes back to. `images`
-   * are the images it carried, by the number of the `[Image #n]` each went with.
+   * are the images it carried, by the number of the `[Image #n]` each went with. `at` is when it
+   * was sent, known for a replayed one.
    */
-  | { kind: "prompt"; text: string; uuid?: string; images?: Record<number, ImageAttachment> }
+  | { kind: "prompt"; text: string; uuid?: string; images?: Record<number, ImageAttachment>; at?: number }
   /**
    * A command you ran with `!`: as it starts, what its terminal shows as it runs, and how it ended.
-   * `at` is when each happened; a replayed conversation doesn't say.
+   * `at` is when each happened, from Claude Code's timestamps in a replayed conversation.
    */
   | { kind: "shell"; id: string; command: string; at?: number }
   | { kind: "shell-output"; id: string; output: string; at: number }
@@ -101,7 +102,7 @@ export type SessionEvent =
    * A message from Claude Code. `images` are what its tool results carried, by tool call id, such
    * as a picture Claude read. The interface keeps a picture per image object, so they're read out
    * of the message once, by `sdkEvent()`, before the event goes anywhere. `at` is when it came,
-   * which times tool calls; a replayed conversation doesn't say.
+   * which times tool calls, live or replayed.
    */
   | { kind: "sdk"; message: SDKMessage; images?: Record<string, ImageAttachment[]>; at?: number }
   | { kind: "permission"; request: PermissionRequest }

@@ -55,13 +55,14 @@ export function historyEvents(messages: SessionMessage[]): SessionEvent[] {
   const events: SessionEvent[] = [];
   for (const saved of messages) {
     const base = { message: saved.message, parent_tool_use_id: saved.parent_tool_use_id, uuid: saved.uuid, session_id: saved.session_id };
+    const at = savedAt(saved);
     if (saved.type === "assistant") {
-      events.push(sdkEvent({ type: "assistant", ...base } as SDKMessage));
+      events.push(sdkEvent({ type: "assistant", ...base } as SDKMessage, at));
     } else if (saved.type === "user") {
       const content = field(saved.message, "content");
       const shell = saved.parent_tool_use_id ? null : shellPart(content);
       if (shell?.command !== undefined) {
-        events.push({ kind: "shell", id: saved.uuid, command: shell.command });
+        events.push({ kind: "shell", id: saved.uuid, command: shell.command, at });
         continue;
       }
       if (shell?.stdout !== undefined) {
@@ -72,18 +73,25 @@ export function historyEvents(messages: SessionMessage[]): SessionEvent[] {
         const failed = shell.stderr?.startsWith("Command failed:") ?? false;
         const stopped = /^Stopped( by the user)?\.$/.test(shell.stderr?.trim() ?? "");
         const stdout = /^\(\w+ completed with no output\)$/.test(shell.stdout.trim()) ? "" : shell.stdout;
-        if (started?.kind === "shell") events.push({ kind: "shell-done", id: started.id, stdout, stderr: stopped ? "" : (shell.stderr ?? ""), code: failed ? 1 : 0, stopped });
+        if (started?.kind === "shell") events.push({ kind: "shell-done", id: started.id, stdout, stderr: stopped ? "" : (shell.stderr ?? ""), code: failed ? 1 : 0, stopped, at });
         continue;
       }
       const typed = saved.parent_tool_use_id ? null : promptText(content);
       events.push(
         typed !== null
-          ? { kind: "prompt", text: typed, uuid: saved.uuid, images: promptImages(content, typed) }
-          : sdkEvent({ type: "user", ...base } as SDKMessage),
+          ? { kind: "prompt", text: typed, uuid: saved.uuid, images: promptImages(content, typed), at }
+          : sdkEvent({ type: "user", ...base } as SDKMessage, at),
       );
     }
   }
   return events;
+}
+
+/** When Claude Code saved a message, in ms. `timestamp` is in what getSessionMessages() returns, but not in the SDK's types. */
+function savedAt(saved: SessionMessage) {
+  const stamp = field(saved, "timestamp");
+  const ms = typeof stamp === "string" ? Date.parse(stamp) : NaN;
+  return Number.isNaN(ms) ? undefined : ms;
 }
 
 /**

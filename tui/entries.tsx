@@ -175,14 +175,15 @@ function TurnEnd({ item, expanded, cwd, home, width }: { item: Extract<Item, { k
     stopped: { text: `stopped after ${duration(item.durationMs)}${tokens}`, color: PALETTE.ember },
     failed: { text: `failed after ${duration(item.durationMs)}`, color: PALETTE.rose },
   }[item.outcome];
-  if (item.replayed) return <Text color={PALETTE.dust}>─</Text>;
+  // A replayed turn whose messages carried no times says only what it did.
+  const timed = !item.replayed || item.durationMs > 0;
   const work = turnWork(item);
   return (
     <Box flexDirection="column">
       <Text>
         <Text color={PALETTE.dust}>─ </Text>
-        <Text color={said.color}>{said.text}</Text>
-        {work ? <Text color={PALETTE.dust}>{`   ${work}`}</Text> : null}
+        {timed ? <Text color={said.color}>{said.text}</Text> : null}
+        {work ? <Text color={PALETTE.dust}>{`${timed ? "   " : ""}${work}`}</Text> : null}
       </Text>
       {item.detail ? <Text color={PALETTE.rose}>{item.detail}</Text> : null}
       {expanded ? (
