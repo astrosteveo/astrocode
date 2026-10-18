@@ -7,6 +7,7 @@ import {
   type EffortLevel,
   type ElicitationRequest as McpElicitation,
   type ElicitationResult,
+  type McpServerStatus,
   type Options,
   type PermissionMode,
   type PermissionResult,
@@ -17,6 +18,7 @@ import {
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
 import { randomUUID } from "node:crypto";
+import { hooksListing, memoryDialog, permissionRules, sandboxDialog, skillsDialog, statusDialog } from "./dialogs";
 import {
   MODES,
   sdkEvent,
@@ -55,6 +57,12 @@ export type SessionOptions = {
   onStderr?: (data: string) => void;
   emit: (event: SessionEvent) => void;
 };
+
+/** Where to sign in to an MCP server, and whether Claude Code waits on this machine for the browser to come back. */
+export type McpSignIn = { url?: string; waits: boolean };
+
+/** A side question asked with `/btw`, and Claude's answer. */
+export type Aside = { question: string; response: string };
 
 /** A background task's output, as the SDK's `SDKControlGetTaskOutputResponse` has it. */
 export type TaskOutput = { output: string; total_bytes: number; truncated: boolean };
@@ -498,6 +506,110 @@ export class AgentSession {
     const reloaded = await run.query.reloadPlugins();
     if (run.closing) return;
     this.options.emit({ kind: "commands", commands: reloaded.commands.map(commandInfo) });
+  }
+
+  /** The MCP servers Claude Code knows, how each is doing, and the tools each serves. */
+  async mcpServers(): Promise<McpServerStatus[]> {
+    return this.running().query.mcpServerStatus();
+  }
+
+  async reconnectMcp(name: string) {
+    await this.running().query.reconnectMcpServer(name);
+  }
+
+  /** Claude Code remembers a server turned off for this project, as `claude` does. */
+  async toggleMcp(name: string, on: boolean) {
+    await this.running().query.toggleMcpServer(name, on);
+  }
+
+  /**
+   * Starts signing in to an MCP server: the address to open, if there's one, and whether Claude
+   * Code waits on this machine for the browser to come back to it. A claude.ai connector is signed
+   * in on claude.ai instead, and needs reconnecting after.
+   */
+  async signInMcp(name: string): Promise<McpSignIn> {
+    const answer = await this.untyped("mcpAuthenticate", name, undefined);
+    const url = field(answer, "authUrl");
+    return { url: typeof url === "string" && url ? url : undefined, waits: field(answer, "callbackExpected") === true };
+  }
+
+  /**
+   * The address the browser ended on after signing in, for when it couldn't reach Claude Code on
+   * this machine, as over SSH. Resolves once Claude Code has finished signing in.
+   */
+  async finishMcpSignIn(name: string, url: string) {
+    await this.untyped("mcpSubmitOAuthCallbackUrl", name, url);
+  }
+
+  async signOutMcp(name: string) {
+    await this.untyped("mcpClearAuth", name);
+  }
+
+  async permissionRules() {
+    return permissionRules(await this.untyped("listPermissionRules"));
+  }
+
+  async memoryDialog() {
+    return memoryDialog(await this.untyped("getMemoryDialog"));
+  }
+
+  async hooks() {
+    return hooksListing(await this.untyped("getHooksListing"));
+  }
+
+  async skills() {
+    return skillsDialog(await this.untyped("getSkillsDialog"));
+  }
+
+  async status() {
+    return statusDialog(await this.untyped("getStatus"));
+  }
+
+  async sandbox() {
+    return sandboxDialog(await this.untyped("getSandboxDialog"));
+  }
+
+  /** The conversation as text, as `claude`'s /export writes it, and the file name it suggests. */
+  async exportConversation(): Promise<{ text: string; filename: string }> {
+    const answer = await this.untyped("exportConversation");
+    const text = field(answer, "text");
+    const filename = field(answer, "default_filename");
+    if (typeof text !== "string") throw new Error("Claude Code didn't send the conversation.");
+    return { text, filename: typeof filename === "string" && filename ? filename : "conversation.txt" };
+  }
+
+  /**
+   * A question on the side, as `/btw` asks it: Claude answers from the conversation so far, without
+   * tools, while a turn goes on, and nothing goes into the conversation. `earlier` is the side
+   * questions before it and their answers. Null when Claude Code had no answer.
+   */
+  async askAside(question: string, earlier: Aside[], signal?: AbortSignal): Promise<string | null> {
+    const answer = await this.untyped("askSideQuestion", question, { history: earlier, signal });
+    const response = field(answer, "response");
+    return typeof response === "string" ? response : null;
+  }
+
+  /** The output styles there are, and the one in use, which is "default" unless your settings name another. */
+  async outputStyles(): Promise<{ styles: string[]; current: string }> {
+    const query = this.running().query as Query & { getSettings?: () => Promise<unknown> };
+    const [{ available_output_styles: styles }, settings] = await Promise.all([query.reloadOutputStyles(), query.getSettings?.().catch(() => undefined)]);
+    const current = field(field(settings, "effective"), "outputStyle");
+    return { styles, current: typeof current === "string" && current ? current : "default" };
+  }
+
+  private running() {
+    this.start();
+    const run = this.run;
+    if (!run) throw new Error("Claude Code isn't running.");
+    return run;
+  }
+
+  /** One of the requests the SDK makes in its code but leaves out of Query's type. */
+  private async untyped(name: string, ...args: unknown[]): Promise<unknown> {
+    const query = this.running().query as unknown as Record<string, unknown>;
+    const method = query[name];
+    if (typeof method !== "function") throw new Error(`This Agent SDK can't ask Claude Code for that (${name} is missing).`);
+    return (method as (...args: unknown[]) => Promise<unknown>).apply(query, args);
   }
 
   /** Stops Claude Code and forgets the conversation, so the next start begins a new one. */

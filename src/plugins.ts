@@ -1,8 +1,8 @@
 // Claude Code's plugins and marketplaces. The Agent SDK can load and reload plugins but can't
 // install, remove, or turn them on and off, so this runs Claude Code's own `claude plugin`
 // commands with --json, using the same binary the SDK runs. The session reloads its plugins after.
-import { dirname, join } from "node:path";
-import { topLevelEnv } from "./session";
+import { join } from "node:path";
+import { claude } from "./claude";
 import { field } from "./view/tools";
 
 /** Where a plugin is installed: for you everywhere, for everyone on the project, or just you here. */
@@ -118,30 +118,6 @@ async function claudeJson(cwd: string, args: string[]): Promise<unknown> {
   const { out, err, code } = await claude(cwd, args);
   if (code !== 0) throw new Error(err.trim() || `claude ${args.join(" ")} failed`);
   return JSON.parse(out);
-}
-
-async function claude(cwd: string, args: string[]) {
-  // Its output is piped, never inherited: nothing may write to the terminal behind Ink's back.
-  const child = Bun.spawn([claudeBinary(), ...args], { cwd, env: topLevelEnv(), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  return { out, err, code };
-}
-
-let binary: string | undefined;
-
-/** The Claude Code binary the SDK ships for this platform, as the SDK finds it, or `claude` on the PATH. */
-function claudeBinary() {
-  if (binary) return binary;
-  const name = process.platform === "win32" ? "claude.exe" : "claude";
-  for (const flavor of ["", "-musl"]) {
-    try {
-      const manifest = Bun.resolveSync(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}${flavor}/package.json`, import.meta.dir);
-      return (binary = join(dirname(manifest), name));
-    } catch {
-      // Not installed for this platform; try the next.
-    }
-  }
-  return (binary = "claude");
 }
 
 async function manifestDescription(installPath: string) {

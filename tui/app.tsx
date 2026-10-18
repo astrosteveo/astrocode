@@ -4,6 +4,8 @@
 import type { EffortLevel, PermissionMode, RewindFilesResult } from "@anthropic-ai/claude-agent-sdk";
 import { Box, Static, useApp, useStdout, useWindowSize } from "ink";
 import { randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { EFFORTS, isEffort, MODES, type CommandInfo } from "../src/events";
 import { historyEvents, loadHistory, savedSessions, sessionTitle, shellMessages, type SavedSession } from "../src/history";
@@ -19,34 +21,43 @@ import type { Item, State } from "../src/view/state";
 import { todoList } from "../src/view/todos";
 import { plural, shortPath, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
 import { Activity } from "./activity";
+import { AsidePanel } from "./aside";
 import { useAttention } from "./attention";
 import { useKeepWarm } from "./cache";
 import { Banner } from "./banner";
+import { StatusPanel } from "./claude-status";
 import { copy } from "./clipboard";
 import { ConfigMenu, type ConfigValues } from "./config";
 import { DecisionPrompt } from "./decision";
 import { ElicitationPrompt } from "./elicitation";
 import { EFFORT_NOTES, effortsOf, ULTRACODE_NOTE } from "./effort";
-import { editText } from "./editor";
+import { editFile, editText } from "./editor";
 import { FindBar, type Find } from "./find";
+import { HooksPanel } from "./hooks";
 import { FoldView, ItemView, LiveView, opensByDefault } from "./entries";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
 import { keyFor, keyLabel } from "./keys";
 import { copiedBy, openLink } from "./links";
+import type { Outcome } from "./manager";
 import { ANSI } from "./markdown";
 import { fit } from "./markdown-view";
+import { McpPanel } from "./mcp";
+import { MemoryPanel } from "./memory";
 import { ModelPicker } from "./model-picker";
 import { MouseContext } from "./mouse";
 import { Picker, type PickerItem } from "./picker";
 import { pictureRows, resendPictures } from "./pictures";
+import { PermissionsPanel } from "./permissions";
 import { PluginManager } from "./plugins";
 import { Prompt } from "./prompt";
 import { QuestionPrompt } from "./question";
 import { QueuedMessages } from "./queued";
 import { GUTTER, rails, type Rail } from "./rail";
+import { SandboxPanel } from "./sandbox";
 import { Screen } from "./screen";
 import { SessionPreview } from "./session-preview";
+import { SkillsPanel } from "./skills";
 import { StatusBar } from "./status";
 import type { Store } from "./store";
 import { RUNNING_STATUS, TaskView } from "./tasks";
@@ -69,7 +80,20 @@ type Overlay =
   | { kind: "tasks" }
   | { kind: "task"; key: string }
   /** Where a note written with `#` goes. */
-  | { kind: "memory"; note: string; files: MemoryFile[] | null }
+  | { kind: "note"; note: string; files: MemoryFile[] | null }
+  /** Claude Code's own dialogs, drawn here. */
+  | { kind: "mcp" }
+  | { kind: "permissions" }
+  | { kind: "memory" }
+  | { kind: "hooks" }
+  | { kind: "skills" }
+  | { kind: "status" }
+  | { kind: "sandbox" }
+  /** The conversation as text, once Claude Code has sent it, to save or copy. */
+  | { kind: "export"; conversation: { text: string; filename: string } | null }
+  | { kind: "output-style"; styles: { styles: string[]; current: string } | null }
+  /** A question on the side, asked with /btw. */
+  | { kind: "btw"; question: string }
   /** Finding text in full screen's transcript. */
   | { kind: "find" }
   | null;
@@ -108,6 +132,8 @@ const HELP = [
   "Ctrl+O opens a tool call's whole output. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
+  "/mcp, /permissions, /memory, /skills, /hooks, /sandbox and /status show Claude Code's MCP servers, permission rules, memory, skills, hooks, sandbox and status, and change what can be changed.",
+  "/btw asks a question on the side while Claude works. /copy copies Claude's last reply, /export saves or copies the conversation, and /output-style picks how Claude writes.",
   "/config changes the model, effort, thinking, mode, to-do list, full screen, notifications, when plan usage shows, keeping the cache warm and agent progress, and keeps them for next time, except plan mode, max effort and ultracode. /fullscreen switches layouts.",
   "The status bar's cache says how long the prompt cache stays warm; past that, your next message re-caches the conversation. With keep warm on (/config, or click it in full screen) it shows ↻, and astrocode refreshes the cache before it expires while you're away, for up to 8 hours.",
 ].join("\n");
@@ -516,9 +542,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   /** Asks where a note written with `#` goes. */
   const openMemory = (note: string) => {
     if (!note) return;
-    setOverlay({ kind: "memory", note, files: null });
+    setOverlay({ kind: "note", note, files: null });
     memoryFiles(state.cwd).then(
-      (files) => setOverlay((open) => (open?.kind === "memory" ? { ...open, files } : open)),
+      (files) => setOverlay((open) => (open?.kind === "note" ? { ...open, files } : open)),
       (error: unknown) => {
         setOverlay(null);
         report(error);
@@ -567,30 +593,28 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     }
   };
 
-  /** Your message in $EDITOR, with the terminal handed over to it until it quits. */
+  /** The terminal handed over to your editor until it quits. One editor at a time. */
+  const handOver = async <T,>(edit: () => Promise<T>): Promise<T> => {
+    if (editing.current) throw new Error("An editor is open already.");
+    editing.current = true;
+    mouse?.stop();
+    store.window?.stop();
+    const suspension = await suspendTerminal();
+    try {
+      return await edit();
+    } finally {
+      await suspension.resume();
+      store.window?.start();
+      mouse?.start();
+      if (fullscreen) resendPictures();
+      editing.current = false;
+    }
+  };
+
+  /** Your message in $EDITOR. */
   const openEditor = (text: string) => {
     if (editing.current) return;
-    editing.current = true;
-    void (async () => {
-      let edited: string | undefined;
-      let failure: unknown;
-      mouse?.stop();
-      store.window?.stop();
-      const suspension = await suspendTerminal();
-      try {
-        edited = await editText(text);
-      } catch (error) {
-        failure = error;
-      } finally {
-        await suspension.resume();
-        store.window?.start();
-        mouse?.start();
-        if (fullscreen) resendPictures();
-        editing.current = false;
-      }
-      if (failure !== undefined) report(failure);
-      else if (edited !== undefined) setPrefill({ text: edited });
-    })().catch(report);
+    handOver(() => editText(text)).then((edited) => setPrefill({ text: edited }), report);
   };
 
   const submit = (text: string, how: { now?: boolean; later?: boolean; ignoreUltracode?: boolean } = {}) => {
@@ -663,13 +687,95 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         }
         return pickLayout(value === "true");
       }
+      // Claude Code's dialogs, drawn here. With arguments, /mcp and /output-style go to Claude Code.
+      case "/mcp":
+        if (argument) break;
+        return setOverlay({ kind: "mcp" });
+      case "/permissions":
+      case "/allowed-tools":
+        return setOverlay({ kind: "permissions" });
+      case "/memory":
+        return setOverlay({ kind: "memory" });
+      case "/hooks":
+        return setOverlay({ kind: "hooks" });
+      case "/skills":
+        return setOverlay({ kind: "skills" });
+      case "/status":
+        return setOverlay({ kind: "status" });
+      case "/sandbox":
+        return setOverlay({ kind: "sandbox" });
+      case "/output-style":
+        if (argument) break;
+        return openOutputStyles();
+      case "/export":
+        return openExport(argument);
+      case "/copy":
+        return copyReply(argument);
+      case "/btw":
+        if (!argument) return notice("info", "Ask with /btw and your question. Claude answers on the side, without stopping or adding to the conversation.");
+        return setOverlay({ kind: "btw", question: argument });
       default:
-        // Sent now, Claude stops what it's doing and takes this instead of finishing first.
-        // It waits for the stopped turn to close, so the turn's last words don't land after it.
-        const sending: Sending = { ignoreUltracode: how.ignoreUltracode, later: how.later && state.busy ? true : undefined };
-        if (now && state.busy) return void session.interrupt().then(idle).then(() => send(text, sending), report);
-        send(text, sending);
+        break;
     }
+    // Sent now, Claude stops what it's doing and takes this instead of finishing first.
+    // It waits for the stopped turn to close, so the turn's last words don't land after it.
+    const sending: Sending = { ignoreUltracode: how.ignoreUltracode, later: how.later && state.busy ? true : undefined };
+    if (now && state.busy) return void session.interrupt().then(idle).then(() => send(text, sending), report);
+    send(text, sending);
+  };
+
+  const openOutputStyles = () => {
+    setOverlay({ kind: "output-style", styles: null });
+    session.outputStyles().then(
+      (styles) => setOverlay((open) => (open?.kind === "output-style" ? { ...open, styles } : open)),
+      (error: unknown) => {
+        setOverlay(null);
+        report(error);
+      },
+    );
+  };
+
+  /** /export: the conversation saved under `name`, or, with no name, a choice of saving it or copying it. */
+  const openExport = (name: string) => {
+    if (!state.items.some((item) => item.kind === "prompt")) return notice("info", "There's nothing to export yet.");
+    if (!name) setOverlay({ kind: "export", conversation: null });
+    session.exportConversation().then(
+      (conversation) => {
+        if (name) return saveExport(conversation.text, name);
+        setOverlay((open) => (open?.kind === "export" ? { ...open, conversation } : open));
+      },
+      (error: unknown) => {
+        if (!name) setOverlay(null);
+        report(error);
+      },
+    );
+  };
+
+  /** Writes the conversation into a new file, `.txt` unless the name has its own ending. A file already there stays as it is. */
+  const saveExport = (text: string, name: string) => {
+    const path = resolve(state.cwd, /\.[^/.]+$/.test(name) ? name : `${name}.txt`);
+    writeFile(path, text, { flag: "wx" }).then(
+      () => notice("info", `Saved the conversation to ${shortPath(path, state.cwd, state.home)}.`),
+      (error: unknown) =>
+        notice(
+          "error",
+          (error as NodeJS.ErrnoException).code === "EEXIST"
+            ? `${shortPath(path, state.cwd, state.home)} is there already. /export with another name saves it under that.`
+            : `Couldn't save the conversation: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+    );
+  };
+
+  /** /copy: Claude's last reply, or with a number, the one that many back. */
+  const copyReply = (argument: string) => {
+    const back = argument ? Number(argument) : 1;
+    if (!Number.isInteger(back) || back < 1) return notice("error", "/copy takes how far back to go: /copy 1 is Claude's last reply, /copy 2 the one before it.");
+    const replies = state.items.filter((item) => item.kind === "text");
+    const reply = replies[replies.length - back];
+    if (!reply) return notice("info", replies.length ? `Claude has written ${replies.length === 1 ? "1 reply" : `${replies.length} replies`} so far.` : "Claude hasn't replied yet.");
+    copy(reply.text);
+    const lines = reply.text.split("\n").length;
+    setToast(`Copied ${back === 1 ? "Claude's last reply" : `the reply ${back} back`}, ${plural(lines, "line")}`);
   };
 
   /** Resolves once Claude isn't working, or after a few seconds if Claude Code never says so. */
@@ -794,6 +900,21 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     { name: "rewind", description: "Go back to an earlier message, its files, or both (Esc Esc)", argumentHint: "" },
     { name: "tasks", description: "What runs in the background and your ! commands, to watch or stop", argumentHint: "" },
     { name: "plugins", description: "Install, turn on or off, and remove plugins", argumentHint: "" },
+    {
+      name: "mcp",
+      description: "MCP servers: how each is doing and its tools; reconnect, turn off or on, sign in or out",
+      argumentHint: state.commands.find((command) => command.name === "mcp")?.argumentHint ?? "",
+    },
+    { name: "permissions", description: "What Claude may do without asking, must ask about, or may never do", argumentHint: "" },
+    { name: "memory", description: "Open a CLAUDE.md or a saved memory in your editor; turn auto-memory on or off", argumentHint: "" },
+    { name: "skills", description: "How much of each skill Claude sees, and what each costs in the system prompt", argumentHint: "" },
+    { name: "hooks", description: "What runs when Claude Code does something, such as before a tool call", argumentHint: "" },
+    { name: "sandbox", description: "Whether Claude's commands run fenced in, and how", argumentHint: "" },
+    { name: "status", description: "Claude Code's version, session, account and model", argumentHint: "" },
+    { name: "output-style", description: "Pick how Claude writes its replies", argumentHint: "[style]" },
+    { name: "btw", description: "Ask a question on the side, without stopping Claude or adding it to the conversation", argumentHint: "<question>" },
+    { name: "copy", description: "Copy Claude's last reply, or with a number, the one that many back", argumentHint: "[n]" },
+    { name: "export", description: "Save the conversation to a file, or copy it", argumentHint: "[file]" },
     {
       name: "config",
       description: "astrocode's settings: model, effort, thinking, mode, to-dos, full screen, notifications, plan usage, keeping the cache warm and agent progress",
@@ -985,7 +1106,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           />
         );
       }
-      case "memory":
+      case "note":
         return (
           <Picker
             title="Add the note to"
@@ -1017,9 +1138,107 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
             }}
           />
         );
+      case "mcp":
+        return <McpPanel session={session} cwd={state.cwd} home={state.home} width={width} rows={listRows} onOpen={openLink} onOutcome={outcome} onClose={close} />;
+      case "permissions":
+        return <PermissionsPanel session={session} cwd={state.cwd} home={state.home} width={width} rows={listRows} onOutcome={outcome} onClose={close} />;
+      case "memory":
+        return (
+          <MemoryPanel
+            session={session}
+            cwd={state.cwd}
+            home={state.home}
+            width={width}
+            rows={listRows}
+            onEdit={(path) => handOver(() => editFile(path))}
+            onOutcome={outcome}
+            onClose={close}
+          />
+        );
+      case "hooks":
+        return <HooksPanel session={session} width={width} rows={listRows} onOutcome={outcome} onClose={close} />;
+      case "skills":
+        return <SkillsPanel session={session} cwd={state.cwd} width={width} rows={listRows} onOutcome={outcome} onClose={close} />;
+      case "sandbox":
+        return <SandboxPanel session={session} cwd={state.cwd} width={width} rows={listRows} onOutcome={outcome} onClose={close} />;
+      case "status":
+        return (
+          <StatusPanel
+            session={session}
+            own={{
+              title: "astrocode",
+              rows: [
+                { label: "Settings", value: shortPath(settingsPath(), state.cwd, state.home) },
+                { label: "Layout", value: fullscreen ? "full screen" : "scrollback" },
+              ],
+            }}
+            width={width}
+            onClose={close}
+          />
+        );
+      case "output-style":
+        return (
+          <Picker
+            title="Output style"
+            width={width}
+            rows={listRows}
+            items={overlay.styles?.styles.map((style) => ({ key: style, label: style, current: style === overlay.styles?.current })) ?? null}
+            empty="Claude Code has no output styles."
+            onCancel={close}
+            onPick={(item) => {
+              close();
+              // Claude Code's own command keeps it for you in this project, as `claude` does.
+              if (!item.current) send(`/output-style ${item.key}`);
+            }}
+          />
+        );
+      case "export": {
+        const conversation = overlay.conversation;
+        return (
+          <Picker
+            title="Export the conversation"
+            width={width}
+            rows={listRows}
+            items={
+              conversation
+                ? [
+                    { key: "file", label: "Save to a file", note: conversation.filename, detail: "In this folder. /export and a name saves it under that name." },
+                    { key: "copy", label: "Copy to the clipboard", note: plural(conversation.text.split("\n").length, "line") },
+                  ]
+                : null
+            }
+            onCancel={close}
+            onPick={(item) => {
+              close();
+              if (!conversation) return;
+              if (item.key === "file") return saveExport(conversation.text, conversation.filename);
+              copy(conversation.text);
+              setToast("Copied the conversation");
+            }}
+          />
+        );
+      }
+      case "btw":
+        return (
+          <AsidePanel
+            key={overlay.question}
+            session={session}
+            question={overlay.question}
+            earlier={store.asides}
+            width={width}
+            rows={Math.max(4, rows - 18)}
+            onAnswered={(aside) => store.asides.push(aside)}
+            onClose={close}
+          />
+        );
       default:
         return null;
     }
+  };
+
+  /** What a change in one of Claude Code's dialogs said, in the transcript. */
+  const outcome = ({ ok, message }: Outcome) => {
+    if (message) notice(ok ? "info" : "error", message);
   };
 
   const above = question ? (

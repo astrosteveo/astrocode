@@ -1,4 +1,5 @@
 import type { ImageAttachment } from "../src/events";
+import type { Aside } from "../src/session";
 import type { NotifyMode, TodoMode, UsageMode } from "../src/settings";
 import type { Stash } from "../src/stash";
 import { imageLabel } from "./images";
@@ -34,6 +35,8 @@ export class Store {
   window: TerminalWindow | null = null;
   /** What the message box's keys do, read from keybindings.json as astrocode starts. */
   keymap: Keymap = DEFAULT_KEYMAP;
+  /** Side questions asked with /btw in this conversation, and their answers, for the next one to follow on from. */
+  asides: Aside[] = [];
   /** Commands run with `!` that are still going, by id, to stop. They outlive a switch of layouts. */
   readonly shells = new Map<string, AbortController>();
   private nextImage = 1;
@@ -78,6 +81,7 @@ export class Store {
     const { plan, models, commands, limits, mode, model, effort, thinking, ultracode, ultracodeAvailable, fast } = this.state;
     // Whatever was still waiting on its images belongs to the conversation being left.
     this.held = [];
+    this.asides = [];
     this.state = { ...initialState(this.cwd, this.home), plan, models, commands, limits, mode, model, effort, thinking, ultracode, ultracodeAvailable, fast };
     this.epoch += 1;
     this.notify();
