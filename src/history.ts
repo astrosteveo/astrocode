@@ -32,7 +32,7 @@ export async function sessionPreview(sessionId: string, cwd: string): Promise<Se
     const texts = typeof content === "string" ? [content] : Array.isArray(content) ? content.flatMap((block) => (block?.type === "text" && typeof block.text === "string" ? [block.text] : [])) : [];
     // Claude Code's own notes to Claude, such as a command's output or a reminder, are wrapped in tags.
     const text = texts.join("\n").trim();
-    if (!text || (entry.type === "user" && text.startsWith("<"))) continue;
+    if (!text || (entry.type === "user" && (text.startsWith("<") || !fromYou(entry)))) continue;
     if (entry.type === "user") {
       preview.prompts += 1;
       preview.lastPrompt = text;
@@ -76,7 +76,14 @@ export function historyEvents(messages: SessionMessage[]): SessionEvent[] {
         if (started?.kind === "shell") events.push({ kind: "shell-done", id: started.id, stdout, stderr: stopped ? "" : (shell.stderr ?? ""), code: failed ? 1 : 0, stopped, at });
         continue;
       }
-      const typed = saved.parent_tool_use_id ? null : promptText(content);
+      // What woke Claude between your messages, such as a Monitor's event or a subagent's report,
+      // saved as a note to it.
+      const woke = saved.parent_tool_use_id ? null : (taskNotice(content) ?? fromElsewhere(saved));
+      if (woke) {
+        events.push({ kind: "notice", tone: "info", text: woke });
+        continue;
+      }
+      const typed = saved.parent_tool_use_id || !fromYou(saved) ? null : promptText(content);
       events.push(
         typed !== null
           ? { kind: "prompt", text: typed, uuid: saved.uuid, images: promptImages(content, typed), at }
@@ -112,6 +119,54 @@ function shellPart(content: unknown) {
 /** How a command run with `!` goes into the conversation, the same way Claude Code's does. */
 export function shellMessages(command: string, stdout: string, stderr: string) {
   return [`<bash-input>${command}</bash-input>`, `<bash-stdout>${stdout}</bash-stdout><bash-stderr>${stderr}</bash-stderr>`];
+}
+
+/**
+ * Claude Code's `<task-notification>` to Claude, as a line for you: a Monitor's event with what it
+ * saw, or a background task's end. Null for anything else.
+ */
+function taskNotice(content: unknown): string | null {
+  const text = typeof content === "string" ? content : Array.isArray(content) ? content.map((block) => field(block, "text")).filter((one) => typeof one === "string").join("\n") : "";
+  const start = text.indexOf("<task-notification>");
+  // Alone, or after a subagent's report handed back with it: only Claude Code's own notes.
+  if (start === -1 || !text.trimStart().startsWith("<")) return null;
+  const tag = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim();
+  const summary = tag("summary");
+  const event = tag("event");
+  const monitor = summary ? /^Monitor event: "(.*)"$/.exec(summary)?.[1] : undefined;
+  if (event !== undefined) return `Claude picked up an event from ${monitor !== undefined ? `Monitor “${monitor}”` : (summary ?? "a background task")}: ${event.split("\n")[0]}`;
+  return summary ? `${summary}.` : null;
+}
+
+/**
+ * Whether a saved user message is yours: Claude Code saves where each came from (`origin`, which
+ * getSessionMessages() returns but the SDK's types leave out). One saved before it did, or by a
+ * host that didn't stamp it, counts as yours.
+ */
+function fromYou(saved: SessionMessage) {
+  const kind = field(field(saved, "origin"), "kind");
+  return kind === undefined || kind === "human";
+}
+
+/** A message from another agent or session, as a line for you: a subagent's report handed back, or a message sent to Claude. */
+function fromElsewhere(saved: SessionMessage): string | null {
+  const origin = field(saved, "origin");
+  const text = (key: string) => {
+    const value = field(origin, key);
+    return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  };
+  switch (field(origin, "kind")) {
+    case "peer": {
+      const who = text("name") ?? text("from") ?? "Another Claude session";
+      const report = text("handbackReportText");
+      if (field(origin, "handback") === true) return `Subagent ${who} handed back its report${report ? `: ${report.split("\n")[0]}` : "."}`;
+      return `${who} sent Claude a message.`;
+    }
+    case "channel":
+      return `A message came in for Claude from ${text("server") ?? "a channel"}.`;
+    default:
+      return null;
+  }
 }
 
 /** What you typed: a string, or text blocks with no tool results. */

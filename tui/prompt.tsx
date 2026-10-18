@@ -18,6 +18,7 @@ import { cellWidth, takeCells } from "./markdown";
 import { fit, Panel } from "./markdown-view";
 import { clipboardImage, imageLabel, pastedImageFile } from "./images";
 import { chordHint, keyFor, startsChord, strokeOf, type Action, type Keymap } from "./keys";
+import { keywordsIn, paintKeywords } from "./keywords";
 import { hit, useHover, useMouse } from "./mouse";
 import { prepare } from "./pictures";
 import { PALETTE } from "./theme";
@@ -35,8 +36,11 @@ type Props = {
   cwd: string;
   history: string[];
   commands: CommandInfo[];
-  /** `now`: Ctrl+Enter or Ctrl+X Ctrl+S, which stops what Claude is doing to send it straight away. */
-  onSubmit: (text: string, now?: boolean) => void;
+  /**
+   * `now`: Ctrl+Enter or Ctrl+X Ctrl+S, which stops what Claude is doing to send it straight away.
+   * `later`: Ctrl+X Enter, which waits for Claude's turn to end. `ignoreUltracode`: Alt+W was pressed.
+   */
+  onSubmit: (text: string, how?: { now?: boolean; later?: boolean; ignoreUltracode?: boolean }) => void;
   onInterrupt: () => void;
   onCycleMode: () => void;
   /** Ctrl+C on an empty box: the app stops Claude or gets ready to exit. */
@@ -68,6 +72,8 @@ type Props = {
   onToggleThinking: () => void;
   /** Alt+P: the model and effort picker. */
   onModelPicker: () => void;
+  /** Alt+O: fast mode on or off. */
+  onFastMode: () => void;
   /** Ctrl+X Ctrl+K: everything running alongside the conversation stopped, once it's pressed twice. */
   onStopTasks: () => void;
   /** Ctrl+F: find in full screen's transcript. Not in scrollback, where the terminal has its own. */
@@ -75,6 +81,8 @@ type Props = {
   /** A message put aside with Ctrl+S. It stays until Ctrl+S brings it back, whatever is sent meanwhile. */
   stash: string | null;
   onStash: (text: string | null) => void;
+  /** Whether the ultracode keyword can start a workflow: false once Claude Code says workflows are off. */
+  workflows: boolean;
 };
 
 /** Two presses of Esc this close together are a double press. */
@@ -128,6 +136,8 @@ export function Prompt(props: Props) {
   const search = useRef<{ query: string; skip: number; before: { text: string; cursor: number } } | null>(null);
   /** The keys of a chord pressed so far, and when, while it waits for the next. */
   const chord = useRef<{ keys: string; at: number } | null>(null);
+  /** chat:workflowKeywordToggle: the message's `ultracode` won't start a workflow, until it's pressed again or the word goes. */
+  const ignoreUltracode = useRef(false);
   /** The stash as last set here, ahead of the re-render that brings the prop. */
   const stashed = useRef(props.stash);
   stashed.current = props.stash;
@@ -149,6 +159,7 @@ export function Prompt(props: Props) {
     if (edit === "fresh") undo.current = [];
     lastEdit.current = edit === "word" ? "type" : edit;
     buffer.current = { text, cursor };
+    if (!/\bultracode\b/i.test(text)) ignoreUltracode.current = false;
     redraw();
   };
   const insert = (value: string) => {
@@ -247,11 +258,12 @@ export function Prompt(props: Props) {
     return true;
   };
 
-  const submit = (text: string, now = false) => {
+  const submit = (text: string, how: { now?: boolean; later?: boolean } = {}) => {
     recall.current = null;
     room.current = 0;
+    const ignored = ignoreUltracode.current;
     set("", 0, "fresh");
-    props.onSubmit(text, now);
+    props.onSubmit(text, { ...how, ignoreUltracode: ignored || undefined });
   };
 
   const mentioning = mention !== null;
@@ -394,7 +406,11 @@ export function Prompt(props: Props) {
         if (text.slice(0, cursor).endsWith("\\")) return set(`${text.slice(0, cursor - 1)}\n${text.slice(cursor)}`, cursor);
         return text.trim() ? submit(text) : undefined;
       case "chat:sendNow":
-        return text.trim() ? submit(text, true) : undefined;
+        return text.trim() ? submit(text, { now: true }) : undefined;
+      case "chat:queueSubmit":
+        return text.trim() ? submit(text, { later: true }) : undefined;
+      case "chat:fastMode":
+        return props.onFastMode();
       case "chat:newline":
         return insert("\n");
       case "chat:undo": {
@@ -411,6 +427,10 @@ export function Prompt(props: Props) {
         return set("", 0);
       case "task:background":
         return props.onBackground();
+      case "chat:workflowKeywordToggle":
+        if (!/\bultracode\b/i.test(text)) return;
+        ignoreUltracode.current = !ignoreUltracode.current;
+        return redraw();
     }
   };
 
@@ -600,7 +620,14 @@ export function Prompt(props: Props) {
     );
   const preview = props.stash === null ? "" : fit(props.stash.replace(/\s+/g, " ").trim(), 24, false);
   const stashKey = keyFor(props.keymap, "chat:stash");
-  const note = chord.current ? chordHint(props.keymap, chord.current.keys) : preview ? `stashed “${preview}”${stashKey ? `  ${stashKey}` : ""}` : undefined;
+  // The keywords Claude Code acts on, in their colors, and what they'll do: not in `!` or `#` mode,
+  // which don't go to Claude as a message.
+  const keywords = mode ? [] : keywordsIn(text);
+  const ignored = ignoreUltracode.current;
+  const keywordNote = keywordHint(keywords, ignored, props.workflows, keyFor(props.keymap, "chat:workflowKeywordToggle"));
+  const note = chord.current
+    ? chordHint(props.keymap, chord.current.keys)
+    : keywordNote ?? (preview ? `stashed “${preview}”${stashKey ? `  ${stashKey}` : ""}` : undefined);
 
   if (search.current) {
     const { query, skip } = search.current;
@@ -648,10 +675,10 @@ export function Prompt(props: Props) {
                 </Text>
               ) : (
                 <Text color={PALETTE.star}>
-                  {text.slice(0, cursor)}
-                  {active && !onMarker ? caret(under && under !== "\n" ? under : " ") : under === "\n" ? "" : under}
+                  {paintKeywords(text, 0, cursor, keywords, ignored)}
+                  {active && !onMarker ? caret(under && under !== "\n" ? under : " ") : under === "\n" ? "" : paintKeywords(text, cursor, end, keywords, ignored)}
                   {under === "\n" ? "\n" : ""}
-                  {text.slice(end)}
+                  {paintKeywords(text, end, text.length, keywords, ignored)}
                 </Text>
               )}
             </Box>
@@ -668,6 +695,20 @@ export function Prompt(props: Props) {
       </Box>
     </Box>
   );
+}
+
+/**
+ * What the message's keywords will do, for the box's top edge: deeper reasoning for `ultrathink`,
+ * a workflow for `ultracode` and the key that ignores it, or that it's ignored.
+ */
+function keywordHint(keywords: { word: string }[], ignored: boolean, workflows: boolean, toggle: string | null) {
+  const thinking = keywords.some((one) => one.word === "ultrathink");
+  const workflow = workflows && keywords.some((one) => one.word === "ultracode");
+  // As the box's other hints write keys: `alt+w`.
+  const key = toggle ? toggle.replace(/\bmeta\b/g, "alt") : null;
+  if (workflow && ignored) return `${thinking ? "deeper reasoning this turn · " : ""}ultracode ignored${key ? `  ${key} undoes` : ""}`;
+  if (workflow) return `${thinking ? "deeper reasoning and " : ""}a workflow this turn${key ? `  ${key} ignores ${thinking ? "ultracode" : "it"}` : ""}`;
+  return thinking ? "deeper reasoning this turn" : undefined;
 }
 
 /** Rows the menu takes for this many matches: its top edge, the rows that fit, and the line of keys. */

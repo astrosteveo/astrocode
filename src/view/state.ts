@@ -2,14 +2,16 @@
 // conversation's events draws it the same way it was drawn live.
 import type {
   EffortLevel,
+  FastModeDisabledReason,
+  FastModeState,
   PermissionMode,
   SDKAssistantMessage,
   SDKMessage,
   SDKPartialAssistantMessage,
   SDKResultMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { CommandInfo, ImageAttachment, ModelChoice, PermissionRequest, QuestionRequest, SessionEvent } from "../events";
-import { duration } from "./format";
+import type { CommandInfo, ElicitationRequest, ImageAttachment, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, SessionEvent } from "../events";
+import { compact, duration } from "./format";
 
 type StreamEvent = SDKPartialAssistantMessage["event"];
 type AssistantBlock = SDKAssistantMessage["message"]["content"][number];
@@ -35,10 +37,15 @@ export type ToolCall = {
   /** Seconds it has run, as Claude Code reports while it runs. */
   elapsed?: number;
   /**
-   * A command running in the background, started there or moved there with Ctrl+B, and how it
-   * ended. A saved conversation doesn't say how it went, only that it went there: `unknown`.
+   * Work running in the background, started there or moved there with Ctrl+B, and how it ended: a
+   * command, a subagent, a Monitor or a workflow. A saved conversation doesn't say how it went,
+   * only that it went there: `unknown`.
    */
   background?: "running" | "completed" | "failed" | "stopped" | "unknown";
+  /** The task the call started in the background, to open in the task view. */
+  taskId?: string;
+  /** Who said no without asking you, such as auto mode's classifier or a rule. */
+  deniedBy?: string;
 };
 
 /**
@@ -86,15 +93,19 @@ export type Item =
       files?: string[];
       commands?: string[];
     }
-  | { kind: "notice"; key: string; tone: "info" | "error"; text: string }
+  /**
+   * `of`: the tool call a line of progress is about, which the next line for it replaces.
+   * `explains`: it says why Claude may start a turn by itself next, as a background task's end does.
+   */
+  | { kind: "notice"; key: string; tone: NoticeTone; text: string; of?: string; explains?: boolean }
   | ShellItem
   /** A tool call's or a `!` command's whole output, printed on request. */
   | { kind: "output"; key: string; of: ToolItem | ShellItem };
 
 export type ToolItem = Extract<Item, { kind: "tool" }>;
 
-/** A message sent while Claude works, waiting in Claude Code's queue until Claude takes it. */
-export type Queued = { text: string; uuid: string; images?: Record<number, ImageAttachment>; at?: number };
+/** A message sent while Claude works, waiting in Claude Code's queue until Claude takes it. `later`: after the turn ends. */
+export type Queued = { text: string; uuid: string; images?: Record<number, ImageAttachment>; at?: number; later?: boolean };
 
 type NewItem = Item extends infer I ? (I extends Item ? Omit<I, "key"> : never) : never;
 
@@ -110,6 +121,7 @@ export type BackgroundTask = { id: string; description: string; type: string };
 /**
  * What's known about a task of Claude Code's, running or ended: the tool call that started it, its
  * progress and how it ended. `background`: it ran in the background, not as a call Claude waited on.
+ * A subagent's task id is its agent id, which names its transcript.
  */
 export type TaskInfo = {
   id: string;
@@ -125,7 +137,20 @@ export type TaskInfo = {
   lastTool?: string;
   tokens?: number;
   toolUses?: number;
+  /** A workflow's name, from its script. */
+  workflowName?: string;
+  /** A workflow's phases and agents, as its last progress report had them. */
+  workflow?: WorkflowPhase[];
 };
+
+/** One phase of a workflow and the agents it ran or is running. */
+export type WorkflowPhase = { title: string; agents: WorkflowAgent[] };
+
+/** `state`: queued, running, done or failed, as Claude Code says it. */
+export type WorkflowAgent = { label: string; state: string; lastTool?: string; tokens?: number; toolCalls?: number; error?: string };
+
+/** An API request that failed and will be tried again: which attempt is next, and when. */
+export type Retry = { attempt: number; max: number; at: number; delayMs: number; status: number | null; error: string };
 
 /** A plan usage window, from Claude Code's rate-limit events. `utilization` is 0 to 1. */
 export type UsageWindow = { utilization: number; resetsAt: number };
@@ -170,6 +195,20 @@ export type State = {
   live: Live | null;
   pending: PermissionRequest[];
   questions: QuestionRequest[];
+  /** MCP servers' requests for a form or a visit to an address, waiting on you. */
+  elicitations: ElicitationRequest[];
+  /** Ultracode is on for the session. */
+  ultracode: boolean;
+  /** Whether it can be turned on, once Claude Code has said. */
+  ultracodeAvailable?: boolean;
+  /** A request being tried again, until the next response or the turn's end. */
+  retry?: Retry;
+  /** Claude Code is compacting the conversation. */
+  compacting: boolean;
+  /** The background task's notice that last accounted for a turn Claude started by itself, by key. */
+  explained?: string;
+  /** Fast mode, as Claude Code last reported it, and what keeps it off, if anything. */
+  fast?: { state: FastModeState; reason?: FastModeDisabledReason };
   busy: boolean;
   /** Output tokens of this turn's finished messages. */
   turnTokens: number;
@@ -200,6 +239,9 @@ export function initialState(cwd: string, home: string): State {
     live: null,
     pending: [],
     questions: [],
+    elicitations: [],
+    ultracode: false,
+    compacting: false,
     busy: false,
     turnTokens: 0,
     seq: 0,
@@ -215,7 +257,7 @@ export function reduce(state: State, event: ViewEvent): State {
       return { ...state, commands: event.commands };
     case "prompt":
       if (state.busy && event.uuid) {
-        return { ...state, queue: [...state.queue, { text: event.text, uuid: event.uuid, images: event.images, at: event.at }] };
+        return { ...state, queue: [...state.queue, { text: event.text, uuid: event.uuid, images: event.images, at: event.at, later: event.later }] };
       }
       return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at }), busy: true };
     case "shell":
@@ -239,11 +281,14 @@ export function reduce(state: State, event: ViewEvent): State {
       return { ...state, pending: [...state.pending.filter((p) => p.id !== event.request.id), event.request] };
     case "question":
       return { ...state, questions: [...state.questions.filter((q) => q.id !== event.request.id), event.request] };
+    case "elicitation":
+      return { ...state, elicitations: [...state.elicitations.filter((e) => e.id !== event.request.id), event.request] };
     case "resolved": {
       const next = {
         ...state,
         pending: state.pending.filter((p) => p.id !== event.id),
         questions: state.questions.filter((q) => q.id !== event.id),
+        elicitations: state.elicitations.filter((e) => e.id !== event.id),
       };
       if (event.outcome === "deny") return updateTool(next, event.id, () => ({ status: "denied" }));
       if (event.outcome === "cancelled") return updateTool(next, event.id, () => ({ status: "stopped" }));
@@ -257,6 +302,12 @@ export function reduce(state: State, event: ViewEvent): State {
       return { ...state, effort: event.effort };
     case "thinking":
       return { ...state, thinking: event.on };
+    case "ultracode":
+      return { ...state, ultracode: event.on };
+    case "ultracode-available":
+      return { ...state, ultracodeAvailable: event.available };
+    case "fast":
+      return { ...state, fast: { state: event.on ? "on" : "off" } };
     case "context":
       return { ...state, context: { percentage: event.percentage, tokens: event.tokens, max: event.max } };
     case "cache-warmed":
@@ -288,7 +339,7 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
     case "system":
       switch (message.subtype) {
         case "init":
-          return { ...state, model: state.model ?? message.model, mode: message.permissionMode };
+          return { ...state, model: state.model ?? message.model, mode: message.permissionMode, fast: fastOf(message) ?? state.fast };
         case "background_tasks_changed": {
           const tasks = message.tasks
             .filter((task) => !task.ambient)
@@ -311,6 +362,7 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
             background: known?.background || message.is_backgrounded === true,
             status: "running",
             startedAt: known?.startedAt ?? at,
+            workflowName: message.workflow_name,
           };
           return { ...state, taskInfo: { ...state.taskInfo, [task.id]: task } };
         }
@@ -320,25 +372,56 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
             lastTool: message.last_tool_name ?? task.lastTool,
             tokens: message.usage.total_tokens,
             toolUses: message.usage.tool_uses,
+            // Not in the SDK's types: a workflow's phases and agents.
+            workflow: workflowOf(field(message, "workflow_progress")) ?? task.workflow,
           }));
         case "task_updated":
           return message.patch.is_backgrounded ? updateTask(state, message.task_id, () => ({ background: true })) : state;
         case "task_notification": {
-          let next = updateTask(state, message.task_id, (task) => ({ status: message.status, endedAt: at, summary: message.summary || task.summary }));
+          let next = updateTask(state, message.task_id, (task) => ({ status: message.status, endedAt: at, summary: endSummary(message) ?? task.summary }));
           // A command that ran in the background: its card says how it ended.
           if (message.tool_use_id) next = updateTool(next, message.tool_use_id, (call) => (call.background ? { background: message.status } : {}));
-          // Only work that ran in the background: a subagent Claude waited on reports back as its tool call.
-          const task = state.tasks.find((one) => one.id === message.task_id);
-          if (!task || message.skip_transcript) return next;
+          // Only work that ran in the background: a subagent Claude waited on reports back as its
+          // tool call. The background set may already have let it go, so what's known of it decides.
+          const task = state.taskInfo[message.task_id];
+          if (!task?.background || message.skip_transcript) return next;
           const how = { completed: "finished", failed: "failed", stopped: "stopped" }[message.status];
-          return add(next, { kind: "notice", tone: message.status === "failed" ? "error" : "info", text: `Background task ${how}: ${task.description}` });
+          return add(next, { kind: "notice", tone: message.status === "failed" ? "error" : "info", text: `Background ${taskKind(state, task)} ${how}: ${task.description}`, explains: true });
         }
-        case "status":
-          return message.permissionMode ? { ...state, mode: message.permissionMode } : state;
+        case "status": {
+          let next: State = { ...state, compacting: message.status === "compacting" };
+          if (message.permissionMode) next = { ...next, mode: message.permissionMode };
+          if (message.compact_result === "failed") {
+            next = add(next, { kind: "notice", tone: "error", text: `Compacting failed${message.compact_error ? `: ${message.compact_error}` : "."}` });
+          }
+          return next;
+        }
         case "compact_boundary":
-          return add(state, { kind: "notice", tone: "info", text: "Claude compacted the earlier conversation to free up context." });
+          return add({ ...state, compacting: false }, { kind: "notice", tone: "info", text: compactedText(message.compact_metadata) });
         case "local_command_output":
           return add(state, { kind: "notice", tone: "info", text: message.content });
+        case "api_retry":
+          return {
+            ...state,
+            retry: { attempt: message.attempt, max: message.max_retries, at: at ?? 0, delayMs: message.retry_delay_ms, status: message.error_status, error: message.error },
+          };
+        case "informational": {
+          // `info` is for Claude Code's transcript view only. A hook's reason for blocking your
+          // message, or for stopping Claude, comes as a notice or a warning.
+          if (message.level === "info" || !message.content.trim()) return state;
+          const tone = message.level === "warning" ? "warning" : "info";
+          const of = message.tool_use_id;
+          const index = of ? state.items.findLastIndex((item) => item.kind === "notice" && item.of === of) : -1;
+          const old = state.items[index];
+          if (old?.kind !== "notice") return add(state, { kind: "notice", tone, text: message.content.trim(), of });
+          const items = state.items.slice();
+          items[index] = { ...old, tone, text: message.content.trim() };
+          return { ...state, items };
+        }
+        case "elicitation_complete":
+          return add(state, { kind: "notice", tone: "info", text: `${message.mcp_server_name} confirmed the step in the browser.` });
+        case "permission_denied":
+          return updateTool(state, message.tool_use_id, () => ({ status: "denied", deniedBy: deniedBy(message.decision_reason_type) }));
         default:
           return state;
       }
@@ -347,9 +430,10 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
     case "tool_progress":
       return message.parent_tool_use_id ? state : updateTool(state, message.tool_use_id, (call) => (call.status === "running" ? { elapsed: message.elapsed_time_seconds } : {}));
     case "stream_event":
-      return message.parent_tool_use_id ? state : applyStream({ ...state, busy: true }, message.event);
+      return message.parent_tool_use_id ? state : applyStream({ ...woken(state), busy: true, retry: undefined }, message.event);
     case "assistant":
-      return applyAssistant({ ...state, busy: true, cache: cacheAfter(state.cache, message, at) }, message, at);
+      if (message.parent_tool_use_id) return applyAssistant({ ...state, cache: cacheAfter(state.cache, message, at) }, message, at);
+      return applyAssistant({ ...woken(state), busy: true, retry: undefined, cache: cacheAfter(state.cache, message, at) }, message, at);
     case "user":
       return applyUser(state, message, images, at);
     case "result":
@@ -360,6 +444,29 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
 }
 
 /**
+ * Claude starting a turn while not working, with no message of yours to start it: a background
+ * task reported back, a Monitor saw something, or a scheduled task came due. Claude Code doesn't
+ * say which on the stream. A background task's end since your last message that hasn't accounted
+ * for a turn yet is the cause, even when it came during the turn before, and says so already;
+ * otherwise a Monitor still running is.
+ */
+function woken(state: State): State {
+  if (state.busy) return state;
+  const since = state.items.slice(state.items.findLastIndex((item) => item.kind === "turn") + 1);
+  if (since.some((item) => item.kind === "prompt")) return state;
+  const sincePrompt = state.items.slice(state.items.findLastIndex((item) => item.kind === "prompt") + 1);
+  const ended = sincePrompt.findLast((item) => item.kind === "notice" && item.explains);
+  if (ended && ended.key !== state.explained) return { ...state, explained: ended.key };
+  const monitor = Object.values(state.taskInfo).find((task) => {
+    const index = task.status === "running" && task.toolUseId ? state.tools[task.toolUseId] : undefined;
+    const item = index === undefined ? undefined : state.items[index];
+    return item?.kind === "tool" && item.call.name === "Monitor";
+  });
+  const text = monitor ? `Claude picked up an event from Monitor “${monitor.description}”.` : "Claude started a turn on its own.";
+  return add(state, { kind: "notice", tone: "info", text });
+}
+
+/**
  * A queued message Claude started on goes into the transcript, at the end, where Claude read it; one
  * that's done or was taken back leaves the queue. Messages that never waited aren't in it.
  */
@@ -367,7 +474,7 @@ function applyLifecycle(state: State, uuid: unknown, stage: unknown): State {
   const queued = state.queue.find((one) => one.uuid === uuid);
   if (!queued) return state;
   const queue = state.queue.filter((one) => one !== queued);
-  if (stage === "started") return { ...add({ ...state, queue }, { kind: "prompt", ...queued }), busy: true };
+  if (stage === "started") return { ...add({ ...state, queue }, { kind: "prompt", text: queued.text, uuid: queued.uuid, images: queued.images, at: queued.at }), busy: true };
   if (stage === "cancelled" || stage === "completed") return { ...state, queue };
   return state;
 }
@@ -487,20 +594,19 @@ function applyUser(state: State, message: UserMessage, images: Record<string, Im
     const result = resultText(block.content);
     // A saved conversation has no record of the prompt, only Claude Code's note that it was refused.
     const refused = block.is_error === true && result.startsWith("The user doesn't want to proceed with this tool use");
-    next = updateTool(next, block.tool_use_id, (call) => ({
-      result,
-      output,
-      images: images[block.tool_use_id],
-      status: call.status === "denied" || call.status === "stopped" ? call.status : refused ? "denied" : block.is_error ? "error" : "done",
-      endedAt: at,
-      // Started in the background or moved there: Claude Code answers at once, and the command runs on.
-      background:
-        typeof field(output, "backgroundTaskId") === "string"
-          ? (call.background ?? "running")
-          : output === undefined && result.startsWith("Command running in background with ID:")
-            ? "unknown"
-            : call.background,
-    }));
+    next = updateTool(next, block.tool_use_id, (call) => {
+      const taskId = launched(call.name, output);
+      return {
+        result,
+        output,
+        images: images[block.tool_use_id],
+        status: call.status === "denied" || call.status === "stopped" ? call.status : refused ? "denied" : block.is_error ? "error" : "done",
+        endedAt: at,
+        // Started in the background or moved there: Claude Code answers at once, and the work goes on.
+        background: taskId ? (call.background ?? "running") : output === undefined && launchedText(call.name, result) ? "unknown" : call.background,
+        taskId: taskId ?? call.taskId,
+      };
+    });
   }
   return next;
 }
@@ -508,7 +614,7 @@ function applyUser(state: State, message: UserMessage, images: Record<string, Im
 function applyResult(state: State, message: SDKResultMessage): State {
   // Claude Code answers a message that doesn't start a turn, such as a `!` command's, with a result of no turns.
   if (!state.busy && message.num_turns === 0) return state;
-  const settled = { ...stopRunningTools(state), busy: false, live: null, turnTokens: 0 };
+  const settled = { ...stopRunningTools(state), busy: false, live: null, turnTokens: 0, retry: undefined, compacting: false, fast: fastOf(message) ?? state.fast };
   const turn = { kind: "turn" as const, durationMs: message.duration_ms, tokens: state.turnTokens, ...turnWork(state.items) };
   // Stop, Esc and Deny all end the turn early. The SDK reports that as an error, but it isn't one.
   if (message.terminal_reason === "aborted_streaming" || message.terminal_reason === "aborted_tools") {
@@ -524,9 +630,13 @@ function applyResult(state: State, message: SDKResultMessage): State {
   });
 }
 
-/** What the turn now ending did: the files it changed and the commands it ran, since your last message. */
+/**
+ * What the turn now ending did: the files it changed and the commands it ran, since your last
+ * message or, for a turn Claude started on its own, as when a background task reports back, since
+ * the turn before it ended.
+ */
 function turnWork(items: Item[]) {
-  const start = items.findLastIndex((item) => item.kind === "prompt");
+  const start = items.findLastIndex((item) => item.kind === "prompt" || item.kind === "turn");
   const files: string[] = [];
   const commands: string[] = [];
   for (const item of items.slice(start + 1)) {
@@ -626,6 +736,127 @@ function updateTask(state: State, id: string, patch: (task: TaskInfo) => Partial
 function firstLine(text: string) {
   const [first = ""] = text.split("\n");
   return text.includes("\n") ? `${first} …` : first;
+}
+
+/**
+ * The task a tool call started in the background, from its structured result: a command started
+ * there or moved there, a subagent launched to run on its own, a Monitor, or a workflow.
+ */
+function launched(name: string, output: unknown): string | undefined {
+  const text = (key: string) => {
+    const value = field(output, key);
+    return typeof value === "string" ? value : undefined;
+  };
+  switch (name) {
+    case "Bash":
+      return text("backgroundTaskId");
+    case "Agent":
+    case "Task":
+      return field(output, "status") === "async_launched" ? text("agentId") : field(output, "status") === "remote_launched" ? text("taskId") : undefined;
+    case "Monitor":
+    case "Workflow":
+      return text("taskId");
+    default:
+      return undefined;
+  }
+}
+
+/** A saved conversation has no structured results, only what Claude Code told Claude. */
+function launchedText(name: string, result: string) {
+  if (name === "Bash") return result.startsWith("Command running in background with ID:");
+  if (name === "Agent" || name === "Task") return result.startsWith("Async agent launched successfully");
+  return false;
+}
+
+/** What sort of work a task is, in a word, by Claude Code's task types. */
+export function kindOf(task: { type: string }) {
+  switch (task.type) {
+    case "local_bash":
+      return "command";
+    case "local_agent":
+    case "remote_agent":
+      return "subagent";
+    case "local_workflow":
+      return "workflow";
+    case "monitor_ws":
+    case "monitor_mcp":
+    case "monitor":
+      return "monitor";
+    default:
+      return task.type.replace(/_/g, " ") || "task";
+  }
+}
+
+/** What sort of work a task is, in a word: a Monitor that runs a command is a command task to Claude Code. */
+export function taskKind(state: State, task: TaskInfo) {
+  const index = task.toolUseId ? state.tools[task.toolUseId] : undefined;
+  const item = index === undefined ? undefined : state.items[index];
+  return item?.kind === "tool" && item.call.name === "Monitor" ? "monitor" : kindOf(task);
+}
+
+/** A workflow's phases and agents, from Claude Code's progress report, which the SDK doesn't type. */
+function workflowOf(progress: unknown): WorkflowPhase[] | undefined {
+  if (!Array.isArray(progress)) return undefined;
+  const phases: WorkflowPhase[] = [];
+  const phaseAt = (index: unknown, title: unknown) => {
+    const at = typeof index === "number" ? index : phases.length;
+    phases[at] ??= { title: typeof title === "string" ? title : "", agents: [] };
+    if (typeof title === "string" && title) phases[at].title = title;
+    return phases[at];
+  };
+  for (const entry of progress) {
+    if (field(entry, "type") === "workflow_phase") phaseAt(field(entry, "index"), field(entry, "title"));
+    else if (field(entry, "type") === "workflow_agent") {
+      const phase = phaseAt(field(entry, "phaseIndex"), field(entry, "phaseTitle"));
+      const number = (key: string) => (typeof field(entry, key) === "number" ? (field(entry, key) as number) : undefined);
+      const text = (key: string) => (typeof field(entry, key) === "string" ? (field(entry, key) as string) : undefined);
+      phase.agents.push({ label: text("label") ?? "agent", state: text("state") ?? "", lastTool: text("lastToolName"), tokens: number("tokens"), toolCalls: number("toolCalls"), error: text("error") });
+    }
+  }
+  const found = phases.filter(Boolean);
+  return found.length ? found : undefined;
+}
+
+/** The notice for a compaction: how it started and how much it freed, where Claude Code says. */
+function compactedText({ trigger, pre_tokens, post_tokens, duration_ms }: { trigger: "manual" | "auto"; pre_tokens: number; post_tokens?: number; duration_ms?: number }) {
+  const what = trigger === "auto" ? "Claude Code compacted the conversation to free up context" : "Compacted the conversation";
+  const tokens = post_tokens !== undefined ? `: ${compact(pre_tokens)} → ${compact(post_tokens)} tokens` : "";
+  const took = duration_ms ? ` in ${duration(duration_ms)}` : "";
+  return `${what}${tokens}${took}.`;
+}
+
+/**
+ * What a task said as it ended. A subagent that handed its report back with SubagentHandback ends
+ * with a note to Claude to read it there, which says nothing to you; the report is in its
+ * transcript, and in `handback_report` where Claude Code sends it, which the SDK doesn't type.
+ */
+function endSummary(message: { summary: string }) {
+  const report = field(message, "handback_report");
+  // Its first line: the task view shows the whole report in the transcript under it.
+  if (typeof report === "string" && report.trim()) return report.trim().split("\n")[0];
+  if (!message.summary || message.summary.includes("SubagentHandback")) return undefined;
+  return message.summary;
+}
+
+/** Fast mode as a message reports it, if it does. */
+function fastOf(message: { fast_mode_state?: FastModeState; fast_mode_disabled_reason?: FastModeDisabledReason }): State["fast"] {
+  return message.fast_mode_state ? { state: message.fast_mode_state, reason: message.fast_mode_disabled_reason } : undefined;
+}
+
+/** Who refused a tool call without asking you, from Claude Code's reason for it. */
+function deniedBy(reason: string | undefined) {
+  switch (reason) {
+    case "classifier":
+      return "auto mode";
+    case "rule":
+      return "a rule";
+    case "mode":
+      return "the mode";
+    case "hook":
+      return "a hook";
+    default:
+      return undefined;
+  }
 }
 
 function addTool(state: State, call: ToolCall): State {

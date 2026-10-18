@@ -1,9 +1,12 @@
 import {
   getSessionMessages,
+  getSubagentMessages,
   query,
   type AccountInfo,
   type CanUseTool,
   type EffortLevel,
+  type ElicitationRequest as McpElicitation,
+  type ElicitationResult,
   type Options,
   type PermissionMode,
   type PermissionResult,
@@ -20,6 +23,9 @@ import {
   type Answers,
   type CommandInfo,
   type Decision,
+  type ElicitationAnswer,
+  type ElicitationField,
+  type ElicitationRequest,
   type ImageAttachment,
   type PermissionRequest,
   type Question,
@@ -43,6 +49,8 @@ export type SessionOptions = {
   resume?: string;
   /** Pick up the most recent session in `cwd`. */
   continue?: boolean;
+  /** Claude Code writes a line every half minute on what each subagent is doing, for the task view. */
+  agentSummaries?: boolean;
   /** Where Claude Code's own stderr goes. Defaults to this process's stderr. */
   onStderr?: (data: string) => void;
   emit: (event: SessionEvent) => void;
@@ -63,6 +71,12 @@ export type Warmed = { read: number; written: number };
 /** One running Claude Code process. A session starts a new run after a reset, a resume or a crash. */
 type Run = { query: Query; inbox: AsyncQueue<SDKUserMessage>; closing: boolean };
 
+/**
+ * How a message goes: `later` waits for Claude's turn to end instead of joining it between tool
+ * rounds; `ignoreUltracode` keeps its `ultracode` from starting a workflow.
+ */
+export type Sending = { later?: boolean; ignoreUltracode?: boolean };
+
 type Waiting<T> = { run: Run; value: T; resolve: (result: PermissionResult) => void };
 
 /**
@@ -76,11 +90,27 @@ export class AgentSession {
   private run: Run | null = null;
   private permissions = new Map<string, Waiting<PermissionRequest>>();
   private questions = new Map<string, Waiting<Record<string, unknown>>>();
+  private elicitations = new Map<string, { run: Run; resolve: (result: ElicitationResult) => void }>();
   private sessionId: string | undefined;
   private mode: PermissionMode;
   private model: string | undefined;
   private effort: EffortLevel | undefined;
   private thinking: boolean | undefined;
+  /** Ultracode asked for, for the session: kept through a restart, as an effort level is. */
+  private ultracode = false;
+  /** Fast mode, for the session: Opus with faster output. Kept through a restart. */
+  private fast = false;
+  /** Messages and notes go to Claude Code in order, each after whatever it waits on. */
+  private outbox = Promise.resolve();
+  /**
+   * Messages sent with their `ultracode` ignored, by uuid, until Claude Code says their turns are
+   * over. The keyword trigger stays off while any is left, so another message Claude Code starts on
+   * meanwhile has its `ultracode` ignored too.
+   */
+  private ignoring = new Set<string>();
+  /** The keyword trigger is off in Claude Code's flag settings. */
+  private triggerOff = false;
+  private agentSummaries: boolean;
   /** Whether the running Claude Code started with thinking off, which a null budget can't undo. */
   private startedWithoutThinking = false;
   private resumeFrom: string | undefined;
@@ -95,6 +125,7 @@ export class AgentSession {
     this.mode = options.mode ?? "auto";
     this.resumeFrom = options.resume;
     this.continueLast = options.continue ?? false;
+    this.agentSummaries = options.agentSummaries ?? false;
   }
 
   /** The conversation's id, once Claude Code has reported it. */
@@ -123,11 +154,20 @@ export class AgentSession {
         includePartialMessages: true,
         // Backups of the files Claude changes, so rewinding can put them back.
         enableFileCheckpointing: true,
+        // Each background task can be stopped on its own from the task view, so Esc stops only the
+        // turn. Without this, Claude Code stops every background agent and workflow along with it.
+        perTaskStopAffordance: true,
+        agentProgressSummaries: this.agentSummaries,
+        settings: { ...(this.fast ? { fastMode: true } : {}), ...(this.ultracode ? { ultracode: true } : {}) },
         canUseTool: (toolName, input, context) => this.ask(run, toolName, input, context),
+        onElicitation: (request, { signal }) => this.elicit(run, request, signal),
         stderr: this.options.onStderr ?? ((data) => process.stderr.write(`[claude] ${data}`)),
       },
     });
     run = { query: q, inbox, closing: false };
+    // A new Claude Code process starts with no flag settings but those passed above.
+    this.ignoring.clear();
+    this.triggerOff = false;
     this.startedWithoutThinking = this.thinking === false;
     this.run = run;
     void this.pump(run);
@@ -151,6 +191,8 @@ export class AgentSession {
       allowDangerouslySkipPermissions: true,
       systemPrompt: { type: "preset", preset: "claude_code" },
       env: topLevelEnv(),
+      // Fast mode makes its requests differently, so a keep-warm request matches it.
+      settings: this.fast ? { fastMode: true } : undefined,
     };
   }
 
@@ -197,13 +239,36 @@ export class AgentSession {
    * Sends a message, with the images its `[Image #n]` labels mention, by number, before its text.
    * Its uuid is the one rewinding goes back to.
    */
-  send(text: string, images: ReadonlyMap<number, ImageAttachment> = new Map()) {
+  send(text: string, images: ReadonlyMap<number, ImageAttachment> = new Map(), how: Sending = {}) {
     this.start();
     this.resumeAt = undefined;
     const uuid = randomUUID();
     const mentions = mentionsIn(text, images);
-    this.options.emit({ kind: "prompt", text, uuid, images: Object.fromEntries(mentions.map(({ n, image }) => [n, image])), at: Date.now() });
-    this.run?.inbox.push({ type: "user", message: { role: "user", content: messageContent(text, mentions) }, parent_tool_use_id: null, uuid });
+    this.options.emit({ kind: "prompt", text, uuid, images: Object.fromEntries(mentions.map(({ n, image }) => [n, image])), at: Date.now(), later: how.later });
+    const run = this.run;
+    // Typed by a person: Claude Code acts on what only you can ask for, such as the ultracode
+    // keyword or a skill named partway through, only in a message stamped as yours.
+    const message: SDKUserMessage = {
+      type: "user",
+      message: { role: "user", content: messageContent(text, mentions) },
+      parent_tool_use_id: null,
+      uuid,
+      origin: { kind: "human" },
+      priority: how.later ? "later" : undefined,
+    };
+    this.post(run, async () => {
+      // Claude Code has no way to ignore the keyword in one message, and reads the trigger as it
+      // starts on a message, so the trigger goes off before it arrives and back on once Claude
+      // Code says the message's turn is over.
+      if (how.ignoreUltracode && run) {
+        if (!this.triggerOff) {
+          this.triggerOff = true;
+          await run.query.applyFlagSettings({ workflowKeywordTriggerEnabled: false }).catch(() => {});
+        }
+        this.ignoring.add(uuid);
+      }
+      return message;
+    });
   }
 
   /**
@@ -212,7 +277,20 @@ export class AgentSession {
    */
   note(text: string) {
     this.start();
-    this.run?.inbox.push({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null, shouldQuery: false });
+    this.post(this.run, async () => ({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null, shouldQuery: false }));
+  }
+
+  /** Sends a message once those before it have gone, and whatever it waits on is done. */
+  private post(run: Run | null, ready: () => Promise<SDKUserMessage>) {
+    this.outbox = this.outbox
+      .then(async () => {
+        const message = await ready();
+        if (run && !run.closing) run.inbox.push(message);
+      })
+      .catch((error: unknown) => {
+        // The messages after it still go.
+        this.options.emit({ kind: "notice", tone: "error", text: `A message couldn't be sent: ${messageOf(error)}` });
+      });
   }
 
   /** What rewinding the files to how they were when `uuid` was sent would change, or does change. */
@@ -260,6 +338,16 @@ export class AgentSession {
 
   async stopTask(id: string) {
     await this.run?.query.stopTask(id);
+  }
+
+  /**
+   * What a subagent has said and done so far, from the transcript Claude Code keeps for it. Empty
+   * before there's a conversation, or before the subagent has written anything.
+   */
+  async subagentMessages(agentId: string): Promise<SessionMessage[]> {
+    const id = this.sessionId ?? this.resumeFrom;
+    if (!id) return [];
+    return getSubagentMessages(id, agentId, { dir: this.options.cwd }).catch(() => []);
   }
 
   /**
@@ -332,15 +420,60 @@ export class AgentSession {
   }
 
   async setModel(model: string) {
-    await this.run?.query.setModel(model);
+    const run = this.run;
+    await run?.query.setModel(model);
     this.model = model;
     this.options.emit({ kind: "model", model });
+    // Whether ultracode can be on depends on the model.
+    if (run) void this.reportUltracode(run);
   }
 
+  /**
+   * A level of its own turns ultracode off, as `/effort <level>` does in Claude Code. Claude Code
+   * turns it off by itself only when the level changes, so it's asked to in so many words.
+   */
   async setEffort(effort: EffortLevel) {
-    await this.run?.query.applyFlagSettings({ effortLevel: effort });
+    await this.run?.query.applyFlagSettings(this.ultracode ? { effortLevel: effort, ultracode: false } : { effortLevel: effort });
     this.effort = effort;
     this.options.emit({ kind: "effort", effort });
+    if (this.ultracode) {
+      this.ultracode = false;
+      this.options.emit({ kind: "ultracode", on: false });
+    }
+  }
+
+  /**
+   * Ultracode: Claude orchestrates a workflow of agents on every substantive task, for the rest of
+   * the session. The effort level stays as it is. Claude Code refuses it where it isn't available.
+   */
+  async setUltracode(on: boolean) {
+    const run = this.run;
+    await run?.query.applyFlagSettings({ ultracode: on });
+    this.ultracode = on;
+    // Claude Code takes the request even where ultracode can't be on, and says so only in its settings.
+    const active = run ? await this.reportUltracode(run) : undefined;
+    if (active === undefined) this.options.emit({ kind: "ultracode", on });
+    this.ultracode = active ?? on;
+    return this.ultracode;
+  }
+
+  /**
+   * Fast mode: Opus with faster output, for the session. Claude Code turns it on only for a host
+   * that asks for it, and with an Opus model, which it switches to.
+   */
+  async setFastMode(on: boolean) {
+    await this.run?.query.applyFlagSettings(on ? { fastMode: true, model: "opus" } : { fastMode: null });
+    this.fast = on;
+    this.options.emit({ kind: "fast", on });
+    if (on) {
+      this.model = "opus";
+      this.options.emit({ kind: "model", model: "opus" });
+    }
+  }
+
+  /** From the next start of Claude Code: a new session, or the next astrocode. */
+  setAgentSummaries(on: boolean) {
+    this.agentSummaries = on;
   }
 
   /**
@@ -442,6 +575,12 @@ export class AgentSession {
       waiting.resolve({ behavior: "deny", message: "The request was cancelled." });
       if (announce) this.options.emit({ kind: "resolved", id, outcome: "cancelled" });
     }
+    for (const [id, waiting] of [...this.elicitations]) {
+      if (waiting.run !== run) continue;
+      this.elicitations.delete(id);
+      waiting.resolve({ action: "cancel" });
+      if (announce) this.options.emit({ kind: "resolved", id, outcome: "cancelled" });
+    }
   }
 
   private async pump(run: Run) {
@@ -453,6 +592,11 @@ export class AgentSession {
         // Claude Code changes modes too, such as when Claude leaves plan mode. A restart carries on in that one.
         if (message.type === "system" && message.subtype === "status" && message.permissionMode) this.mode = message.permissionMode;
         this.options.emit(sdkEvent(message, Date.now()));
+        // Skills found as Claude works in a folder bring commands of their own.
+        if (message.type === "system" && message.subtype === "commands_changed") this.options.emit({ kind: "commands", commands: message.commands.map(commandInfo) });
+        // Not in the SDK's types: where each message is in Claude Code's queue. Every message gets
+        // `queued`, `started`, and `completed` after its turn's result, or `cancelled`.
+        if (field(message, "type") === "command_lifecycle") this.taken(run, field(message, "command_uuid"), field(message, "state"));
         if (message.type === "result") void this.reportContext(run);
       }
     } catch (error) {
@@ -461,6 +605,22 @@ export class AgentSession {
       if (this.run === run) this.run = null;
       this.cancelWaiting(run, !run.closing);
     }
+  }
+
+  /** A message sent with its `ultracode` ignored, done with once its turn is over or it's taken back. */
+  private taken(run: Run, uuid: unknown, state: unknown) {
+    if (typeof uuid !== "string" || !this.ignoring.has(uuid)) return;
+    if (state === "completed" || state === "cancelled") {
+      this.ignoring.delete(uuid);
+      this.restoreKeyword(run);
+    }
+  }
+
+  /** The ultracode keyword trigger back to whatever your settings say, once no message ignores it. */
+  private restoreKeyword(run: Run) {
+    if (this.ignoring.size || !this.triggerOff || run.closing) return;
+    this.triggerOff = false;
+    void run.query.applyFlagSettings({ workflowKeywordTriggerEnabled: null }).catch(() => {});
   }
 
   /** The account, models and slash commands Claude Code reports when it starts. */
@@ -497,15 +657,73 @@ export class AgentSession {
       // Claude Code doesn't report its default effort, so only a level chosen here is shown.
       if (this.effort) this.options.emit({ kind: "effort", effort: this.effort });
       if (this.thinking !== undefined) this.options.emit({ kind: "thinking", on: this.thinking });
-      await this.reportContext(run);
+      await Promise.all([this.reportContext(run), this.reportUltracode(run)]);
     } catch {
       // A failed start is reported by pump().
     }
   }
 
+  /**
+   * Whether ultracode can be turned on, and whether it's on, from Claude Code's settings, which say
+   * so for the model in use. `getSettings()` and its `applied` are in the SDK's code but not its
+   * types. Returns whether it's on, if Claude Code said.
+   */
+  private async reportUltracode(run: Run) {
+    const query = run.query as Query & { getSettings?: () => Promise<unknown> };
+    try {
+      const applied = field(await query.getSettings?.(), "applied");
+      if (run.closing) return undefined;
+      const available = field(applied, "ultracodeAvailable");
+      const on = field(applied, "ultracode");
+      if (typeof available === "boolean") this.options.emit({ kind: "ultracode-available", available });
+      if (typeof on === "boolean") {
+        // It can come on from Claude Code's own settings too; then a level picked must turn it off.
+        this.ultracode = on;
+        this.options.emit({ kind: "ultracode", on });
+      }
+      return typeof on === "boolean" ? on : undefined;
+    } catch {
+      // Without an answer, ultracode isn't offered.
+      return undefined;
+    }
+  }
+
+  /**
+   * An MCP server's request for a form or a visit to an address, put to you. It's declined if the
+   * turn stops first, and cancelled when Claude Code goes.
+   */
+  private elicit(run: Run, request: McpElicitation, signal: AbortSignal) {
+    return new Promise<ElicitationResult>((resolve) => {
+      const id = randomUUID();
+      this.elicitations.set(id, { run, resolve });
+      signal.addEventListener("abort", () => this.answerElicitation(id, { action: "cancel" }), { once: true });
+      this.options.emit({
+        kind: "elicitation",
+        request: {
+          id,
+          server: request.displayName || request.serverName,
+          message: request.message,
+          title: request.title,
+          mode: request.mode === "url" ? "url" : "form",
+          url: request.url,
+          fields: formFields(request.requestedSchema),
+        },
+      });
+    });
+  }
+
+  answerElicitation(id: string, answer: ElicitationAnswer) {
+    const waiting = this.elicitations.get(id);
+    if (!waiting) return;
+    this.elicitations.delete(id);
+    waiting.resolve(answer);
+    this.options.emit({ kind: "resolved", id, outcome: answer.action === "accept" ? "answered" : "cancelled" });
+  }
+
   private async reportContext(run: Run) {
     try {
-      const usage = await run.query.getContextUsage();
+      // From the last response's usage, without asking the token-count API about each part.
+      const usage = await run.query.getContextUsage({ detail: "summary" });
       if (run.closing) return;
       this.options.emit({ kind: "context", percentage: usage.percentage, tokens: usage.totalTokens, max: usage.maxTokens });
     } catch {
@@ -572,6 +790,61 @@ function parseQuestions(value: unknown): Question[] | null {
     });
   }
   return questions;
+}
+
+/**
+ * An MCP form's fields, from the JSON Schema it sent: an object whose properties are text, numbers,
+ * yes or no, one of a list (`enum`, or `oneOf`/`anyOf` of `const`s), or several of it (an `array`
+ * of those). Anything else is asked for as text. The server checks the answer against the schema,
+ * so its limits come along to be checked before it goes.
+ */
+function formFields(schema: Record<string, unknown> | undefined): ElicitationField[] {
+  const properties = field(schema, "properties");
+  if (typeof properties !== "object" || properties === null) return [];
+  const required = field(schema, "required");
+  return Object.entries(properties as Record<string, unknown>).map(([name, property]): ElicitationField => {
+    const text = (key: string) => {
+      const value = field(property, key);
+      return typeof value === "string" ? value : undefined;
+    };
+    const number = (key: string) => {
+      const value = field(property, key);
+      return typeof value === "number" ? value : undefined;
+    };
+    const type = text("type");
+    const many = type === "array";
+    const options = choicesIn(many ? field(property, "items") : property);
+    const fallback = field(property, "default");
+    const kind: ElicitationField["type"] = many ? "multi" : options?.length ? "enum" : type === "number" || type === "integer" || type === "boolean" ? type : "string";
+    return {
+      name,
+      label: text("title") ?? name,
+      description: text("description"),
+      type: kind,
+      required: Array.isArray(required) && required.includes(name),
+      options: options?.length ? options : undefined,
+      default:
+        typeof fallback === "string" || typeof fallback === "number" || typeof fallback === "boolean"
+          ? fallback
+          : Array.isArray(fallback)
+            ? fallback.map(String)
+            : undefined,
+      min: kind === "multi" ? number("minItems") : kind === "number" || kind === "integer" ? number("minimum") : number("minLength"),
+      max: kind === "multi" ? number("maxItems") : kind === "number" || kind === "integer" ? number("maximum") : number("maxLength"),
+      pattern: text("pattern"),
+      format: text("format"),
+    };
+  });
+}
+
+/** The choices a schema offers: `enum` with its `enumNames`, or `oneOf`/`anyOf` of `const`s with their titles. */
+function choicesIn(schema: unknown) {
+  const values = field(schema, "enum");
+  const names = field(schema, "enumNames");
+  if (Array.isArray(values)) return values.map((value, i) => ({ value: String(value), label: Array.isArray(names) && typeof names[i] === "string" ? names[i] : String(value) }));
+  const listed = field(schema, "oneOf") ?? field(schema, "anyOf");
+  if (!Array.isArray(listed)) return undefined;
+  return listed.flatMap((one) => (field(one, "const") !== undefined ? [{ value: String(field(one, "const")), label: String(field(one, "title") ?? field(one, "const")) }] : []));
 }
 
 /** What a running Claude Code session sets for the processes it starts, marking them as its children. */

@@ -1,15 +1,17 @@
 // One thing running alongside the conversation, opened from /tasks, the status bar or its card: a
-// command's output as it streams, or a subagent's progress. Opening it never stops it. Only `x`,
-// or a click on Stop in full screen, does; ← goes back to the list and Esc closes.
+// command's or Monitor's output as it streams, a subagent's progress and the end of its own
+// transcript, or a workflow's phases and agents. Opening it never stops it. Only `x`, or a click on
+// Stop in full screen, does; ← goes back to the list and Esc closes.
 import { Box, Text, useInput, type DOMElement } from "ink";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { AgentSession } from "../src/session";
 import { compact, duration } from "../src/view/format";
 import type { Running } from "../src/view/runs";
+import type { WorkflowAgent, WorkflowPhase } from "../src/view/state";
 import { settle } from "../src/view/terminal";
-import { plural } from "../src/view/tools";
+import { field, plural, toolLabel } from "../src/view/tools";
 import { highlightCode } from "./highlight";
-import { cellWidth, printableColored } from "./markdown";
+import { cellWidth, printable, printableColored } from "./markdown";
 import { fit, onPanel, Panel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
 import { TONES } from "./shell-card";
@@ -17,6 +19,8 @@ import { PALETTE } from "./theme";
 
 /** How often a running task's output is read again. */
 const POLL_MS = 1000;
+/** How often a running subagent's transcript is read again, from disk. */
+const TRANSCRIPT_MS = 2000;
 
 export const RUNNING_STATUS = {
   running: { glyph: "◌", tone: "claude" },
@@ -43,6 +47,7 @@ export function TaskView({ entry, shellOutput, session, width, rows, onStop, onB
   const running = entry?.status === "running";
   const now = useNow(running);
   const read = useTaskOutput(session, entry?.hasOutput ? entry.taskId : undefined, running);
+  const transcript = useSubagentTranscript(session, entry?.agentId, running);
   const [stopping, setStopping] = useState(false);
   const stopButton = useRef<DOMElement>(null);
   const backButton = useRef<DOMElement>(null);
@@ -131,6 +136,8 @@ export function TaskView({ entry, shellOutput, session, width, rows, onStop, onB
       ) : (
         <Progress entry={entry} />
       )}
+      {entry.workflow ? <Workflow phases={entry.workflow} width={inner} rows={rows} /> : null}
+      {entry.agentId ? <Transcript lines={transcript} width={inner} rows={rows} /> : null}
       <Footer running={running} stopping={stopping} overStop={overStop !== null} overBack={overBack !== null} stopRef={stopButton} backRef={backButton} />
     </Panel>
   );
@@ -141,12 +148,87 @@ function Progress({ entry }: { entry: Running }) {
   const counts = [entry.toolUses ? plural(entry.toolUses, "tool call") : "", entry.tokens ? `${compact(entry.tokens)} tokens` : ""].filter(Boolean).join(" · ");
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text color={entry.summary ? PALETTE.star : PALETTE.haze}>{entry.summary ?? "No word from it yet."}</Text>
+      <Text color={entry.summary ? PALETTE.star : PALETTE.haze} wrap="truncate-end">
+        {entry.summary?.split("\n")[0] ?? "No word from it yet."}
+      </Text>
       {entry.lastTool || counts ? (
         <Text color={PALETTE.haze}>
           {[entry.lastTool ? `last used ${entry.lastTool}` : "", counts].filter(Boolean).join("   ")}
         </Text>
       ) : null}
+    </Box>
+  );
+}
+
+/** Glyphs for a workflow agent's state, as Claude Code names them. */
+const AGENT_STATE: Record<string, { glyph: string; color: string }> = {
+  done: { glyph: "✓", color: PALETTE.teal },
+  error: { glyph: "✕", color: PALETTE.rose },
+  failed: { glyph: "✕", color: PALETTE.rose },
+  queued: { glyph: "·", color: PALETTE.dust },
+};
+
+/** A workflow's phases, each with its agents and how each is going, the latest that fit. */
+function Workflow({ phases, width, rows }: { phases: WorkflowPhase[]; width: number; rows: number }) {
+  const lines = phases.flatMap((phase, i) => [
+    { key: `p${i}`, phase },
+    ...phase.agents.map((agent, j) => ({ key: `a${i}.${j}`, agent })),
+  ]);
+  const shown = lines.slice(-Math.max(rows, 4));
+  const agentLine = (agent: WorkflowAgent) => {
+    const { glyph, color } = AGENT_STATE[agent.state] ?? { glyph: "◌", color: PALETTE.teal };
+    const about = agent.error ?? [agent.lastTool ? `last used ${agent.lastTool}` : "", agent.toolCalls ? plural(agent.toolCalls, "tool call") : "", agent.tokens ? `${compact(agent.tokens)} tokens` : ""].filter(Boolean).join(" · ");
+    return (
+      <Text wrap="truncate-end">
+        <Text color={color}>{`  ${glyph} `}</Text>
+        <Text color={PALETTE.star}>{agent.label}</Text>
+        {about ? <Text color={agent.error ? PALETTE.rose : PALETTE.haze}>{`   ${about}`}</Text> : null}
+      </Text>
+    );
+  };
+  return (
+    <Box marginTop={1}>
+      <Panel label="phases" note={lines.length > shown.length ? `last ${shown.length} of ${lines.length}` : undefined} width={width} background={PALETTE.raised}>
+        {shown.map((line) =>
+          "phase" in line ? (
+            <Text key={line.key} bold color={PALETTE.star} wrap="truncate-end">
+              {line.phase.title || "Phase"}
+            </Text>
+          ) : (
+            <Box key={line.key}>{agentLine(line.agent)}</Box>
+          ),
+        )}
+      </Panel>
+    </Box>
+  );
+}
+
+/** A line of a subagent's transcript: its brief, what it said, or a tool it used. */
+type TranscriptLine = { text: string; kind: "prompt" | "text" | "tool" };
+
+/** The end of a subagent's transcript, as it stood at the last read. */
+function Transcript({ lines, width, rows }: { lines: TranscriptLine[] | undefined; width: number; rows: number }) {
+  const shown = lines?.slice(-rows) ?? [];
+  const color = { prompt: PALETTE.gold, text: PALETTE.star, tool: PALETTE.teal } as const;
+  return (
+    <Box marginTop={1}>
+      <Panel label="transcript" note={lines && lines.length > shown.length ? `last ${shown.length} of ${plural(lines.length, "line")}` : undefined} width={width} background={PALETTE.raised}>
+        {Array.from({ length: rows }, (_, i) => {
+          const line = shown[i];
+          if (!line) {
+            return (
+              <Text key={i} color={PALETTE.dust}>
+                {i === 0 && !shown.length ? (lines === undefined ? "Reading…" : "Nothing written yet.") : " "}
+              </Text>
+            );
+          }
+          return (
+            <Text key={i} color={color[line.kind]} wrap="truncate-end">
+              {line.text || " "}
+            </Text>
+          );
+        })}
+      </Panel>
     </Box>
   );
 }
@@ -235,4 +317,68 @@ function useTaskOutput(session: AgentSession, taskId: string | undefined, runnin
     };
   }, [session, taskId, running]);
   return read;
+}
+
+/**
+ * A subagent's transcript as lines, read from the file Claude Code keeps for it every two seconds
+ * while it runs and once more when it ends: its brief, what it wrote, and each tool it used.
+ */
+function useSubagentTranscript(session: AgentSession, agentId: string | undefined, running: boolean) {
+  const [lines, setLines] = useState<TranscriptLine[]>();
+  useEffect(() => {
+    if (!agentId) return;
+    let alive = true;
+    const once = () =>
+      void session.subagentMessages(agentId).then((messages) => {
+        if (alive) setLines(messages.flatMap((message) => transcriptLines(message.type, message.message)));
+      });
+    once();
+    if (!running) {
+      return () => {
+        alive = false;
+      };
+    }
+    const timer = setInterval(once, TRANSCRIPT_MS);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [session, agentId, running]);
+  return lines;
+}
+
+/** One saved message of a subagent's as lines: the brief it was given, its words, and its tool calls. */
+function transcriptLines(type: string, message: unknown): TranscriptLine[] {
+  const content = field(message, "content");
+  const blocks = typeof content === "string" ? [{ type: "text", text: content }] : Array.isArray(content) ? content : [];
+  return blocks.flatMap((block): TranscriptLine[] => {
+    const text = field(block, "text");
+    if (field(block, "type") === "text" && typeof text === "string" && text.trim()) {
+      // Tool results come back as user messages too; only the words that start it are its brief.
+      if (type === "user") return text.trim().startsWith("<") ? [] : [{ text: `❯ ${firstLine(text)}`, kind: "prompt" }];
+      return text
+        .trim()
+        .split("\n")
+        .filter((line) => line.trim())
+        .map((line) => ({ text: printable(line), kind: "text" as const }));
+    }
+    if (field(block, "type") === "tool_use") {
+      const input = field(block, "input");
+      // Its report to Claude, word for word.
+      const report = field(input, "message");
+      if (field(block, "name") === "SubagentHandback" && typeof report === "string") {
+        return [{ text: "⬢ handed back its report", kind: "tool" as const }, ...report.trim().split("\n").map((line) => ({ text: printable(line), kind: "text" as const }))];
+      }
+      const about = ["description", "file_path", "command", "pattern", "url", "query", "prompt"]
+        .map((key) => field(input, key))
+        .find((value): value is string => typeof value === "string" && value.trim() !== "");
+      return [{ text: `⬢ ${toolLabel(String(field(block, "name") ?? "tool"))}${about ? `  ${firstLine(about)}` : ""}`, kind: "tool" }];
+    }
+    return [];
+  });
+}
+
+function firstLine(text: string) {
+  const [first = ""] = text.trim().split("\n");
+  return first;
 }

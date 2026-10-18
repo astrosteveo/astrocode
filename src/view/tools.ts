@@ -37,6 +37,11 @@ export function toolTarget(call: ToolCall, cwd: string, home: string) {
     case "Agent":
     case "Task":
       return text("description") || text("subagent_type");
+    case "ExitPlanMode":
+      return path("planFilePath") || firstLine(text("plan"));
+    case "Monitor":
+    case "Workflow":
+      return text("description") || firstLine(text("command")) || text("name");
     case "Skill":
       return text("skill");
     case "TodoWrite":
@@ -60,7 +65,7 @@ export function toolSummary(call: ToolCall, waiting: boolean) {
     case "running":
       return call.subagentCalls ? plural(call.subagentCalls, "tool call") : "running";
     case "denied":
-      return "denied";
+      return call.deniedBy ? `denied by ${call.deniedBy}` : "denied";
     case "stopped":
       return "stopped";
     case "error":
@@ -72,6 +77,9 @@ export function toolSummary(call: ToolCall, waiting: boolean) {
 
 function doneSummary(call: ToolCall) {
   const output = call.output;
+  // A subagent, Monitor or workflow that went to the background answered at once; it says how it
+  // went when it ends. Bash's card says so itself.
+  if (call.background && call.name !== "Bash") return backgroundSummary(call);
   switch (call.name) {
     case "Edit":
       return editSummary(call.input);
@@ -112,6 +120,23 @@ function doneSummary(call: ToolCall) {
   const result = call.result?.trimEnd() ?? "";
   if (!result || /^\(\w+ completed with no output\)$/.test(result)) return "no output";
   return plural(lineCount(result), "line");
+}
+
+/** How work that went to the background is going, or how it ended. */
+function backgroundSummary(call: ToolCall) {
+  const calls = call.subagentCalls ? ` · ${plural(call.subagentCalls, "tool call")}` : "";
+  switch (call.background) {
+    case "running":
+      return `in the background${calls}`;
+    case "completed":
+      return `finished in the background${calls}`;
+    case "failed":
+      return "failed in the background";
+    case "stopped":
+      return "stopped";
+    default:
+      return "went to the background";
+  }
 }
 
 /** What a Bash call printed, from Claude Code's structured output, without its notes about itself. */

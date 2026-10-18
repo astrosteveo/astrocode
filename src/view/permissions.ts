@@ -10,6 +10,7 @@ const TITLES: Record<string, string> = {
   NotebookEdit: "Claude wants to edit a notebook",
   WebFetch: "Claude wants to fetch a page",
   WebSearch: "Claude wants to search the web",
+  ExitPlanMode: "Claude's plan is ready",
 };
 
 export function permissionTitle(request: PermissionRequest) {

@@ -110,14 +110,23 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
           <TurnEnd item={item} expanded={expanded} cwd={view.cwd} home={view.home} width={inner.width} />
         </Railed>
       );
-    case "notice":
+    case "notice": {
+      const { node, color, text } = NOTICE_TONES[item.tone];
       return (
-        <Railed node={item.tone === "error" ? "✕" : "○"} color={item.tone === "error" ? PALETTE.rose : PALETTE.dust} rail={rail}>
-          <Text color={item.tone === "error" ? PALETTE.rose : PALETTE.haze}>{item.text}</Text>
+        <Railed node={node} color={color} rail={rail}>
+          <Text color={text}>{item.text}</Text>
         </Railed>
       );
+    }
   }
 }
+
+/** A notice's node and colors: by the way in quiet gray, a warning in ember, a failure in rose. */
+const NOTICE_TONES = {
+  info: { node: "○", color: PALETTE.dust, text: PALETTE.haze },
+  warning: { node: "▲", color: PALETTE.ember, text: PALETTE.ember },
+  error: { node: "✕", color: PALETTE.rose, text: PALETTE.rose },
+} as const;
 
 /** The most calls a closed fold lists under its row; past that, a last line says how many more. */
 const FOLD_LISTED = 8;

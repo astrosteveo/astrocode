@@ -17,6 +17,7 @@ import { cacheLeft, keptWarm, minutesLeft, useNow } from "./cache";
 import type { State, UsageWindow } from "../src/view/state";
 import type { UsageMode } from "../src/settings";
 import type { GitInfo } from "./git";
+import { keywordsIn, paintKeywords } from "./keywords";
 import { cellWidth } from "./markdown";
 import { hit, useHover, useMouse } from "./mouse";
 import { PALETTE, tone } from "./theme";
@@ -58,11 +59,12 @@ type Props = {
   onModel?: () => void;
   onEffort?: () => void;
   onThinking?: () => void;
+  onFast?: () => void;
   onTasks?: () => void;
   onCache?: () => void;
 };
 
-export function StatusBar({ state, mode, git, width, armed, running, toast, keepWarm, usageMode, onMode, onModel, onEffort, onThinking, onTasks, onCache }: Props) {
+export function StatusBar({ state, mode, git, width, armed, running, toast, keepWarm, usageMode, onMode, onModel, onEffort, onThinking, onFast, onTasks, onCache }: Props) {
   const bar = useRef<DOMElement>(null);
   const now = useNow(15_000, state.cache !== undefined);
   const chip = MODE_CHIPS[mode];
@@ -105,10 +107,16 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, keep
   }
   const model = state.model ? (state.models.find((one) => one.value === state.model)?.name ?? modelLabel(state.model)) : undefined;
   if (model) segments.push({ text: model, node: <Text color={PALETTE.star}>{model}</Text>, onClick: onModel });
-  if (state.effort) {
+  // Ultracode takes the effort's place: Claude Code runs it at its own level.
+  if (state.ultracode) {
+    segments.push({ text: "ultracode", node: <Text>{paintKeywords("ultracode", 0, 9, keywordsIn("ultracode"))}</Text>, onClick: onEffort });
+  } else if (state.effort) {
     const text = `${state.effort} effort`;
     segments.push({ text, node: <Text color={PALETTE.haze}>{text}</Text>, onClick: onEffort });
   }
+  // Fast mode is off unless turned on; after a rate limit it pauses for a while.
+  if (state.fast?.state === "on") segments.push({ text: "↯ fast", node: <Text color={PALETTE.teal}>↯ fast</Text>, onClick: onFast });
+  if (state.fast?.state === "cooldown") segments.push({ text: "↯ fast paused", node: <Text color={PALETTE.ember}>↯ fast paused</Text>, onClick: onFast });
   // Thinking is on unless turned off, so only off is worth a word, and only on a model that can stop.
   if (state.thinking === false && canStopThinking(state)) segments.push({ text: "thinking off", node: <Text color={PALETTE.ember}>thinking off</Text>, onClick: onThinking });
   if (running) {

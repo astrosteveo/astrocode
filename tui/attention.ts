@@ -31,7 +31,7 @@ type Input = {
 
 export function useAttention({ state, window, notify, title, git }: Input) {
   const focused = useFocus(window);
-  const waiting = state.pending.length + state.questions.length > 0;
+  const waiting = state.pending.length + state.questions.length + state.elicitations.length > 0;
 
   // The title: what's going on first, since a tab bar cuts titles off at the end.
   const mark = waiting ? "● " : state.busy ? "◇ " : "";
@@ -53,7 +53,7 @@ export function useAttention({ state, window, notify, title, git }: Input) {
   // Notifications, for what's new since the last render. What a resumed conversation replays isn't new.
   const seen = useRef<{ items: number; prompts: ReadonlySet<string>; running: ReadonlySet<string> } | null>(null);
   useEffect(() => {
-    const prompts = new Set([...state.pending.map((one) => one.id), ...state.questions.map((one) => one.id)]);
+    const prompts = new Set([...state.pending, ...state.questions, ...state.elicitations].map((one) => one.id));
     const running = new Set(state.items.flatMap((item) => (item.kind === "shell" && item.status === "running" ? [item.id] : [])));
     const before = seen.current;
     seen.current = { items: state.items.length, prompts, running };
@@ -69,7 +69,10 @@ export function useAttention({ state, window, notify, title, git }: Input) {
     for (const request of state.questions) {
       if (!before.prompts.has(request.id)) send({ title: "Claude has a question", body: request.questions[0]?.question ?? "" });
     }
-  }, [state.items, state.pending, state.questions]);
+    for (const request of state.elicitations) {
+      if (!before.prompts.has(request.id)) send({ title: `${request.server} is asking you something`, body: request.message });
+    }
+  }, [state.items, state.pending, state.questions, state.elicitations]);
 }
 
 /** What a turn that just ended says in a notification, if it's worth one at this focus. */

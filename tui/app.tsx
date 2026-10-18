@@ -8,14 +8,14 @@ import { useContext, useEffect, useRef, useState, useSyncExternalStore } from "r
 import { EFFORTS, isEffort, MODES, type CommandInfo } from "../src/events";
 import { historyEvents, loadHistory, savedSessions, sessionTitle, shellMessages, type SavedSession } from "../src/history";
 import { addMemory, memoryFiles, type MemoryFile } from "../src/memory";
-import type { AgentSession } from "../src/session";
+import type { AgentSession, Sending } from "../src/session";
 import { remember, settingsPath, type NotifyMode, type Remembered, type TodoMode, type UsageMode } from "../src/settings";
 import { runShell } from "../src/shell";
 import { saveStash } from "../src/stash";
 import { ago, canStopThinking, currentModel, duration } from "../src/view/format";
 import { folds, foldOf, type Fold } from "../src/view/folds";
 import { findRunning, runningKeyOf, runningList, type Running } from "../src/view/runs";
-import type { Item } from "../src/view/state";
+import type { Item, State } from "../src/view/state";
 import { todoList } from "../src/view/todos";
 import { plural, shortPath, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
 import { Activity } from "./activity";
@@ -25,7 +25,8 @@ import { Banner } from "./banner";
 import { copy } from "./clipboard";
 import { ConfigMenu, type ConfigValues } from "./config";
 import { DecisionPrompt } from "./decision";
-import { EFFORT_NOTES, effortsOf } from "./effort";
+import { ElicitationPrompt } from "./elicitation";
+import { EFFORT_NOTES, effortsOf, ULTRACODE_NOTE } from "./effort";
 import { editText } from "./editor";
 import { FindBar, type Find } from "./find";
 import { FoldView, ItemView, LiveView, opensByDefault } from "./entries";
@@ -73,6 +74,20 @@ type Overlay =
   | { kind: "find" }
   | null;
 
+/** Why fast mode can't be on, by Claude Code's reason. */
+const FAST_BLOCKED: Partial<Record<NonNullable<NonNullable<State["fast"]>["reason"]>, string>> = {
+  free: "it needs a paid plan.",
+  preference: "it's turned off in your Claude Code settings.",
+  extra_usage_disabled: "it runs on extra usage, which is off for this account.",
+  network_error: "Claude Code couldn't check whether it's available. Try again in a moment.",
+  not_first_party: "it needs Anthropic's API directly, not a cloud provider.",
+  disabled_by_env: "CLAUDE_CODE_DISABLE_FAST_MODE is set.",
+  model_not_allowed: "your organization doesn't allow its model.",
+  unknown: "Claude Code didn't say why.",
+};
+
+const ULTRACODE_UNAVAILABLE = "Ultracode isn't available here: it needs dynamic workflows turned on in Claude Code (/config there) and a model that takes xhigh effort.";
+
 /** How long the status bar says what was copied. */
 const TOAST_MS = 2000;
 /** As much of a `!` command's output as goes to Claude, its end, as Claude Code cuts its own shell output. */
@@ -82,17 +97,18 @@ const HELP = [
   "Enter sends. Shift+Enter, Alt+Enter, Ctrl+J, or \\ then Enter starts a new line. Type / for commands; partway through a message, choosing one writes it in.",
   "Esc stops Claude. Esc twice on an empty box rewinds to an earlier message (/rewind).",
   "A message sent while Claude works waits above the box until Claude takes it; until then, ↑ in an empty box takes it back to edit.",
-  "Shift+Tab changes the permission mode. Alt+P switches the model and its effort, Alt+T turns thinking off and on. ↑ and ↓ recall earlier messages; Ctrl+R searches them.",
+  "Shift+Tab changes the permission mode. Alt+P switches the model and its effort, Alt+T turns thinking off and on, Alt+O turns fast mode on and off. ↑ and ↓ recall earlier messages; Ctrl+R searches them.",
+  "ultrathink in a message asks for deeper reasoning that turn, and ultracode for a workflow of agents; Alt+W keeps the message's ultracode from starting one. /effort ultracode has Claude run a workflow on every task, for this session.",
   "Ctrl+S puts the message aside, and it stays there until Ctrl+S brings it back. Pressed with a message in the box, the two trade places.",
   "Ctrl+_ undoes. Ctrl+K, Ctrl+U, Ctrl+W and Alt+D cut, Ctrl+Y puts back what they cut. Alt+B and Alt+F move by words. Ctrl+L clears the box.",
   "! runs a command in your shell. Its output streams in as it runs, you can keep talking meanwhile, and Claude sees it once it ends. # adds a note to a CLAUDE.md.",
   "Ctrl+V attaches the clipboard's image; a pasted or dropped image file attaches too. Ctrl+G or Ctrl+X Ctrl+E edits the message in $EDITOR.",
-  "Ctrl+B moves a command or subagent Claude is waiting on to the background. /tasks lists what runs there and your ! commands: open one to watch it, and x stops it. Ctrl+X Ctrl+K twice stops them all. Ctrl+T shows or hides the to-dos.",
-  "Ctrl+Enter or Ctrl+X Ctrl+S sends now, stopping what Claude is doing. Ctrl+Z suspends astrocode until the shell's fg.",
+  "Ctrl+B moves a command or subagent Claude is waiting on to the background. /tasks lists what runs there and your ! commands: open one to watch it (a subagent shows its transcript, a workflow its phases), and x stops it. Esc stops Claude's turn but not what runs in the background; Ctrl+X Ctrl+K twice stops it all. Ctrl+T shows or hides the to-dos.",
+  "Ctrl+Enter or Ctrl+X Ctrl+S sends now, stopping what Claude is doing; Ctrl+X Enter sends it to wait for the end of Claude's turn. Ctrl+Z suspends astrocode until the shell's fg.",
   "Ctrl+O opens a tool call's whole output. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
-  "/config changes the model, effort, thinking, mode, to-do list, full screen, notifications, when plan usage shows and keeping the cache warm, and keeps them for next time, except plan mode and max effort. /fullscreen switches layouts.",
+  "/config changes the model, effort, thinking, mode, to-do list, full screen, notifications, when plan usage shows, keeping the cache warm and agent progress, and keeps them for next time, except plan mode, max effort and ultracode. /fullscreen switches layouts.",
   "The status bar's cache says how long the prompt cache stays warm; past that, your next message re-caches the conversation. With keep warm on (/config, or click it in full screen) it shows ↻, and astrocode refreshes the cache before it expires while you're away, for up to 8 hours.",
 ].join("\n");
 
@@ -200,6 +216,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
 
   const waiting = new Set([...state.pending.map((request) => request.id), ...state.questions.map((request) => request.id)]);
   const question = state.questions[0];
+  const elicitation = state.elicitations[0];
   const request = state.pending[0];
   // In scrollback, what's above the message box and status bar, which take about six rows.
   const view = { cwd: state.cwd, home: state.home, width, pictureRows: pictureRows(rows - 6) };
@@ -241,6 +258,14 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     );
   const pickModel = (model: string) => void session.setModel(model).then(() => keep({ model }), report);
   const pickEffort = (effort: EffortLevel) => void session.setEffort(effort).then(() => keep({ effort }), report);
+  /** Ultracode, for this session only: it isn't remembered, as Claude Code never keeps it either. */
+  const pickUltracode = (on: boolean) => {
+    if (on && state.ultracodeAvailable === false) return notice("info", ULTRACODE_UNAVAILABLE);
+    session.setUltracode(on).then((active) => {
+      if (on && !active) notice("info", ULTRACODE_UNAVAILABLE);
+      else setToast(active ? "Ultracode on" : "Ultracode off");
+    }, report);
+  };
   /**
    * What /config changed, put into effect and then written to the settings file in one save. The
    * model goes first, since the effort levels it takes depend on it, and the layout last, since
@@ -256,9 +281,19 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         report(error);
       }
     };
-    const { model, effort, thinking, mode, todos, notify, usage, keepWarm: warm, fullscreen: layout } = changes;
+    const { model, effort, ultracode, thinking, mode, todos, notify, usage, keepWarm: warm, agentSummaries, fullscreen: layout } = changes;
     if (model) await attempt(() => session.setModel(model), () => (kept.model = model));
     if (effort) await attempt(() => session.setEffort(effort), () => (kept.effort = effort));
+    // After the effort, since a level of its own turns ultracode off. For this session only.
+    if (ultracode !== undefined) {
+      await attempt(
+        async () => {
+          const on = await session.setUltracode(ultracode);
+          if (ultracode && !on) notice("info", ULTRACODE_UNAVAILABLE);
+        },
+        () => {},
+      );
+    }
     if (thinking !== undefined) await attempt(() => session.setThinking(thinking), () => (kept.thinking = thinking));
     if (mode) await attempt(() => session.setMode(mode), () => (kept.mode = mode));
     if (todos) {
@@ -276,6 +311,11 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     if (warm !== undefined) {
       setKeepWarm(warm);
       kept.keepWarm = warm;
+    }
+    if (agentSummaries !== undefined) {
+      store.agentSummaries = agentSummaries;
+      session.setAgentSummaries(agentSummaries);
+      kept.agentSummaries = agentSummaries;
     }
     if (layout !== undefined) kept.fullscreen = layout;
     if (!Object.keys(kept).length) return;
@@ -301,6 +341,18 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       setToast(`${next} effort`);
       keep({ effort: next });
     }, report);
+  };
+
+  /**
+   * chat:fastMode, Alt+O: Opus with faster output, for this session, as `/fast` does. Claude Code
+   * says what keeps it off, if anything; an SDK host's first request is what opts it in.
+   */
+  const toggleFast = () => {
+    const fast = state.fast;
+    const on = fast?.state === "on" || fast?.state === "cooldown";
+    const blocked = !on && fast?.reason && fast.reason !== "sdk_opt_in_required" && fast.reason !== "pending" ? FAST_BLOCKED[fast.reason] : undefined;
+    if (blocked) return notice("info", `Fast mode isn't available: ${blocked}`);
+    session.setFastMode(!on).then(() => setToast(on ? "Fast mode off" : "Fast mode on, with Opus"), report);
   };
 
   /** Alt+T. Remembered like the model and effort, and shown in the status bar while it's off. */
@@ -437,7 +489,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   };
 
   /** A message, with the images it still mentions. */
-  const send = (text: string) => session.send(text, store.images);
+  const send = (text: string, how: Sending = {}) => session.send(text, store.images, how);
 
   /**
    * Runs a command with `!`. Its output streams into its card while you carry on, and once it ends
@@ -541,7 +593,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     })().catch(report);
   };
 
-  const submit = (text: string, now = false) => {
+  const submit = (text: string, how: { now?: boolean; later?: boolean; ignoreUltracode?: boolean } = {}) => {
+    const { now = false } = how;
     store.sent.push(text);
     if (text.startsWith("!")) return runCommand(text.slice(1).trim());
     if (text.startsWith("#")) return openMemory(text.slice(1).trim());
@@ -566,7 +619,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         return setOverlay({ kind: "model" });
       case "/effort":
         if (!argument) return setOverlay({ kind: "effort" });
-        if (!isEffort(argument)) return store.emit({ kind: "notice", tone: "error", text: `Effort is one of ${EFFORTS.join(", ")}.` });
+        if (argument === "ultracode") return pickUltracode(true);
+        if (!isEffort(argument)) return store.emit({ kind: "notice", tone: "error", text: `Effort is one of ${EFFORTS.join(", ")}, or ultracode.` });
         return pickEffort(argument);
       case "/output":
         return setOverlay({ kind: "output" });
@@ -583,7 +637,19 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         if (!rest.length) {
           return setOverlay({
             kind: "config",
-            initial: { model: state.model, effort: state.effort, thinking: state.thinking ?? true, mode: wanted.current ?? state.mode, todos: todoMode, fullscreen, notify: notifyMode, usage: usageMode, keepWarm },
+            initial: {
+              model: state.model,
+              effort: state.effort,
+              ultracode: state.ultracode,
+              thinking: state.thinking ?? true,
+              mode: wanted.current ?? state.mode,
+              todos: todoMode,
+              fullscreen,
+              notify: notifyMode,
+              usage: usageMode,
+              keepWarm,
+              agentSummaries: store.agentSummaries,
+            },
           });
         }
         // fullscreen= is astrocode's own key; Claude Code gets the rest.
@@ -600,8 +666,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       default:
         // Sent now, Claude stops what it's doing and takes this instead of finishing first.
         // It waits for the stopped turn to close, so the turn's last words don't land after it.
-        if (now && state.busy) return void session.interrupt().then(idle).then(() => send(text), report);
-        send(text);
+        const sending: Sending = { ignoreUltracode: how.ignoreUltracode, later: how.later && state.busy ? true : undefined };
+        if (now && state.busy) return void session.interrupt().then(idle).then(() => send(text, sending), report);
+        send(text, sending);
     }
   };
 
@@ -718,12 +785,20 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     { name: "clear", description: "Start a new session on a clean screen", argumentHint: "" },
     { name: "resume", description: "Pick up a saved session from this folder", argumentHint: "" },
     { name: "model", description: "Switch the model and its effort (Alt+P)", argumentHint: "" },
-    { name: "effort", description: "Set how hard Claude thinks", argumentHint: "[low|medium|high|xhigh|max]" },
+    {
+      name: "effort",
+      description: "Set how hard Claude thinks, or turn on ultracode",
+      argumentHint: state.ultracodeAvailable ? "[low|medium|high|xhigh|max|ultracode]" : "[low|medium|high|xhigh|max]",
+    },
     { name: "output", description: "Open a tool call's whole output (Ctrl+O)", argumentHint: "" },
     { name: "rewind", description: "Go back to an earlier message, its files, or both (Esc Esc)", argumentHint: "" },
     { name: "tasks", description: "What runs in the background and your ! commands, to watch or stop", argumentHint: "" },
     { name: "plugins", description: "Install, turn on or off, and remove plugins", argumentHint: "" },
-    { name: "config", description: "astrocode's settings: model, effort, thinking, mode, to-dos, full screen, notifications, plan usage and keeping the cache warm", argumentHint: "" },
+    {
+      name: "config",
+      description: "astrocode's settings: model, effort, thinking, mode, to-dos, full screen, notifications, plan usage, keeping the cache warm and agent progress",
+      argumentHint: "",
+    },
     {
       name: "fullscreen",
       description: fullscreen ? "Go back to the terminal's own scrollback" : "Use the whole terminal, with the mouse",
@@ -741,15 +816,19 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
             models={state.models}
             model={state.model}
             effort={state.effort}
+            ultracode={state.ultracode}
+            ultracodeAvailable={state.ultracodeAvailable === true}
             width={width}
             rows={listRows}
             onCancel={close}
-            onPick={({ model, effort }) => {
+            onPick={({ model, effort, ultracode }) => {
               close();
-              // The model first: the effort levels it takes depend on it.
+              // The model first: the effort levels it takes depend on it. Then the effort, which
+              // turns ultracode off on its own.
               void (async () => {
                 if (model) await session.setModel(model).then(() => keep({ model }));
                 if (effort) await session.setEffort(effort).then(() => keep({ effort }));
+                if (ultracode !== undefined && (ultracode || !effort)) await session.setUltracode(ultracode);
               })().catch(report);
             }}
           />
@@ -760,6 +839,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
             models={state.models}
             initial={overlay.initial}
             path={shortPath(settingsPath(), state.cwd, state.home)}
+            ultracodeAvailable={state.ultracodeAvailable === true}
             width={width}
             onClose={(changes) => {
               close();
@@ -774,11 +854,15 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
             title="Set effort"
             width={width}
             rows={listRows}
-            items={levels.map((level) => ({ key: level, label: level, note: EFFORT_NOTES[level], current: level === state.effort }))}
+            items={[
+              ...levels.map((level) => ({ key: level, label: level, note: EFFORT_NOTES[level], current: !state.ultracode && level === state.effort })),
+              ...(state.ultracodeAvailable ? [{ key: "ultracode", label: "ultracode", note: ULTRACODE_NOTE, current: state.ultracode }] : []),
+            ]}
             empty="This model doesn't take an effort level."
             onCancel={close}
             onPick={(item) => {
               close();
+              if (item.key === "ultracode") return pickUltracode(true);
               if (isEffort(item.key)) pickEffort(item.key);
             }}
           />
@@ -940,6 +1024,18 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
 
   const above = question ? (
     <QuestionPrompt key={question.id} request={question} width={width} onAnswer={(answers) => session.answer(question.id, answers)} />
+  ) : elicitation ? (
+    <ElicitationPrompt
+      key={elicitation.id}
+      request={elicitation}
+      width={width}
+      onOpen={(url) =>
+        void openLink(url).then((opened) => {
+          if (!opened) notice("error", `Couldn't open ${url}: there's no xdg-open here, or no desktop for it to open on. Open it yourself to go on.`);
+        })
+      }
+      onAnswer={(answer) => session.answerElicitation(elicitation.id, answer)}
+    />
   ) : request ? (
     <DecisionPrompt key={request.id} request={request} {...view} onDecide={(decision) => session.decide(request.id, decision)} />
   ) : (
@@ -955,10 +1051,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         {above}
         <QueuedMessages queue={state.queue} width={width} />
         <Prompt
-          active={!question && !request && !overlay}
+          active={!question && !elicitation && !request && !overlay}
           fullscreen={fullscreen}
           busy={state.busy}
-          waitingOn={question ? "question" : request ? "permission" : undefined}
+          waitingOn={question || elicitation ? "question" : request ? "permission" : undefined}
           width={width}
           cwd={state.cwd}
           history={store.sent}
@@ -982,8 +1078,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           keymap={store.keymap}
           onStepEffort={stepEffort}
           onModelPicker={() => setOverlay({ kind: "model" })}
+          onFastMode={toggleFast}
           onStopTasks={stopAllTasks}
           onFind={fullscreen ? () => setOverlay({ kind: "find" }) : undefined}
+          workflows={state.ultracodeAvailable !== false}
           stash={stash}
           onStash={(text) => {
             store.stash = text;
@@ -1020,6 +1118,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           onModel={() => setOverlay({ kind: "model" })}
           onEffort={() => setOverlay({ kind: "effort" })}
           onThinking={toggleThinking}
+          onFast={toggleFast}
           onTasks={openTasks}
         />
       </Box>

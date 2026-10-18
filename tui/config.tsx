@@ -9,7 +9,7 @@ import { MODES, type ModelChoice } from "../src/events";
 import type { NotifyMode, TodoMode, UsageMode } from "../src/settings";
 import { isCurrentModel, modelLabel } from "../src/view/format";
 import { ChoiceRow } from "./choice";
-import { Dial, EFFORT_NOTES, effortOn, effortsOf } from "./effort";
+import { Dial, EFFORT_NOTES, effortOn, effortsOf, ULTRACODE_NOTE, type EffortStop } from "./effort";
 import { cellWidth } from "./markdown";
 import { Panel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
@@ -19,6 +19,8 @@ import { PALETTE } from "./theme";
 export type ConfigValues = {
   model?: string;
   effort?: EffortLevel;
+  /** For this session only, past the highest effort level. */
+  ultracode: boolean;
   thinking: boolean;
   mode: PermissionMode;
   todos: TodoMode;
@@ -26,6 +28,7 @@ export type ConfigValues = {
   notify: NotifyMode;
   usage: UsageMode;
   keepWarm: boolean;
+  agentSummaries: boolean;
 };
 
 const TODOS: { mode: TodoMode; label: string; note: string }[] = [
@@ -64,12 +67,14 @@ type Props = {
   initial: ConfigValues;
   /** Where the settings are written, to say so. */
   path: string;
+  /** Whether ultracode can be on with the model in use. */
+  ultracodeAvailable: boolean;
   width: number;
   /** What changed, on Esc; null when Ctrl+C threw the changes away. */
   onClose: (changes: Partial<ConfigValues> | null) => void;
 };
 
-export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
+export function ConfigMenu({ models, initial, path, ultracodeAvailable, width, onClose }: Props) {
   const [values, setValues] = useState(initial);
   const [selected, setSelected] = useState(0);
   const list = useRef<DOMElement>(null);
@@ -78,8 +83,12 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
   const model = models[modelAt];
   const levels = effortsOf(model);
   const effort = effortOn(levels, values.effort);
-  // With no level set yet, the model's own default comes before the lowest level.
-  const track = [...(initial.effort === undefined ? [undefined] : []), ...levels];
+  // Claude Code says whether ultracode can be on for the model in use, not for another one picked here.
+  const offersUltracode = ultracodeAvailable && (model === undefined || isCurrentModel(initial.model, model));
+  const ultracode = values.ultracode && offersUltracode;
+  const stop: EffortStop = ultracode ? "ultracode" : effort;
+  // With no level set yet, the model's own default comes before the lowest level; ultracode comes past the highest.
+  const track: EffortStop[] = [...(initial.effort === undefined ? [undefined] : []), ...levels, ...(offersUltracode ? (["ultracode"] as const) : [])];
   const modeAt = MODES.findIndex((mode) => mode === values.mode);
   const todosAt = TODOS.findIndex((one) => one.mode === values.todos);
   const notifyAt = NOTIFY.findIndex((one) => one.mode === values.notify);
@@ -97,11 +106,16 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
     },
     {
       label: "Effort",
-      value: levels.length ? (effort ?? "default") : "none",
-      changed: effort !== initial.effort,
-      note: !levels.length ? "This model doesn't take an effort level" : effort ? EFFORT_NOTES[effort] : "Whatever Claude Code picks for this model",
-      pips: effort ? { at: levels.indexOf(effort), of: levels.length } : undefined,
-      step: levels.length ? (by) => update({ effort: track[clamp(track.indexOf(effort) + by, track.length)] }) : undefined,
+      value: levels.length ? (stop ?? "default") : "none",
+      changed: effort !== initial.effort || ultracode !== initial.ultracode,
+      note: !levels.length ? "This model doesn't take an effort level" : ultracode ? ULTRACODE_NOTE : effort ? EFFORT_NOTES[effort] : "Whatever Claude Code picks for this model",
+      pips: stop ? { at: stop === "ultracode" ? levels.length : levels.indexOf(stop), of: levels.length + (offersUltracode ? 1 : 0) } : undefined,
+      step: levels.length
+        ? (by) => {
+            const next = track[clamp(track.indexOf(stop) + by, track.length)];
+            update(next === "ultracode" ? { ultracode: true } : { effort: next, ultracode: false });
+          }
+        : undefined,
     },
     model?.thinkingOff === false
       ? { label: "Thinking", value: "always on", changed: false, note: "This model always thinks, and effort sets how much" }
@@ -150,6 +164,15 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
       step: () => update({ keepWarm: !values.keepWarm }),
     },
     {
+      label: "Agent progress",
+      value: values.agentSummaries ? "on" : "off",
+      changed: values.agentSummaries !== initial.agentSummaries,
+      note: values.agentSummaries
+        ? "A line every half minute on what each subagent is doing, in /tasks, from the next session (/clear)"
+        : "Subagents in /tasks show their last tool and their transcript",
+      step: () => update({ agentSummaries: !values.agentSummaries }),
+    },
+    {
       label: "Notifications",
       value: NOTIFY[notifyAt]?.label ?? "",
       changed: values.notify !== initial.notify,
@@ -162,6 +185,7 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
     const changes: Partial<ConfigValues> = {};
     if (model && !isCurrentModel(initial.model, model)) changes.model = model.value;
     if (effort !== undefined && effort !== initial.effort) changes.effort = effort;
+    if (ultracode !== initial.ultracode) changes.ultracode = ultracode;
     if (values.thinking !== initial.thinking) changes.thinking = values.thinking;
     if (values.mode !== initial.mode) changes.mode = values.mode;
     if (values.todos !== initial.todos) changes.todos = values.todos;
@@ -169,6 +193,7 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
     if (values.notify !== initial.notify) changes.notify = values.notify;
     if (values.usage !== initial.usage) changes.usage = values.usage;
     if (values.keepWarm !== initial.keepWarm) changes.keepWarm = values.keepWarm;
+    if (values.agentSummaries !== initial.agentSummaries) changes.agentSummaries = values.agentSummaries;
     onClose(changes);
   };
 
@@ -223,7 +248,7 @@ export function ConfigMenu({ models, initial, path, width, onClose }: Props) {
         ))}
       </Box>
       <Box marginTop={1}>
-        <Text color={PALETTE.dust} wrap="truncate-start">{`Kept for next time in ${path}, except plan mode and max effort.`}</Text>
+        <Text color={PALETTE.dust} wrap="truncate-start">{`Kept for next time in ${path}, except plan mode, max effort and ultracode.`}</Text>
       </Box>
       <Text color={PALETTE.dust}>↑↓ to choose   ←→ to change   esc saves and closes   ctrl+c discards</Text>
     </Panel>

@@ -7,6 +7,8 @@ import { fit } from "./markdown-view";
 import { PALETTE } from "./theme";
 
 const HINT = "↑ edits";
+/** After a message sent with Ctrl+X Enter, which waits for the turn to end rather than joining it. */
+const LATER = "  after this turn";
 
 export function QueuedMessages({ queue, width }: { queue: Queued[]; width: number }) {
   if (!queue.length) return null;
@@ -21,7 +23,8 @@ export function QueuedMessages({ queue, width }: { queue: Queued[]; width: numbe
           <Box key={queued.uuid} justifyContent="space-between" width={width} paddingX={1}>
             <Text wrap="truncate-end">
               <Text color={PALETTE.gold}>{"◌ "}</Text>
-              <Text color={PALETTE.haze}>{fit(`${first}${more}`, room, false)}</Text>
+              <Text color={PALETTE.haze}>{fit(`${first}${more}`, room - (queued.later ? cellWidth(LATER) : 0), false)}</Text>
+              {queued.later ? <Text color={PALETTE.dust}>{LATER}</Text> : null}
             </Text>
             {last ? <Text color={PALETTE.dust}>{HINT}</Text> : null}
           </Box>

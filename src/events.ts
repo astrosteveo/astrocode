@@ -37,6 +37,35 @@ export type QuestionRequest = { id: string; questions: Question[] };
 /** Answers keyed by question text. A multi-select answer is its labels joined with ", ". */
 export type Answers = Record<string, string>;
 
+/**
+ * One field of an MCP server's form, from its JSON Schema: text, a number, yes or no, one of a list
+ * or several of it (`options`, each value with its label). `min` and `max` bound a number, the
+ * length of text, or how many are picked; `pattern` and `format` (email, uri, date, date-time)
+ * check text.
+ */
+export type ElicitationField = {
+  name: string;
+  label: string;
+  description?: string;
+  type: "string" | "number" | "integer" | "boolean" | "enum" | "multi";
+  required: boolean;
+  options?: { value: string; label: string }[];
+  default?: string | number | boolean | string[];
+  min?: number;
+  max?: number;
+  pattern?: string;
+  format?: string;
+};
+
+/**
+ * An MCP server asking you for something: to fill in a form, or to open an address in the browser,
+ * as signing in does.
+ */
+export type ElicitationRequest = { id: string; server: string; message: string; title?: string; mode: "form" | "url"; url?: string; fields: ElicitationField[] };
+
+/** What you said to an MCP server's request: the form's values when you accept it. */
+export type ElicitationAnswer = { action: "accept" | "decline" | "cancel"; content?: Record<string, string | number | boolean | string[]> };
+
 /** The permission modes Shift+Tab steps through, in order. */
 export const MODES = ["default", "acceptEdits", "plan", "auto", "bypassPermissions"] as const satisfies readonly PermissionMode[];
 
@@ -88,9 +117,9 @@ export type SessionEvent =
   /**
    * A message you sent. `uuid` is its id in the transcript, which rewinding goes back to. `images`
    * are the images it carried, by the number of the `[Image #n]` each went with. `at` is when it
-   * was sent, known for a replayed one.
+   * was sent, known for a replayed one. `later`: sent while Claude works, to wait for the turn's end.
    */
-  | { kind: "prompt"; text: string; uuid?: string; images?: Record<number, ImageAttachment>; at?: number }
+  | { kind: "prompt"; text: string; uuid?: string; images?: Record<number, ImageAttachment>; at?: number; later?: boolean }
   /**
    * A command you ran with `!`: as it starts, what its terminal shows as it runs, and how it ended.
    * `at` is when each happened, from Claude Code's timestamps in a replayed conversation.
@@ -107,13 +136,23 @@ export type SessionEvent =
   | { kind: "sdk"; message: SDKMessage; images?: Record<string, ImageAttachment[]>; at?: number }
   | { kind: "permission"; request: PermissionRequest }
   | { kind: "question"; request: QuestionRequest }
+  | { kind: "elicitation"; request: ElicitationRequest }
   | { kind: "resolved"; id: string; outcome: Decision | "answered" | "cancelled" }
   | { kind: "mode"; mode: PermissionMode }
   | { kind: "model"; model: string }
   | { kind: "effort"; effort: EffortLevel }
   /** Thinking turned on or off. Only reported once astrocode has set it. */
   | { kind: "thinking"; on: boolean }
+  /** Ultracode turned on or off for the session, by astrocode or by an effort change that ends it. */
+  | { kind: "ultracode"; on: boolean }
+  /** Fast mode turned on or off by astrocode, until Claude Code next reports it. */
+  | { kind: "fast"; on: boolean }
+  /** Whether ultracode can be turned on: dynamic workflows are on and the model takes it. Unknown until Claude Code says. */
+  | { kind: "ultracode-available"; available: boolean }
   | { kind: "context"; percentage: number; tokens: number; max: number }
   /** A keep-warm request read the conversation's prompt cache at `at`, so it's warm for its TTL from then. */
   | { kind: "cache-warmed"; at: number }
-  | { kind: "notice"; tone: "info" | "error"; text: string };
+  | { kind: "notice"; tone: NoticeTone; text: string };
+
+/** How a notice reads: by the way, a warning (ember), or a failure (rose). */
+export type NoticeTone = "info" | "warning" | "error";

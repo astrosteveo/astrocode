@@ -16,6 +16,15 @@ export const EFFORT_NOTES: Record<EffortLevel, string> = {
   max: "As much as it takes, for this session only",
 };
 
+/**
+ * Ultracode, past the highest level: Claude Code's standing workflow of agents on every substantive
+ * task, for this session only. A level picked after it turns it off.
+ */
+export const ULTRACODE_NOTE = "A workflow of agents on every substantive task, for this session only";
+
+/** A stop on the effort dial: a level, ultracode past them, or the model's own default. */
+export type EffortStop = EffortLevel | "ultracode" | undefined;
+
 /** The effort levels a model takes: none for a model that doesn't take one. */
 export function effortsOf(model: ModelChoice | undefined): readonly EffortLevel[] {
   return model ? (model.efforts ?? []) : EFFORTS;

@@ -1,9 +1,10 @@
 // The tip of the rail while Claude works: a cell in orbit, what Claude is doing with light passing
 // over the words, the time so far and the tokens written. While a tool runs, it names the call, so
-// you needn't look for it above. While it waits on you, the tip turns gold and holds still.
+// you needn't look for it above; while a request is tried again, it says when and why. While it
+// waits on you, the tip turns gold and holds still.
 import { Box, Text, useAnimation } from "ink";
 import { compact, duration } from "../src/view/format";
-import type { State } from "../src/view/state";
+import type { Retry, State } from "../src/view/state";
 import { toolLabel, toolTarget } from "../src/view/tools";
 import { cellWidth } from "./markdown";
 import { fit } from "./markdown-view";
@@ -17,7 +18,7 @@ import { mix, PALETTE } from "./theme";
 const ORBIT = ["⣾", "⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽"];
 
 export function Activity({ state, width }: { state: State; width: number }) {
-  const waiting = state.pending.length > 0 || state.questions.length > 0;
+  const waiting = state.pending.length > 0 || state.questions.length > 0 || state.elicitations.length > 0;
   const active = state.busy || waiting;
   const { frame, time } = useAnimation({ interval: 90, isActive: active });
   if (!active) return null;
@@ -60,7 +61,10 @@ function Sweep({ text, frame }: { text: string; frame: number }) {
 
 function describe(state: State) {
   if (state.questions.length > 0) return "Claude has a question for you";
+  if (state.elicitations.length > 0) return `${state.elicitations[0]?.server ?? "An MCP server"} is asking you something`;
   if (state.pending.length > 0) return "Waiting for your OK";
+  if (state.compacting) return "Compacting the conversation";
+  if (state.retry) return retrying(state.retry);
   const live = state.live;
   const block = live?.blocks.slice(live.finalized).findLast((b) => b !== undefined);
   if (block?.kind === "thinking") return "Thinking";
@@ -73,4 +77,11 @@ function describe(state: State) {
     return `Running ${toolLabel(call.name)}${what ? ` · ${what.split("\n")[0]}` : ""}`;
   }
   return "Working";
+}
+
+/** A request Claude Code tries again: when, which attempt, and why, as `Retrying in 8s (2 of 10) · overloaded`. */
+function retrying(retry: Retry) {
+  const left = Math.max(0, Math.ceil((retry.at + retry.delayMs - Date.now()) / 1000));
+  const why = retry.status === null ? "no connection" : `${retry.status} ${retry.error.replace(/_/g, " ")}`;
+  return `${left > 0 ? `Retrying in ${left}s` : "Retrying"} (${retry.attempt} of ${retry.max}) · ${why}`;
 }

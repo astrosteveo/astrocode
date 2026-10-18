@@ -21,6 +21,7 @@ import {
   type Callout,
   type Span,
 } from "./markdown";
+import { keywordsIn, paintKeywords } from "./keywords";
 import { copyLink, hyperlink } from "./links";
 import { PALETTE } from "./theme";
 
@@ -155,6 +156,8 @@ export function inline(text: string, voice: Voice = "claude") {
 
 function Styled({ run, voice = "claude" }: { run: Span; voice?: Voice }) {
   const text = run.href === undefined ? run.text : run.style === "url" ? linkInBrackets(run.text, run.href) : hyperlink(run.href, run.text);
+  // In your words, `ultrathink` and `ultracode` keep the colors they had in the message box.
+  const words = voice === "you" && run.href === undefined ? paintKeywords(text, 0, text.length, keywordsIn(text)) : text;
   switch (run.style) {
     case "code":
       return (
@@ -171,11 +174,11 @@ function Styled({ run, voice = "claude" }: { run: Span; voice?: Voice }) {
     case "bold":
       return (
         <Text bold color={VOICES[voice].accent}>
-          {text}
+          {words}
         </Text>
       );
     case "italic":
-      return <Text italic>{text}</Text>;
+      return <Text italic>{words}</Text>;
     case "strike":
       return (
         <Text strikethrough color={PALETTE.haze}>
@@ -197,7 +200,7 @@ function Styled({ run, voice = "claude" }: { run: Span; voice?: Voice }) {
         </Text>
       );
     default:
-      return <Text>{text}</Text>;
+      return <Text>{words}</Text>;
   }
 }
 

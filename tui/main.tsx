@@ -39,6 +39,7 @@ export async function startTerminal(options: TerminalOptions) {
   if (saved.notify) store.notifyMode = saved.notify;
   if (saved.usage) store.usageMode = saved.usage;
   if (saved.keepWarm !== undefined) store.keepWarm = saved.keepWarm;
+  if (saved.agentSummaries !== undefined) store.agentSummaries = saved.agentSummaries;
   // Focus reports, the title and the tab's progress, for both layouts and every switch between them.
   store.window = new TerminalWindow(process.stdin, process.stdout);
   store.window.start();
@@ -54,6 +55,7 @@ export async function startTerminal(options: TerminalOptions) {
     thinking: saved.thinking,
     mode: saved.mode,
     resume,
+    agentSummaries: saved.agentSummaries,
     emit: store.emit,
     onStderr: () => {},
   });

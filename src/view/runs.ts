@@ -1,7 +1,7 @@
 // A shell command as its card shows it, whether Claude ran it with Bash or you ran it with `!`:
 // what it does, how it went, and the one line of its output that says the most.
 import { duration } from "./format";
-import type { Item, ShellItem, State, ToolCall } from "./state";
+import { taskKind, type Item, type ShellItem, type State, type ToolCall, type WorkflowPhase } from "./state";
 import { bashOutput, field, plural } from "./tools";
 
 export type RunStatus = "running" | "waiting" | "done" | "error" | "denied" | "stopped";
@@ -219,15 +219,16 @@ export type Running = {
   shellId?: string;
   /** Claude Code can read out what it printed, as it can for a command or a Monitor. */
   hasOutput: boolean;
-  /** For a subagent: what it's doing, its last tool, and how much it has done. */
+  /** A subagent's id, which names the transcript Claude Code keeps for it. */
+  agentId?: string;
+  /** For a subagent or workflow: what it's doing, its last tool, and how much it has done. */
   summary?: string;
   lastTool?: string;
   tokens?: number;
   toolUses?: number;
+  /** A workflow's phases and their agents. */
+  workflow?: WorkflowPhase[];
 };
-
-/** Kinds of background work, by Claude Code's task types. */
-const TASK_KINDS: Record<string, string> = { local_bash: "command", local_agent: "subagent", local_workflow: "workflow", monitor: "monitor" };
 
 /**
  * What runs alongside the conversation, and what ran there in this Claude Code process: running
@@ -241,21 +242,25 @@ export function runningList(state: State): Running[] {
     .map((task): Running => {
       const index = task.toolUseId ? state.tools[task.toolUseId] : undefined;
       const item = index === undefined ? undefined : state.items[index];
-      const command = item?.kind === "tool" && typeof item.call.input.command === "string" ? item.call.input.command : undefined;
+      const call = item?.kind === "tool" ? item.call : undefined;
+      const command = typeof call?.input.command === "string" ? call.input.command : undefined;
+      const kind = taskKind(state, task);
       return {
         key: `task:${task.id}`,
-        kind: TASK_KINDS[task.type] ?? task.type.replace(/_/g, " "),
-        title: task.description,
+        kind,
+        title: task.workflowName && task.workflowName !== task.description ? `${task.workflowName} · ${task.description}` : task.description,
         command,
         status: task.status,
         startedAt: task.startedAt,
         endedAt: task.endedAt,
         taskId: task.id,
-        hasOutput: task.type === "local_bash" || task.type === "monitor",
+        hasOutput: kind === "command" || kind === "monitor",
+        agentId: kind === "subagent" && task.type === "local_agent" ? task.id : undefined,
         summary: task.summary,
         lastTool: task.lastTool,
         tokens: task.tokens,
         toolUses: task.toolUses,
+        workflow: task.workflow,
       };
     });
   const newest = (a: Running, b: Running) => (b.startedAt ?? 0) - (a.startedAt ?? 0);
@@ -288,6 +293,6 @@ function shellEntry(item: ShellItem): Running {
 export function runningKeyOf(item: Item, state: State) {
   if (item.kind === "shell") return item.status === "running" ? `shell:${item.id}` : undefined;
   if (item.kind !== "tool" || !item.call.background) return undefined;
-  const taskId = field(item.call.output, "backgroundTaskId");
+  const taskId = item.call.taskId ?? field(item.call.output, "backgroundTaskId");
   return typeof taskId === "string" && state.taskInfo[taskId] ? `task:${taskId}` : undefined;
 }

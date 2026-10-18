@@ -36,8 +36,11 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | Shift+Tab | Change the permission mode: ask first, accept edits, plan, auto, bypass permissions |
 | Alt+P | Switch the model (↑↓) and its effort (←→) in one picker |
 | Alt+T | Turn thinking off or on, on models that can stop thinking. Current models always think, and effort sets how much |
+| Alt+O | Fast mode on or off: Opus with faster output, for this session, where your plan has it |
+| Alt+W | With `ultracode` in the message, keep it from starting a workflow this time; the word still goes as you typed it |
 | Ctrl+S | Put the message aside. It stays stashed, whatever you send meanwhile and even after you quit, until Ctrl+S brings it back; with a message in the box, the two trade places |
 | Ctrl+Enter, or Ctrl+X Ctrl+S | Send now: stop what Claude is doing and send this instead of queueing it. Ctrl+Enter needs a terminal with the kitty keyboard protocol |
+| Ctrl+X Enter | While Claude works, send this to wait for the end of the turn, rather than joining it between tool calls as Enter does |
 | ↑ ↓ | Earlier messages, or move between lines |
 | Ctrl+R | Search what you've sent: type to find, Ctrl+R for older matches, Enter keeps it, Esc cancels |
 | Ctrl+_ | Undo, a word at a time |
@@ -53,7 +56,7 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | Ctrl+Z | Suspend astrocode; `fg` in your shell brings it back |
 | Ctrl+C | Clear the box, stop Claude, or exit when pressed twice |
 
-Keys you change in Claude Code's `~/.claude/keybindings.json` change in astrocode too, in its `Global` and `Chat` contexts: rebind, unbind with `null`, or add chords such as `ctrl+k ctrl+s`. astrocode has these of Claude Code's actions: `app:interrupt`, `app:exit`, `app:toggleTodos`, `app:toggleTranscript`, `history:search`, `chat:submit`, `chat:sendNow`, `chat:newline`, `chat:undo`, `chat:stash`, `chat:modelPicker`, `chat:increaseEffort`, `chat:decreaseEffort`, `chat:thinkingToggle`, `chat:cycleMode`, `chat:externalEditor`, `chat:imagePaste`, `chat:clearInput`, `chat:killAgents` and `task:background`. The file is read as astrocode starts, and it says which actions it doesn't have. Esc, the arrows and the editing keys (Ctrl+A, Ctrl+K, Alt+B and the like) aren't actions, in Claude Code either, but a binding can take their key.
+Keys you change in Claude Code's `~/.claude/keybindings.json` change in astrocode too, in its `Global` and `Chat` contexts: rebind, unbind with `null`, or add chords such as `ctrl+k ctrl+s`. astrocode has these of Claude Code's actions: `app:interrupt`, `app:exit`, `app:toggleTodos`, `app:toggleTranscript`, `history:search`, `chat:submit`, `chat:sendNow`, `chat:queueSubmit`, `chat:newline`, `chat:undo`, `chat:stash`, `chat:modelPicker`, `chat:increaseEffort`, `chat:decreaseEffort`, `chat:thinkingToggle`, `chat:fastMode`, `chat:workflowKeywordToggle`, `chat:cycleMode`, `chat:externalEditor`, `chat:imagePaste`, `chat:clearInput`, `chat:killAgents` and `task:background`. The file is read as astrocode starts, and it says which actions it doesn't have. Esc, the arrows and the editing keys (Ctrl+A, Ctrl+K, Alt+B and the like) aren't actions, in Claude Code either, but a binding can take their key.
 
 ## Commands
 
@@ -61,11 +64,12 @@ Keys you change in Claude Code's `~/.claude/keybindings.json` change in astrocod
 | :-- | :-- |
 | `/resume` | Pick a saved session from this folder (type to filter); its conversation replays on screen |
 | `/model` | Switch the model and its effort, as Alt+P does (or `/model sonnet`) |
-| `/effort` | Set how hard Claude thinks (or `/effort high`) |
+| `/effort` | Set how hard Claude thinks (or `/effort high`). `/effort ultracode` has Claude run a workflow of agents on every substantive task, for this session, where Claude Code offers it; a level turns it off |
 | `/clear` | Start a new session on a clean screen |
 | `/output` | Same as Ctrl+O |
 | `/plugins` | Manage plugins: turn them on or off, install, update and uninstall them, and add or remove marketplaces |
-| `/config` | astrocode's settings: model, effort, thinking, permission mode, when the to-do list shows, and full screen. ↑↓ chooses, ←→ changes, Esc puts the changes into effect and saves them, Ctrl+C throws them away |
+| `/config` | astrocode's settings: model, effort (ultracode past the highest level), thinking, permission mode, when the to-do list shows, full screen, plan usage, keeping the cache warm, agent progress and notifications. ↑↓ chooses, ←→ changes, Esc puts the changes into effect and saves them, Ctrl+C throws them away |
+| `/tasks` | What runs alongside the conversation: background commands, subagents, Monitors and workflows, and your `!` commands. Open one to watch it: a command's output, a subagent's transcript, a workflow's phases and agents. `x` stops it |
 | `/fullscreen` | Switch to full screen, or back to the terminal's scrollback |
 | `/help`, `/exit` | Keys and commands, quit |
 
@@ -96,8 +100,12 @@ astrocode's look takes its colors from the Hubble palette, the gold and teal of 
 - **Tool calls.** A tool call's hexagon says how it went: filled teal once it's done, rose if it failed, an outline while it runs or after it was stopped or denied, gold while it waits for you. Its row names the tool and what it acts on, with the result against the right edge. A finished call keeps a command's output, an edit's diff (added lines tinted teal, removed ones rose), the to-do list, or your answers to Claude's questions.
 - **Permission prompts.** They show the command, diff or file before you choose. "Always allow" applies only the narrowest rule Claude Code suggests, and the option names that rule. Enter, Space and number keys pressed in the first half-second after a prompt appears are ignored, so a key you meant for something else can't approve it.
 - **Claude's questions.** When Claude asks a multiple-choice question, you pick from a list with descriptions and previews, check several options where that's allowed, or type your own answer. This works in every mode, bypass included.
+- **MCP servers' requests.** When an MCP server asks for details, you fill in its form (text, numbers, yes or no, a list of choices); when it asks you to sign in, astrocode opens the address in your browser.
+- **Plans.** Leaving plan mode shows the plan as Claude wrote it, and the file it's kept in, before you start on it or keep planning.
+- **Keywords.** `ultrathink` in a message asks for deeper reasoning that turn, and `ultracode` for a workflow of agents. Claude Code acts on them; astrocode draws them through the palette's accents in the box and in your message, and the box says what each will do.
+- **Background work.** A subagent, Monitor or workflow that runs in the background says so on its row, a notice says when it ends, and when Claude picks up where it left off by itself, as on a Monitor's event, a line says why. Esc stops Claude's turn but not the work in the background; `/tasks` stops one thing, Ctrl+X Ctrl+K everything.
 - **Where your keys go.** The message box, a picker or a prompt that has your keys has a gold hairline along its top edge.
-- **The status bar.** The permission mode as a solid chip, then the model and the effort you set, how full the context is, your plan's 5-hour and 7-day usage (with reset times once they get high), the git branch and changed files, and your plan.
+- **The status bar.** The permission mode as a solid chip, then the model and the effort you set (or `ultracode`), `↯ fast` in fast mode, how full the context is, your plan's 5-hour and 7-day usage (with reset times once they get high), the git branch and changed files, and your plan. While a request is being tried again, or the conversation compacted, the line above the box says so.
 - **Scrollback.** Finished output goes into your terminal's own scrollback, like `claude`.
 
 ## Full screen
@@ -120,7 +128,7 @@ Full screen uses the terminal's alternate screen, so the conversation isn't in y
 
 ## Settings
 
-`/config`, and the model, effort, thinking, mode and layout you pick anywhere else, are kept for next time in `~/.config/astrocode/settings.json` (under `$XDG_CONFIG_HOME` if it's set), not in Claude Code's settings, so `claude` keeps its own. Plan mode and max effort are for one session only, as in Claude Code. A stashed message is kept per project in `~/.local/state/astrocode/stash/` (under `$XDG_STATE_HOME` if it's set), with its images.
+`/config`, and the model, effort, thinking, mode and layout you pick anywhere else, are kept for next time in `~/.config/astrocode/settings.json` (under `$XDG_CONFIG_HOME` if it's set), not in Claude Code's settings, so `claude` keeps its own. Plan mode, max effort, ultracode and fast mode are for one session only, as in Claude Code. A stashed message is kept per project in `~/.local/state/astrocode/stash/` (under `$XDG_STATE_HOME` if it's set), with its images.
 
 | Variable | Default | What it does |
 | :-- | :-- | :-- |

@@ -28,6 +28,8 @@ export class Store {
   usageMode: UsageMode = "auto";
   /** Whether the prompt cache is kept warm while you're away, as /config or a click on the status bar set it. */
   keepWarm = false;
+  /** Whether Claude Code reports what each subagent is doing, as /config set it. */
+  agentSummaries = false;
   /** The terminal window's focus, title, progress and notifications. */
   window: TerminalWindow | null = null;
   /** What the message box's keys do, read from keybindings.json as astrocode starts. */
@@ -73,10 +75,10 @@ export class Store {
 
   /** Starts over for a new or resumed session. What's known about the account and Claude Code stays. */
   reset() {
-    const { plan, models, commands, limits, mode, model, effort, thinking } = this.state;
+    const { plan, models, commands, limits, mode, model, effort, thinking, ultracode, ultracodeAvailable, fast } = this.state;
     // Whatever was still waiting on its images belongs to the conversation being left.
     this.held = [];
-    this.state = { ...initialState(this.cwd, this.home), plan, models, commands, limits, mode, model, effort, thinking };
+    this.state = { ...initialState(this.cwd, this.home), plan, models, commands, limits, mode, model, effort, thinking, ultracode, ultracodeAvailable, fast };
     this.epoch += 1;
     this.notify();
   }

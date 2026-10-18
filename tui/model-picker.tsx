@@ -7,7 +7,7 @@ import { useRef, useState } from "react";
 import type { ModelChoice } from "../src/events";
 import { isCurrentModel } from "../src/view/format";
 import { ChoiceRow } from "./choice";
-import { Dial, EFFORT_NOTES, effortOn, effortsOf } from "./effort";
+import { Dial, EFFORT_NOTES, effortOn, effortsOf, ULTRACODE_NOTE, type EffortStop } from "./effort";
 import { Panel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
@@ -17,25 +17,30 @@ type Props = {
   model?: string;
   /** The effort astrocode set, if it set one: Claude Code doesn't say what its default is. */
   effort?: EffortLevel;
+  /** Ultracode is on, and whether the current model can have it, past the highest level. */
+  ultracode: boolean;
+  ultracodeAvailable: boolean;
   width: number;
   rows: number;
-  /** What changed: a model to switch to, an effort to set, or both. */
-  onPick: (choice: { model?: string; effort?: EffortLevel }) => void;
+  /** What changed: a model to switch to, an effort to set, ultracode turned on or off. */
+  onPick: (choice: { model?: string; effort?: EffortLevel; ultracode?: boolean }) => void;
   onCancel: () => void;
 };
 
-export function ModelPicker({ models, model, effort, width, rows, onPick, onCancel }: Props) {
+export function ModelPicker({ models, model, effort, ultracode, ultracodeAvailable, width, rows, onPick, onCancel }: Props) {
   const [selected, setSelected] = useState(() => Math.max(0, models.findIndex((choice) => isCurrentModel(model, choice))));
-  const [wanted, setWanted] = useState(effort);
+  const [wanted, setWanted] = useState<EffortStop>(ultracode ? "ultracode" : effort);
   const panel = useRef<DOMElement>(null);
   const list = useRef<DOMElement>(null);
 
   const index = Math.min(selected, Math.max(0, models.length - 1));
   const focused = models[index];
   const levels = effortsOf(focused);
-  const shown = effortOn(levels, wanted);
+  // Claude Code says whether ultracode can be on for the model in use, not for the others.
+  const offersUltracode = ultracodeAvailable && focused !== undefined && isCurrentModel(model, focused);
+  const shown: EffortStop = wanted === "ultracode" ? (offersUltracode ? "ultracode" : effortOn(levels, "max")) : effortOn(levels, wanted);
   // With no level set yet, the model's own default comes before the lowest level.
-  const track = [...(effort === undefined ? [undefined] : []), ...levels];
+  const track: EffortStop[] = [...(effort === undefined ? [undefined] : []), ...levels, ...(offersUltracode ? (["ultracode"] as const) : [])];
 
   const step = (by: -1 | 1) => {
     const at = track.indexOf(shown);
@@ -44,11 +49,12 @@ export function ModelPicker({ models, model, effort, width, rows, onPick, onCanc
 
   const pick = (choice: ModelChoice | undefined) => {
     if (!choice) return;
-    const on = effortOn(effortsOf(choice), wanted);
-    onPick({
-      model: isCurrentModel(model, choice) ? undefined : choice.value,
-      effort: on !== undefined && on !== effort ? on : undefined,
-    });
+    const current = isCurrentModel(model, choice);
+    if (wanted === "ultracode" && current && ultracodeAvailable) return onPick({ ultracode: ultracode ? undefined : true });
+    const on = effortOn(effortsOf(choice), wanted === "ultracode" ? "max" : wanted);
+    const level = on !== undefined && on !== effort ? on : undefined;
+    // A level turns ultracode off, even the level it was on.
+    onPick({ model: current ? undefined : choice.value, effort: level, ultracode: ultracode && !level ? false : undefined });
   };
 
   useInput((input, key) => {
@@ -114,12 +120,12 @@ export function ModelPicker({ models, model, effort, width, rows, onPick, onCanc
                 <Dial
                   value={shown ?? "default"}
                   focused
-                  changed={shown !== effort}
-                  pips={shown ? { at: levels.indexOf(shown), of: levels.length } : undefined}
+                  changed={shown !== (ultracode ? "ultracode" : effort)}
+                  pips={shown ? { at: shown === "ultracode" ? levels.length : levels.indexOf(shown), of: levels.length + (offersUltracode ? 1 : 0) } : undefined}
                   onStep={step}
                 />
                 <Text color={PALETTE.haze} wrap="truncate-end">
-                  {`   ${shown ? EFFORT_NOTES[shown] : "Whatever Claude Code picks for this model"}`}
+                  {`   ${shown === "ultracode" ? ULTRACODE_NOTE : shown ? EFFORT_NOTES[shown] : "Whatever Claude Code picks for this model"}`}
                 </Text>
               </>
             ) : (

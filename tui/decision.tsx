@@ -8,7 +8,7 @@ import { plural, shortPath } from "../src/view/tools";
 import { ChoiceRow } from "./choice";
 import { printable } from "./markdown";
 import { Diff, diffLines } from "./diff";
-import { Panel } from "./markdown-view";
+import { Markdown, Panel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
 
@@ -18,15 +18,20 @@ const GRACE_MS = 500;
 /** Lines of a command, diff or file the prompt shows before saying how many more there are. */
 const PREVIEW_LINES = 12;
 
+/** Lines of a plan the prompt shows: more than a command's, since the plan is what's being approved. */
+const PLAN_LINES = 30;
+
 type Props = { request: PermissionRequest; cwd: string; home: string; width: number; onDecide: (choice: Choice) => void };
 
 /** Choose with the arrow keys and Enter, press a number, or click an option. Esc or Ctrl+C denies. */
 export function DecisionPrompt({ request, cwd, home, width, onDecide }: Props) {
   const always = alwaysLabel(request.alwaysAllow, home);
+  // Approving a plan is leaving plan mode to carry it out; saying no keeps Claude planning.
+  const plan = request.toolName === "ExitPlanMode";
   const options: { choice: Choice; label: string }[] = [
-    { choice: "allow", label: "Allow" },
+    { choice: "allow", label: plan ? "Start on the plan" : "Allow" },
     ...(always ? [{ choice: "always" as const, label: always }] : []),
-    { choice: "deny", label: "Deny, and tell Claude what to do instead" },
+    { choice: "deny", label: plan ? "Keep planning, and tell Claude what to change" : "Deny, and tell Claude what to do instead" },
   ];
   const [selected, setSelected] = useState(request.defaultToNo ? options.length - 1 : 0);
   const shownAt = useRef(Date.now());
@@ -127,6 +132,19 @@ function Details({ request, cwd, home, width, note }: Pick<Props, "request" | "c
       );
     case "WebFetch":
       return <Text color={PALETTE.sky}>{text("url")}</Text>;
+    case "ExitPlanMode": {
+      // The plan as Claude wrote it, and the file Claude Code keeps it in.
+      const lines = text("plan").replace(/\n+$/, "").split("\n");
+      const file = text("planFilePath");
+      const more = lines.length - PLAN_LINES;
+      return (
+        <>
+          {file ? <Text color={PALETTE.haze}>{shortPath(file, cwd, home)}</Text> : null}
+          {text("plan") ? <Markdown text={lines.slice(0, PLAN_LINES).join("\n")} width={width} /> : <Text color={PALETTE.haze}>Claude didn't send the plan with it.</Text>}
+          {more > 0 ? <Text color={PALETTE.dust}>{`… ${plural(more, "more line")}${file ? ", in the file above" : ""}`}</Text> : null}
+        </>
+      );
+    }
     default:
       return <Text color={PALETTE.haze}>{preview(JSON.stringify(request.input, null, 2))}</Text>;
   }
