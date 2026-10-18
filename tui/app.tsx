@@ -143,7 +143,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     store.notifyMode = mode;
     setNotifyState(mode);
   };
-  const title = useSessionTitle(session.id, state.cwd, turns, store.epoch);
+  const title = useSessionTitle(session.knownId, state.cwd, turns, store.epoch);
   useAttention({ state, window: store.window, notify: notifyMode, title, git });
   /** The message put aside with Ctrl+S, kept in the store so it outlives a switch of layouts. */
   const [stash, setStash] = useState(store.stash);

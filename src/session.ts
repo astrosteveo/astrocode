@@ -95,6 +95,11 @@ export class AgentSession {
     return this.sessionId;
   }
 
+  /** The conversation's id as far as it's known: Claude Code's, else the one being resumed, before Claude Code has said. */
+  get knownId() {
+    return this.sessionId ?? this.resumeFrom;
+  }
+
   /** Starts Claude Code if it isn't running, picking the conversation back up if there was one. */
   start() {
     if (this.run) return;
