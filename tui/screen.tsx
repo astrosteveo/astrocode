@@ -116,8 +116,8 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   const thumbTop = scrollable && maxTop > 0 ? Math.round(((view - thumb) * top) / maxTop) : 0;
 
   /** What handlers see: this render's numbers, moved along by events that haven't rendered yet. */
-  const now = useRef({ transcript, top, maxTop, view, thumb, pad });
-  now.current = { transcript, top, maxTop, view, thumb, pad };
+  const now = useRef({ transcript, top, maxTop, view, thumb, pad, following: anchor === null });
+  now.current = { transcript, top, maxTop, view, thumb, pad, following: anchor === null };
 
   const setSelection = (next: Selection | null) => {
     selected.current = next;
@@ -127,9 +127,10 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   const scrollTo = (index: number) => {
     const { transcript, maxTop } = now.current;
     const next = Math.max(0, Math.min(maxTop, Math.round(index)));
-    now.current = { ...now.current, top: next };
     const row = transcript.rows[next];
-    setAnchor(next >= maxTop || !row ? null : { key: row.key, line: row.line });
+    const held = next >= maxTop || !row ? null : { key: row.key, line: row.line };
+    now.current = { ...now.current, top: next, following: held === null };
+    setAnchor(held);
   };
   const scrollBy = (lines: number) => scrollTo(now.current.top + lines);
 
@@ -272,9 +273,10 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
         if (!current) {
           // A click, not a drag: it opens the link it's on, else opens or closes the tool call or
           // command it's on. The view stays where it is, so the row doesn't move out from under the
-          // pointer as it opens.
+          // pointer as it opens; but a view following the end goes on following, so new entries
+          // stay in view.
           if (!point) return;
-          const { transcript, top, pad } = now.current;
+          const { transcript, top, pad, following } = now.current;
           const index = find(transcript, point);
           const row = index === null ? undefined : transcript.rows[index];
           if (index === null || !row) return;
@@ -283,7 +285,7 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
           if (!row.hot) return;
           const y = index - top + pad;
           if (!row.open || row.head) {
-            if (onToggle(row.key)) setAnchor({ key: row.key, line: row.line, y });
+            if (onToggle(row.key) && !following) setAnchor({ key: row.key, line: row.line, y });
             return;
           }
           // Inside what's open, a click closes it. The entry's first row then takes the place of the
@@ -292,8 +294,8 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
           // nothing to copy, so it closes at once.
           const { key } = row;
           const close = () => {
-            const { transcript, view } = now.current;
-            if (onToggle(key)) setAnchor({ key, line: headLine(transcript, key), y: Math.max(0, Math.min(y, view - 4)) });
+            const { transcript, view, following } = now.current;
+            if (onToggle(key) && !following) setAnchor({ key, line: headLine(transcript, key), y: Math.max(0, Math.min(y, view - 4)) });
           };
           if (isTextAt(row.text, point.col, row.inset)) later(close);
           else close();
