@@ -9,7 +9,7 @@ import { highlightCode } from "./highlight";
 import { linked } from "./links";
 import { cellWidth, printable, printableColored, takeCells } from "./markdown";
 import { fit, onPanel } from "./markdown-view";
-import { PALETTE } from "./theme";
+import { PALETTE, sgr } from "./theme";
 import { clip } from "./tool-row";
 
 /** Lines of a running command's output its live card shows. */
@@ -81,12 +81,26 @@ function OutputRows({ run, spaced }: { run: Run; spaced: boolean }) {
   return (
     <Box flexDirection="column">
       {spaced ? <Text> </Text> : null}
-      {out.text ? <Text>{onPanel(linked(out.text))}</Text> : null}
+      {out.text ? <Text>{onPanel(linked(failed ? out.text : tintErrors(out.text)))}</Text> : null}
       {out.hidden ? <Text color={PALETTE.dust}>{`… ${out.note}`}</Text> : null}
       {err?.text ? <Text color={PALETTE.rose}>{linked(err.text)}</Text> : null}
       {err?.hidden ? <Text color={PALETTE.dust}>{`… ${err.note}`}</Text> : null}
     </Box>
   );
+}
+
+/** A line that starts like an error: `fatal:`, `error:`, `error[E0308]:`, `TypeError:`, `npm ERR!`. */
+const ERROR_LINE = /^\s*(?:(?:fatal|error|\w*(?:Error|Exception))(?:\[[^\]]*\])?:|npm ERR!)/i;
+
+/**
+ * Error lines in rose, in the output of a command that succeeded overall: `git log; ls` exits 0
+ * after git's `fatal:`. A line the command colored itself keeps its colors.
+ */
+function tintErrors(text: string) {
+  return text
+    .split("\n")
+    .map((line) => (ERROR_LINE.test(line) && !line.includes("\x1b[") ? `${sgr(PALETTE.rose)}${line}\x1b[39m` : line))
+    .join("\n");
 }
 
 /**
