@@ -12,13 +12,13 @@ merge: rebase          # rebase | squash | merge: how /solo-review:ship lands a 
 sensitive:             # reviewed deep with a security pass, and you must read them before a merge. Added to the
                        # plugin's always-sensitive list (Claude config, CLAUDE.md, CI, git hooks, dependency
                        # manifests, secrets), which nothing here can remove. `ledger.py config` shows both.
-  - "**/install.sh"
-  - "**/release.sh"
-  - "**/auth/**"
-skip:                  # never reviewed, except files on the always-sensitive list (such as lockfiles), which
+  - "src/session.ts"
+  - "src/claude.ts"
+  - "src/edits.ts"
+  - "src/shell.ts"
+  - "src/settings.ts"
+skip: []               # never reviewed, except files on the always-sensitive list (such as lockfiles), which
                        # skip never hides
-  - "**/*.min.js"
-  - "**/*.snap"
 ---
 
 # Review guide
