@@ -189,6 +189,10 @@ export class AgentSession {
         // turn. Without this, Claude Code stops every background agent and workflow along with it.
         perTaskStopAffordance: true,
         agentProgressSummaries: this.agentSummaries,
+        // Each subagent's words and calls as it goes, nested ones too, for its lines under its row
+        // and its transcript in the task view. Without it, only a subagent of Claude's own sends its
+        // calls, and none sends what it writes.
+        forwardSubagentText: true,
         // Claude Code echoes every message back as it takes it. That's the only way a message sent
         // from claude.ai or the Claude app over Remote Control reaches astrocode; the rest are ours.
         extraArgs: { "replay-user-messages": null },

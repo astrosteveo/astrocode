@@ -11,6 +11,7 @@ import type {
   SDKResultMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { CommandInfo, ElicitationRequest, ImageAttachment, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, RemoteControl, SessionEvent } from "../events";
+import { AGENT_LINES, agentLines, type AgentLine } from "./agents";
 import { compact, duration } from "./format";
 
 type StreamEvent = SDKPartialAssistantMessage["event"];
@@ -65,8 +66,8 @@ export type NestedAgent = {
   type?: string;
   calls: number;
   /**
-   * Claude Code forwards only the calls of the subagent Claude started, so for one nested deeper
-   * there's only the name of its latest tool, from its task's progress.
+   * Its latest call as Claude Code forwarded it, else the name of its latest tool from its task's
+   * progress, which may come first.
    */
   last?: SubagentCall;
   lastTool?: string;
@@ -214,6 +215,11 @@ export type State = {
   tasks: BackgroundTask[];
   /** This Claude Code process's tasks, running or ended, by id. */
   taskInfo: Record<string, TaskInfo>;
+  /**
+   * Each subagent's transcript in this Claude Code process, by the Agent call that started it, as
+   * Claude Code forwards it: the end of it, `AGENT_LINES` at most.
+   */
+  agentLogs: Record<string, AgentLine[]>;
   items: Item[];
   /**
    * Messages sent while Claude works that it hasn't taken yet, oldest first. Each goes into `items`
@@ -266,6 +272,7 @@ export function initialState(cwd: string, home: string): State {
     limits: {},
     tasks: [],
     taskInfo: {},
+    agentLogs: {},
     items: [],
     queue: [],
     tools: {},
@@ -285,7 +292,7 @@ export function reduce(state: State, event: ViewEvent): State {
   switch (event.kind) {
     case "ready":
       // A new Claude Code process, with nothing in the background yet.
-      return { ...state, plan: event.plan, models: event.models, commands: event.commands, tasks: [], taskInfo: {} };
+      return { ...state, plan: event.plan, models: event.models, commands: event.commands, tasks: [], taskInfo: {}, agentLogs: {} };
     case "commands":
       return { ...state, commands: event.commands };
     case "prompt":
@@ -314,8 +321,8 @@ export function reduce(state: State, event: ViewEvent): State {
       return applySdk(state, event.message, event.images, event.at);
     case "permission": {
       const next = { ...state, pending: [...state.pending.filter((p) => p.id !== event.request.id), event.request] };
-      // A subagent's prompt marks its call on the Agent call it runs under. A nested subagent's calls
-      // never arrive, so the prompt's is its latest.
+      // A subagent's prompt marks its call on the Agent call it runs under, and for a nested one the
+      // prompt's call is its latest, should its forwarded call not have come yet.
       const { agentId, id, toolName, input } = event.request;
       const started = agentId === undefined ? undefined : state.taskInfo[agentId]?.toolUseId;
       const owner = agentId === undefined ? undefined : agentCallOf(state, agentId);
@@ -426,7 +433,7 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
             // Not in the SDK's types: a workflow's phases and agents.
             workflow: workflowOf(field(message, "workflow_progress")) ?? task.workflow,
           }));
-          // A nested subagent's progress is all there is of its calls.
+          // A nested subagent's progress counts its calls, should Claude Code not forward them.
           const started = state.taskInfo[message.task_id]?.toolUseId;
           const owner = started === undefined || state.tools[started] !== undefined ? undefined : nestedOwner(state, started);
           if (!owner) return next;
@@ -616,11 +623,20 @@ function applyStream(state: State, event: StreamEvent): State {
   }
 }
 
+/** A subagent's message, at the end of its transcript. */
+function logAgent(state: State, parent: string, type: string, message: unknown): State {
+  const lines = agentLines(type, message);
+  if (!lines.length) return state;
+  const log = [...(state.agentLogs[parent] ?? []), ...lines].slice(-AGENT_LINES);
+  return { ...state, agentLogs: { ...state.agentLogs, [parent]: log } };
+}
+
 function applyAssistant(state: State, message: SDKAssistantMessage, at?: number): State {
   const content = message.message.content;
   if (message.parent_tool_use_id) {
+    const logged = logAgent(state, message.parent_tool_use_id, "assistant", message.message);
     const calls = content.flatMap((block): SubagentCall[] => (block.type === "tool_use" ? [{ id: block.id, name: block.name, input: asRecord(block.input) }] : []));
-    return calls.length ? applySubagentCalls(state, message.parent_tool_use_id, calls) : state;
+    return calls.length ? applySubagentCalls(logged, message.parent_tool_use_id, calls) : logged;
   }
   let next = state;
   if (message.error && !content.some((block) => block.type === "text")) {
@@ -719,8 +735,11 @@ function applySubagentResults(state: State, content: Exclude<UserMessage["messag
 
 function applyUser(state: State, message: UserMessage, images: Record<string, ImageAttachment[]>, at?: number): State {
   const content = message.message.content;
+  if (message.parent_tool_use_id) {
+    const logged = logAgent(state, message.parent_tool_use_id, "user", message.message);
+    return typeof content === "string" ? logged : applySubagentResults(logged, content);
+  }
   if (typeof content === "string") return state;
-  if (message.parent_tool_use_id) return applySubagentResults(state, content);
   const results = content.filter((block) => block.type === "tool_result");
   // The structured output belongs to the message's tool result, so it's only clear when there's one.
   const output = results.length === 1 && "tool_use_result" in message ? message.tool_use_result : undefined;

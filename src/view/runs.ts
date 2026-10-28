@@ -224,6 +224,8 @@ export type Running = {
   hasOutput: boolean;
   /** A subagent's id, which names the transcript Claude Code keeps for it. */
   agentId?: string;
+  /** The tool call that started it, which keys a subagent's transcript from the stream (`agentLogs`). */
+  toolUseId?: string;
   /** For a subagent or workflow: what it's doing, its last tool, and how much it has done. */
   summary?: string;
   lastTool?: string;
@@ -260,6 +262,7 @@ export function runningList(state: State): Running[] {
         foreground: !task.background && task.status === "running" ? task.toolUseId : undefined,
         hasOutput: kind === "command" || kind === "monitor",
         agentId: kind === "subagent" && task.type === "local_agent" ? task.id : undefined,
+        toolUseId: task.toolUseId,
         summary: task.summary,
         lastTool: task.lastTool,
         tokens: task.tokens,

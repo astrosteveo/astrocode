@@ -1201,6 +1201,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           <TaskView
             entry={entry}
             shellOutput={shell?.kind === "shell" ? shell.stdout : undefined}
+            log={entry?.toolUseId ? state.agentLogs[entry.toolUseId] : undefined}
             session={session}
             width={width}
             rows={Math.max(4, Math.min(14, rows - 18))}
