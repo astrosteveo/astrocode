@@ -146,6 +146,18 @@ export class Canvas {
         // A short window, so the page's height is its content's and not the window's.
         await page.setViewport({ width: clamp(width, 200, MAX_WIDTH), height: 1 });
         await page.setContent(markup, { waitUntil: "load", timeout: DRAW_MS });
+        // A page that doesn't set them is drawn on the palette's background, in its text color,
+        // edge to edge, rather than black on white inside the browser's 8px margin. The background
+        // is the browser's default, which a page's own, on `html` or `body`, covers; `:where()`
+        // weighs nothing, so any rule of the page's own wins. A color scheme on the root would
+        // change the background, so it's on `body`, for the page's controls.
+        const { background, strong, dark } = this.colors;
+        const [r, g, b] = [1, 3, 5].map((at) => parseInt(background.slice(at, at + 2), 16));
+        const cdp = await page.createCDPSession();
+        await cdp.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: r!, g: g!, b: b!, a: 1 } });
+        await page.addStyleTag({
+          content: `:where(html) { color: ${strong}; font-family: system-ui, sans-serif; } :where(body) { margin: 0; color-scheme: ${dark ? "dark" : "light"}; }`,
+        });
         const height = await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight));
         const shot = await page.screenshot({ type: "png", clip: { x: 0, y: 0, width: clamp(width, 200, MAX_WIDTH), height: clamp(height, 1, MAX_HEIGHT) }, captureBeyondViewport: true });
         return drawing(shot);
