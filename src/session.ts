@@ -117,6 +117,11 @@ export class AgentSession {
   private elicitations = new Map<string, { run: Run; resolve: (result: ElicitationResult) => void }>();
   private sessionId: string | undefined;
   private mode: PermissionMode;
+  /**
+   * The mode before plan mode, kept through a restart. Claude Code skips its prompts in plan mode
+   * entered from bypass mode, but only in its own terminal, so astrocode does that here.
+   */
+  private beforePlan: PermissionMode | undefined;
   private model: string | undefined;
   private effort: EffortLevel | undefined;
   private thinking: boolean | undefined;
@@ -465,7 +470,7 @@ export class AgentSession {
 
   async setMode(mode: PermissionMode) {
     await this.run?.query.setPermissionMode(mode);
-    this.mode = mode;
+    this.noteMode(mode);
     this.options.emit({ kind: "mode", mode });
   }
 
@@ -756,9 +761,20 @@ export class AgentSession {
     run.query.close();
   }
 
+  /** Takes up a mode Claude Code is in, remembering the one before plan mode. */
+  private noteMode(mode: PermissionMode) {
+    if (mode === "plan" && this.mode !== "plan") this.beforePlan = this.mode;
+    this.mode = mode;
+  }
+
   private ask(run: Run, toolName: string, input: Record<string, unknown>, context: Parameters<CanUseTool>[2]) {
     return new Promise<PermissionResult>((resolve) => {
       const id = context.toolUseID;
+      // Planning from bypass mode asks only to approve the plan, as in Claude Code's own terminal.
+      if (this.mode === "plan" && this.beforePlan === "bypassPermissions" && toolName !== "ExitPlanMode" && toolName !== "AskUserQuestion") {
+        resolve({ behavior: "allow", updatedInput: input });
+        return;
+      }
       if (toolName === "AskUserQuestion") {
         const questions = parseQuestions(input.questions);
         if (!questions) {
@@ -832,9 +848,9 @@ export class AgentSession {
       for await (const message of run.query) {
         if (run.closing) break;
         if ("session_id" in message && message.session_id) this.sessionId = message.session_id;
-        if (message.type === "system" && message.subtype === "init") this.mode = message.permissionMode;
+        if (message.type === "system" && message.subtype === "init") this.noteMode(message.permissionMode);
         // Claude Code changes modes too, such as when Claude leaves plan mode. A restart carries on in that one.
-        if (message.type === "system" && message.subtype === "status" && message.permissionMode) this.mode = message.permissionMode;
+        if (message.type === "system" && message.subtype === "status" && message.permissionMode) this.noteMode(message.permissionMode);
         if (this.echoed(message)) continue;
         if (message.type === "system" && field(message, "subtype") === "bridge_state") this.bridged(message);
         this.options.emit(sdkEvent(message, Date.now()));
@@ -894,7 +910,7 @@ export class AgentSession {
       // `current_permission_mode` isn't in the SDK's types. A mode picked meanwhile stands.
       const started = MODES.find((one) => one === field(init, "current_permission_mode"));
       if (started && this.mode === asked) {
-        this.mode = started;
+        this.noteMode(started);
         this.options.emit({ kind: "mode", mode: started });
         if (asked === "auto" && started !== "auto") {
           this.options.emit({ kind: "notice", tone: "info", text: "Auto mode isn't available with this model or account, so Claude asks first. Shift+Tab changes the mode." });
