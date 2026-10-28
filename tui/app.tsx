@@ -41,7 +41,8 @@ import { mentionedImages } from "./images";
 import { keyFor, keyLabel } from "./keys";
 import { galleryOf, linkedBy, pageFile } from "./figure";
 import { Lightbox } from "./lightbox";
-import { copiedBy, openFile, openLink } from "./links";
+import { copiedBy, openFile, openLink, ranBy } from "./links";
+import { runnableCommands } from "./runnable";
 import type { Outcome } from "./manager";
 import { ANSI } from "./markdown";
 import { fit } from "./markdown-view";
@@ -76,6 +77,8 @@ type Overlay =
   | { kind: "config"; initial: ConfigValues }
   | { kind: "resume"; sessions: SavedSession[] | null }
   | { kind: "output" }
+  /** The commands in Claude's code blocks, to run one. */
+  | { kind: "play" }
   | { kind: "plugins" }
   /** Your earlier messages, to go back to. */
   | { kind: "rewind" }
@@ -134,7 +137,7 @@ const HELP = [
   "ultrathink in a message asks for deeper reasoning that turn, and ultracode for a workflow of agents; Alt+W keeps the message's ultracode from starting one. /effort ultracode has Claude run a workflow on every task, for this session.",
   "Ctrl+S puts the message aside, and it stays there until Ctrl+S brings it back. Pressed with a message in the box, the two trade places.",
   "Ctrl+_ undoes. Ctrl+K, Ctrl+U, Ctrl+W and Alt+D cut, Ctrl+Y puts back what they cut. Alt+B and Alt+F move by words. Ctrl+L clears the box.",
-  "! runs a command in your shell. Its output streams in as it runs, you can keep talking meanwhile, and Claude sees it once it ends. # adds a note to a CLAUDE.md.",
+  "! runs a command in your shell. Its output streams in as it runs, you can keep talking meanwhile, and Claude sees it once it ends. /play runs one from Claude's shell code blocks the same way. # adds a note to a CLAUDE.md.",
   "Ctrl+V attaches the clipboard's image; a pasted or dropped image file attaches too. Ctrl+G or Ctrl+X Ctrl+E edits the message in $EDITOR.",
   "Ctrl+B moves a command or subagent Claude is waiting on to the background. /tasks lists what runs there and your ! commands: open one to watch it (a subagent shows its transcript, a workflow its phases), and x stops it. Esc stops Claude's turn but not what runs in the background; Ctrl+X Ctrl+K twice stops it all. Ctrl+T shows or hides the to-dos.",
   "Ctrl+Enter or Ctrl+X Ctrl+S sends now, stopping what Claude is doing; Ctrl+X Enter sends it to wait for the end of Claude's turn. Ctrl+Z suspends astrocode until the shell's fg.",
@@ -154,7 +157,7 @@ const FULLSCREEN_HELP = [
   "Ctrl+F finds text in the conversation: Enter or ↑ goes to the match before, ↓ to the one after. Alt+↑ and Alt+↓ jump between your messages, Alt+Shift+↑ and Alt+Shift+↓ between tool calls and commands.",
   "Drag to copy, double-click to copy a word, triple-click to copy a line.",
   "Click a tool call or a command to open it (a running one shows its live output), a step to open its tool calls, an option to choose it, the mode, the model or the effort to change it.",
-  "Click copy on a code block to copy it, and a turn's closing line to list the files it changed and the commands it ran.",
+  "Click copy on a code block to copy it, ▶ run on a shell block to run it as a ! command, and a turn's closing line to list the files it changed and the commands it ran.",
   "Click a picture to enlarge it, with ← and → to flip through the others.",
   "Hold Shift to select with the terminal's own selection instead.",
 ].join("\n");
@@ -577,6 +580,11 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   const openAddress = (url: string) => {
     const figure = linkedBy(url);
     if (figure) return "image" in figure ? openPictures(figure.image) : openWritten(pageFile(figure.html));
+    const command = ranBy(url);
+    if (command !== undefined) {
+      runCommand(command);
+      return setToast(`Running ${fit(command.split("\n")[0] ?? "", 40, false)}`);
+    }
     const code = copiedBy(url);
     if (code !== undefined) {
       copy(code);
@@ -725,6 +733,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         return setOverlay({ kind: "output" });
       case "/pictures":
         return openPictures();
+      case "/play":
+        if (!runnableCommands(state.items).length) return notice("info", "Claude hasn't written a shell code block in this session yet.");
+        return setOverlay({ kind: "play" });
       case "/plugins":
       case "/plugin":
         return setOverlay({ kind: "plugins" });
@@ -978,6 +989,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       argumentHint: state.ultracodeAvailable ? "[low|medium|high|xhigh|max|ultracode]" : "[low|medium|high|xhigh|max]",
     },
     { name: "output", description: "Open a tool call's whole output (Ctrl+O)", argumentHint: "" },
+    { name: "play", description: "Run a command from one of Claude's shell code blocks, as with !", argumentHint: "" },
     { name: "pictures", description: "The conversation's pictures as large as they go, to flip through or open", argumentHint: "" },
     { name: "rewind", description: "Go back to an earlier message, its files, or both (Esc Esc)", argumentHint: "" },
     { name: "tasks", description: "What runs in the background and your ! commands, to watch or stop", argumentHint: "" },
@@ -1128,6 +1140,26 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
             onPick={(item) => {
               close();
               showOutput(item.key);
+            }}
+          />
+        );
+      case "play":
+        return (
+          <Picker
+            title="Run a command from Claude's code blocks"
+            width={width}
+            rows={listRows}
+            items={runnableCommands(state.items).map((command) => ({
+              key: command,
+              label: `! ${fit(command.split("\n")[0] ?? "", width - 12, false)}`,
+              note: command.includes("\n") ? plural(command.split("\n").length, "line") : undefined,
+              detail: command.includes("\n") ? command : undefined,
+            }))}
+            empty="Claude hasn't written a shell code block in this session yet."
+            onCancel={close}
+            onPick={(item) => {
+              close();
+              runCommand(item.key);
             }}
           />
         );
