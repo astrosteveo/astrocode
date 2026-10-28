@@ -48,14 +48,19 @@ export function showServer(canvas: Canvas, cwd: string) {
     async ({ title, pictures }) => {
       try {
         const drawn = await Promise.all(pictures.map((picture) => draw(canvas, picture, cwd)));
-        const shown =
-          drawn.length === 1 && !pictures[0]?.label
-            ? drawn[0]!
-            : await canvas.compare(drawn.map((drawing, i) => ({ label: pictures[i]?.label ?? `${i + 1}`, png: drawing.png })));
+        // Each picture is an image of its own, in order, which astrocode lays side by side under
+        // the labels in the tool's input.
+        const named = (i: number) => pictures[i]?.label ?? `Picture ${i + 1}`;
         return {
           content: [
-            { type: "image", data: Buffer.from(shown.png).toString("base64"), mimeType: "image/png" },
-            { type: "text", text: `Shown to the user: ${title} (${shown.width}×${shown.height} pixels).` },
+            ...drawn.flatMap((drawing, i) => [
+              ...(drawn.length > 1 ? [{ type: "text" as const, text: `${named(i)}:` }] : []),
+              { type: "image" as const, data: Buffer.from(drawing.png).toString("base64"), mimeType: "image/png" },
+            ]),
+            {
+              type: "text",
+              text: `Shown to the user: ${title}, ${drawn.map((drawing, i) => `${drawn.length > 1 ? `${named(i)} ` : ""}${drawing.width}×${drawing.height} pixels`).join(", ")}${drawn.length > 1 ? ", side by side" : ""}.`,
+            },
           ],
         };
       } catch (error) {

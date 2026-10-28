@@ -25,7 +25,8 @@ import { isDiagram } from "../src/canvas";
 import { drawDiagram, drawnDiagram } from "./diagrams";
 import { keywordsIn, paintKeywords } from "./keywords";
 import { copyLink, hyperlink } from "./links";
-import { drawsImages, ImageView, isReady } from "./pictures";
+import { Figure, type FigureLinks } from "./figure";
+import { drawsImages, isReady } from "./pictures";
 import { PALETTE } from "./theme";
 
 const CALLOUTS: Record<Callout, { color: string; title: string }> = {
@@ -55,11 +56,11 @@ const VOICES: Record<Voice, { text: { bold?: boolean; italic?: boolean; color?: 
 };
 
 /**
- * How Claude's diagram fences (mermaid, dot, d2, vega-lite) are drawn. `rows`: as pictures at most
- * this tall, once they're drawn. `start`: start drawing them, but show their source meanwhile, as a
- * reply still being written does.
+ * How Claude's diagram fences (mermaid, dot, d2, vega-lite) are drawn. `rows`: as figures at most
+ * this tall, once they're drawn, with `links` under them. `start`: start drawing them, but show
+ * their source meanwhile, as a reply still being written does.
  */
-export type Diagrams = { rows: number } | "start";
+export type Diagrams = { rows: number; links?: FigureLinks } | "start";
 
 /** `copyable`: code blocks get a `copy` a click acts on, in full screen, where the mouse is astrocode's. */
 export function Markdown({ text, width, voice = "claude", copyable = false, diagrams }: { text: string; width: number; voice?: Voice; copyable?: boolean; diagrams?: Diagrams }) {
@@ -87,9 +88,7 @@ function BlockView({ block, width, voice, copyable, diagrams }: { block: Block; 
       if (diagram && "image" in diagram && isReady(diagram.image) && typeof diagrams === "object") {
         return (
           <Box paddingLeft={indent}>
-            <Panel label={block.language} action={action} width={width - indent}>
-              <ImageView image={diagram.image} width={width - indent - 2} rows={diagrams.rows} />
-            </Panel>
+            <Figure shown={[{ image: diagram.image, caption: block.language, source }]} width={width - indent} rows={diagrams.rows} links={diagrams.links} />
           </Box>
         );
       }

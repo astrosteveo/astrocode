@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { EFFORTS, isEffort, MODES, type CommandInfo } from "../src/events";
+import { EFFORTS, isEffort, MODES, type CommandInfo, type ImageAttachment } from "../src/events";
 import { historyEvents, loadHistory, savedSessions, sessionTitle, shellMessages, type SavedSession } from "../src/history";
 import { addMemory, memoryFiles, type MemoryFile } from "../src/memory";
 import type { AgentSession, Sending } from "../src/session";
@@ -38,7 +38,9 @@ import { FoldView, ItemView, LiveView, opensByDefault } from "./entries";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
 import { keyFor, keyLabel } from "./keys";
-import { copiedBy, openLink } from "./links";
+import { galleryOf, linkedBy, pageFile } from "./figure";
+import { Lightbox } from "./lightbox";
+import { copiedBy, openFile, openLink } from "./links";
 import type { Outcome } from "./manager";
 import { ANSI } from "./markdown";
 import { fit } from "./markdown-view";
@@ -47,7 +49,7 @@ import { MemoryPanel } from "./memory";
 import { ModelPicker } from "./model-picker";
 import { MouseContext } from "./mouse";
 import { Picker, type PickerItem } from "./picker";
-import { pictureRows, resendPictures } from "./pictures";
+import { drawsImages, pictureRows, resendPictures } from "./pictures";
 import { PermissionsPanel } from "./permissions";
 import { PluginManager } from "./plugins";
 import { Prompt } from "./prompt";
@@ -99,6 +101,8 @@ type Overlay =
   | { kind: "remote" }
   /** Finding text in full screen's transcript. */
   | { kind: "find" }
+  /** The conversation's pictures, as large as they go, opened on one of them. */
+  | { kind: "picture"; image: ImageAttachment }
   | null;
 
 /** Why fast mode can't be on, by Claude Code's reason. */
@@ -137,6 +141,7 @@ const HELP = [
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
   "/mcp, /permissions, /memory, /skills, /hooks, /sandbox and /status show Claude Code's MCP servers, permission rules, memory, skills, hooks, sandbox and status, and change what can be changed.",
   "/btw asks a question on the side while Claude works. /copy copies Claude's last reply, /export saves or copies the conversation, and /output-style picks how Claude writes.",
+  "/pictures shows the conversation's pictures as large as they go: ← and → flip through them, o opens one in your image viewer, b opens a mockup in your browser.",
   "/remote-control (or /rc) lets you carry on with this session from claude.ai or the Claude app: it shows the session's link and a QR code to scan with your phone. ⇄ remote in the status bar says it's on, and /remote-control off turns it off.",
   "/config changes the model, effort, thinking, mode, to-do list, full screen, notifications, when plan usage shows, keeping the cache warm, agent progress and Remote Control, and keeps them for next time, except plan mode, max effort and ultracode. /fullscreen switches layouts.",
   "The status bar's cache says how long the prompt cache stays warm; past that, your next message re-caches the conversation. With keep warm on (/config, or click it in full screen) it shows ↻, and astrocode refreshes the cache before it expires while you're away, for up to 8 hours.",
@@ -148,6 +153,7 @@ const FULLSCREEN_HELP = [
   "Drag to copy, double-click to copy a word, triple-click to copy a line.",
   "Click a tool call or a command to open it (a running one shows its live output), a run of tool calls folded into one row to unfold it, an option to choose it, the mode, the model or the effort to change it.",
   "Click copy on a code block to copy it, and a turn's closing line to list the files it changed and the commands it ran.",
+  "Click a picture to enlarge it, with ← and → to flip through the others.",
   "Hold Shift to select with the terminal's own selection instead.",
 ].join("\n");
 
@@ -530,8 +536,25 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     setToast(lines > 1 ? `Copied ${plural(lines, "line")}` : `Copied ${plural([...text].length, "character")}`);
   };
 
-  /** A link clicked in full screen, opened in the desktop's browser, or a code block's `copy`. */
+  /** A file astrocode wrote, such as a picture or a mockup, opened in the desktop's viewer or browser. */
+  const openWritten = (path: string) =>
+    void openFile(path).then((opened) => {
+      if (opened) setToast(path.endsWith(".html") ? "Opening the page in your browser" : "Opening the picture");
+      else notice("error", `Couldn't open ${path}: there's no xdg-open here, or no desktop for it to open on.`);
+    });
+
+  /** The lightbox, on `image`, or on the newest picture. */
+  const openPictures = (image?: ImageAttachment) => {
+    if (!drawsImages) return notice("info", "astrocode draws pictures only in kitty, outside tmux and screen.");
+    const newest = image ?? galleryOf(state.items).at(-1)?.image;
+    if (!newest) return notice("info", "There are no pictures in this conversation yet.");
+    setOverlay({ kind: "picture", image: newest });
+  };
+
+  /** A link clicked in full screen, opened in the desktop's browser, a code block's `copy`, or a figure's link. */
   const openAddress = (url: string) => {
+    const figure = linkedBy(url);
+    if (figure) return "image" in figure ? openPictures(figure.image) : openWritten(pageFile(figure.html));
     const code = copiedBy(url);
     if (code !== undefined) {
       copy(code);
@@ -678,6 +701,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         return pickEffort(argument);
       case "/output":
         return setOverlay({ kind: "output" });
+      case "/pictures":
+        return openPictures();
       case "/plugins":
       case "/plugin":
         return setOverlay({ kind: "plugins" });
@@ -931,6 +956,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       argumentHint: state.ultracodeAvailable ? "[low|medium|high|xhigh|max|ultracode]" : "[low|medium|high|xhigh|max]",
     },
     { name: "output", description: "Open a tool call's whole output (Ctrl+O)", argumentHint: "" },
+    { name: "pictures", description: "The conversation's pictures as large as they go, to flip through or open", argumentHint: "" },
     { name: "rewind", description: "Go back to an earlier message, its files, or both (Esc Esc)", argumentHint: "" },
     { name: "tasks", description: "What runs in the background and your ! commands, to watch or stop", argumentHint: "" },
     { name: "plugins", description: "Install, turn on or off, and remove plugins", argumentHint: "" },
@@ -972,6 +998,21 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
 
   const picker = () => {
     switch (overlay?.kind) {
+      case "picture":
+        return (
+          <Lightbox
+            gallery={galleryOf(state.items)}
+            start={overlay.image}
+            width={width}
+            rows={rows}
+            onClose={close}
+            onOpen={openWritten}
+            onCopy={(text) => {
+              copy(text);
+              setToast(`Copied ${plural(text.split("\n").length, "line")} of source`);
+            }}
+          />
+        );
       case "model":
         return (
           <ModelPicker
@@ -1421,6 +1462,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         onToggle={toggleTool}
         onCopy={copySelection}
         onOpen={openAddress}
+        onPicture={openPictures}
         find={overlay?.kind === "find" ? find : null}
         onMatches={setMatchCount}
       >

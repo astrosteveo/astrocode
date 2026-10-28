@@ -11,7 +11,7 @@ import { Diff, editLines } from "./diff";
 import { fileUrl, hyperlink } from "./links";
 import { cellWidth, printable } from "./markdown";
 import { fit } from "./markdown-view";
-import { isReady, Pictures } from "./pictures";
+import { Figure, shownOf, type FigureLinks } from "./figure";
 import { PALETTE } from "./theme";
 
 export const STATUS = {
@@ -30,14 +30,25 @@ const OUTPUT_LINES = 12;
 
 /** `pictureRows`: how tall a picture the result carried may be. */
 /** `fileLink`: the file the call acts on is a link the terminal opens, in scrollback. */
-type Props = { call: ToolCall; waiting?: boolean; cwd: string; home: string; width: number; pictureRows: number; detailed?: boolean; fileLink?: boolean };
+/** `links`: what the links under the result's pictures are. */
+type Props = {
+  call: ToolCall;
+  waiting?: boolean;
+  cwd: string;
+  home: string;
+  width: number;
+  pictureRows: number;
+  detailed?: boolean;
+  fileLink?: boolean;
+  links?: FigureLinks;
+};
 
 /** The node a tool call shows on the rail. */
 export function toolNode(call: ToolCall, waiting: boolean) {
   return STATUS[waiting ? "waiting" : call.status];
 }
 
-export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, detailed = false, fileLink = false }: Props) {
+export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, detailed = false, fileLink = false, links }: Props) {
   const status = waiting ? "waiting" : call.status;
   const name = toolLabel(call.name);
   const summary = toolSummary(call, waiting);
@@ -60,13 +71,10 @@ export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, 
       </Box>
       {detailed ? <Detail call={call} width={width} /> : null}
       {/* What Claude shows you on purpose may take the whole screen; a picture a tool returned, half. */}
-      {detailed ? <Pictures images={picturesOf(call)} width={width} rows={call.name === SHOW_TOOL ? pictureRows * 2 : pictureRows} /> : null}
+      {detailed ? <Figure shown={shownOf(call)} width={width} rows={call.name === SHOW_TOOL ? pictureRows * 2 : pictureRows} links={links} /> : null}
     </Box>
   );
 }
-
-/** The pictures a finished call's row draws under it: the images its result carried, where the terminal draws them. */
-export const picturesOf = (call: ToolCall) => (call.status === "done" ? (call.images ?? []).filter(isReady) : []);
 
 /** The row for a tool call Claude is still writing. */
 export function DraftRow({ name }: { name: string }) {

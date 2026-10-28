@@ -4,6 +4,7 @@
 // astrocode's, so a click on a link opens it here.
 import { spawn } from "node:child_process";
 import { hostname } from "node:os";
+import { isAbsolute } from "node:path";
 
 /**
  * An address in running text: up to a space or a quote, ending before a full stop, comma or
@@ -56,12 +57,21 @@ export function linked(text: string) {
 
 /** Opens a web address with the desktop's own opener. False when there's none to open it with. */
 export function openLink(url: string): Promise<boolean> {
+  return isWebLink(url) ? openWith(url) : Promise.resolve(false);
+}
+
+/** Opens a file astrocode wrote itself, such as a picture, with the desktop's own opener. */
+export function openFile(path: string): Promise<boolean> {
+  return isAbsolute(path) ? openWith(path) : Promise.resolve(false);
+}
+
+function openWith(target: string): Promise<boolean> {
   const opener = process.platform === "darwin" ? "open" : process.env.WAYLAND_DISPLAY || process.env.DISPLAY ? "xdg-open" : null;
-  if (!opener || !isWebLink(url)) return Promise.resolve(false);
+  if (!opener) return Promise.resolve(false);
   return new Promise((resolve) => {
     try {
       // Its own session and no terminal, so a text-mode browser it falls back to can't draw over Ink.
-      const child = spawn(opener, [url], { stdio: "ignore", detached: true });
+      const child = spawn(opener, [target], { stdio: "ignore", detached: true });
       child.on("error", () => resolve(false));
       child.on("spawn", () => {
         child.unref();
