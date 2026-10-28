@@ -5,7 +5,7 @@
 import { basename } from "node:path";
 import { useEffect, useRef, useState } from "react";
 import type { NotifyMode } from "../src/settings";
-import { permissionTitle } from "../src/view/permissions";
+import { askedBy, permissionTitle } from "../src/view/permissions";
 import type { Item, ShellItem, State } from "../src/view/state";
 import type { GitInfo } from "./git";
 import { trace, type TerminalWindow } from "./window";
@@ -65,7 +65,10 @@ export function useAttention({ state, window, notify, title, git }: Input) {
     for (const item of state.items.slice(Math.min(before.items, state.items.length))) send(turnMessage(item, state.items, focused));
     if (focused !== false) return;
     for (const item of state.items) if (item.kind === "shell" && before.running.has(item.id) && !running.has(item.id)) send(commandMessage(item));
-    for (const request of state.pending) if (!before.prompts.has(request.id)) send({ title: "Claude needs your permission", body: permissionTitle(request) });
+    for (const request of state.pending) {
+      const agent = askedBy(request, state.taskInfo);
+      if (!before.prompts.has(request.id)) send({ title: agent === undefined ? "Claude needs your permission" : "A subagent needs your permission", body: agent ? `${agent}: ${permissionTitle(request)}` : permissionTitle(request) });
+    }
     for (const request of state.questions) {
       if (!before.prompts.has(request.id)) send({ title: "Claude has a question", body: request.questions[0]?.question ?? "" });
     }

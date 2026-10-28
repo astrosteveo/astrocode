@@ -21,11 +21,11 @@ const PREVIEW_LINES = 12;
 /** Lines of a plan the prompt shows: more than a command's, since the plan is what's being approved. */
 const PLAN_LINES = 30;
 
-/** `pictureRows`: how tall a diagram in a plan may be. */
-type Props = { request: PermissionRequest; cwd: string; home: string; width: number; pictureRows: number; onDecide: (choice: Choice) => void };
+/** `pictureRows`: how tall a diagram in a plan may be. `agent`: the subagent that asks, as `askedBy()` names it. */
+type Props = { request: PermissionRequest; agent?: string; cwd: string; home: string; width: number; pictureRows: number; onDecide: (choice: Choice) => void };
 
 /** Choose with the arrow keys and Enter, press a number, or click an option. Esc or Ctrl+C denies. */
-export function DecisionPrompt({ request, cwd, home, width, pictureRows, onDecide }: Props) {
+export function DecisionPrompt({ request, agent, cwd, home, width, pictureRows, onDecide }: Props) {
   const always = alwaysLabel(request.alwaysAllow, home);
   // Approving a plan is leaving plan mode to carry it out; saying no keeps Claude planning.
   const plan = request.toolName === "ExitPlanMode";
@@ -70,6 +70,12 @@ export function DecisionPrompt({ request, cwd, home, width, pictureRows, onDecid
   const inner = width - 2;
   return (
     <Panel width={width} accent={PALETTE.gold}>
+      {agent !== undefined ? (
+        <Text wrap="truncate-end">
+          <Text color={PALETTE.dust}>{"subagent  "}</Text>
+          <Text color={PALETTE.teal}>{agent || "asks from inside a workflow"}</Text>
+        </Text>
+      ) : null}
       <Text bold color={PALETTE.star}>
         {permissionTitle(request)}
       </Text>

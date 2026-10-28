@@ -16,6 +16,7 @@ import { runShell } from "../src/shell";
 import { saveStash } from "../src/stash";
 import { ago, canStopThinking, currentModel, duration } from "../src/view/format";
 import { isCurrent, steps, titleWorthy } from "../src/view/steps";
+import { askedBy } from "../src/view/permissions";
 import { findRunning, runningKeyOf, runningList, type Running } from "../src/view/runs";
 import type { Item, State } from "../src/view/state";
 import { todoList } from "../src/view/todos";
@@ -1362,7 +1363,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       onAnswer={(answer) => session.answerElicitation(elicitation.id, answer)}
     />
   ) : request ? (
-    <DecisionPrompt key={request.id} request={request} {...view} onDecide={(decision) => session.decide(request.id, decision)} />
+    <DecisionPrompt key={request.id} request={request} agent={askedBy(request, state.taskInfo)} {...view} onDecide={(decision) => session.decide(request.id, decision)} />
   ) : (
     picker()
   );

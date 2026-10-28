@@ -776,7 +776,7 @@ export class AgentSession {
         blockedPath: context.blockedPath,
         alwaysAllow: context.suppressAlwaysAllowRule ? undefined : narrowest(context.suggestions),
         defaultToNo: context.defaultToNo,
-        fromSubagent: context.agentID !== undefined,
+        agentId: context.agentID,
       };
       this.permissions.set(id, { run, value: request, resolve });
       context.signal.addEventListener("abort", () => this.withdraw(id), { once: true });
