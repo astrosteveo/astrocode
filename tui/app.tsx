@@ -61,7 +61,7 @@ import { RemotePanel } from "./remote";
 import { GUTTER } from "./rail";
 import { SandboxPanel } from "./sandbox";
 import { Screen } from "./screen";
-import { arrange, stepOpens, type Entry } from "./arrange";
+import { arrange, stepOpens, stepStartsOpen, type Entry } from "./arrange";
 import { SessionPreview } from "./session-preview";
 import { SkillsPanel } from "./skills";
 import { StatusBar } from "./status";
@@ -253,6 +253,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   useEffect(() => {
     setExpanded(new Set());
     setReveal(null);
+    setSeenOpen(store.seenOpen);
   }, [store.epoch]);
 
   // An Agent call waits for you while its subagent, or one under it, does.
@@ -261,6 +262,26 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     ...state.questions.map((request) => request.id),
     ...state.items.flatMap((item) => (item.kind === "tool" && item.call.subagent?.waitingOn ? [item.call.id] : [])),
   ]);
+  const waitingKey = [...waiting].join(" ");
+
+  // A step open on screen is remembered, so it stays open once Claude moves on (`stepStartsOpen()`).
+  const [seenOpen, setSeenOpen] = useState(store.seenOpen);
+  const keepSeen = (next: ReadonlySet<string>) => {
+    store.seenOpen = next;
+    setSeenOpen(next);
+  };
+  useEffect(() => {
+    const opening = [...steps(state.items).values()].filter((step) => stepOpens(state, step, waiting) && !store.seenOpen.has(step.key));
+    if (opening.length) keepSeen(new Set([...store.seenOpen, ...opening.map((step) => step.key)]));
+  }, [state.items, state.busy, waitingKey, store.epoch]);
+  /** Steps kept open that full screen has scrolled out of sight, closed now that closing them can't move what you see. */
+  const outOfSight = (keys: string[]) => {
+    const seen = new Set(store.seenOpen);
+    for (const key of keys) seen.delete(key);
+    keepSeen(seen);
+    setExpanded((open) => (keys.some((key) => open.has(key)) ? new Set([...open].filter((key) => !keys.includes(key))) : open));
+  };
+
   const question = state.questions[0];
   const elicitation = state.elicitations[0];
   const request = state.pending[0];
@@ -528,7 +549,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       if (opensByDefault(item)) next.delete(item.key);
       else next.add(item.key);
       if (step) {
-        if (stepOpens(state, step, waiting)) next.delete(step.key);
+        if (stepStartsOpen(state, step, waiting, store.seenOpen)) next.delete(step.key);
         else next.add(step.key);
       }
       return next;
@@ -1512,6 +1533,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         columns={width}
         rows={rows}
         expanded={expanded}
+        seenOpen={seenOpen}
+        onOutOfSight={outOfSight}
         waiting={waiting}
         reveal={reveal}
         keys={!overlay}
@@ -1529,9 +1552,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
 
   const settled = settledSteps(state, settledCount(state.items, waiting));
   // What's written for good is arranged on its own, as of a turn that's over, so it can't change later.
-  const written = arrange({ ...state, items: state.items.slice(0, settled), busy: false }, waiting, NONE);
+  const written = arrange({ ...state, items: state.items.slice(0, settled), busy: false }, waiting, NONE, seenOpen);
   const entries: ({ kind: "banner"; key: string } | Entry)[] = [{ kind: "banner", key: "banner" }, ...written];
-  const unsettled = arrange(state, waiting, NONE).filter((entry) => entry.index >= settled);
+  const unsettled = arrange(state, waiting, NONE, seenOpen).filter((entry) => entry.index >= settled);
   return (
     <>
       <Static key={store.epoch} items={entries}>

@@ -40,6 +40,10 @@ type Props = {
   columns: number;
   rows: number;
   expanded: ReadonlySet<string>;
+  /** Steps that were open on screen, which stay open while you can see them. */
+  seenOpen: ReadonlySet<string>;
+  /** Steps kept open that have gone out of sight, to close. */
+  onOutOfSight: (keys: string[]) => void;
   waiting: ReadonlySet<string>;
   /** A tool call to scroll to, from the output browser. */
   reveal: { key: string } | null;
@@ -60,14 +64,14 @@ type Props = {
   children: ReactNode;
 };
 
-export function Screen({ state, epoch, branch, columns, rows: height, expanded, waiting, reveal, keys, onToggle, onCopy, onOpen, onPicture, find: search, onMatches, children }: Props) {
+export function Screen({ state, epoch, branch, columns, rows: height, expanded, seenOpen, onOutOfSight, waiting, reveal, keys, onToggle, onCopy, onOpen, onPicture, find: search, onMatches, children }: Props) {
   // A column for the scrollbar and one to keep it off the text.
   const width = Math.max(10, columns - 2);
   const viewport = useRef<DOMElement>(null);
   const pill = useRef<DOMElement>(null);
   const metrics = useBoxMetrics(viewport);
   const view = Math.max(1, metrics.hasMeasured ? metrics.height : height - 6);
-  const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), branch, expanded, waiting });
+  const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), branch, expanded, seenOpen, waiting });
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [selection, setSelectionState] = useState<Selection | null>(null);
   /** The selection as of the last event, which may be newer than the last render. */
@@ -117,6 +121,15 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   const scrollable = total > view;
   const thumb = scrollable ? Math.max(1, Math.round((view * view) / total)) : 0;
   const thumbTop = scrollable && maxTop > 0 ? Math.round(((view - thumb) * top) / maxTop) : 0;
+
+  // A step Claude has moved on from closes once none of it is on screen. Following the end, or held
+  // by a row, the viewport keeps what it shows as the rows above or below it go. Not mid-drag,
+  // though, since a selection is held by row.
+  useEffect(() => {
+    if (drag.current) return;
+    const gone = [...transcript.kept].filter(([, [from, to]]) => to <= top || from >= top + view - pad).map(([key]) => key);
+    if (gone.length) onOutOfSight(gone);
+  }, [transcript, top, view, pad]);
 
   /** What handlers see: this render's numbers, moved along by events that haven't rendered yet. */
   const now = useRef({ transcript, top, maxTop, view, thumb, pad, following: anchor === null });

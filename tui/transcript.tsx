@@ -31,6 +31,8 @@ export type Transcript = {
   rows: Row[];
   /** Where each entry starts in `rows`. */
   starts: Map<string, number>;
+  /** The rows of each step kept open only because you saw it open, from its row to past its last call, by key. */
+  kept: Map<string, [number, number]>;
 };
 
 export type TranscriptInput = {
@@ -41,11 +43,13 @@ export type TranscriptInput = {
   branch?: string;
   /** Entries and steps opened or closed by a click, away from how they start (`opensByDefault()`, `stepOpens()`), by key. */
   expanded: ReadonlySet<string>;
+  /** Steps that were open on screen, which stay open while you can see them. */
+  seenOpen: ReadonlySet<string>;
   /** Tool calls waiting on a permission prompt or a question, by call id. */
   waiting: ReadonlySet<string>;
 };
 
-const EMPTY: Transcript = { rows: [], starts: new Map() };
+const EMPTY: Transcript = { rows: [], starts: new Map(), kept: new Map() };
 
 /** How long the width has to hold still before the transcript is drawn again for it. */
 const RESIZE_SETTLE_MS = 80;
@@ -67,9 +71,16 @@ function draw(owner: object, drawnFor: string, width: number, element: () => Rea
 }
 
 /** The whole transcript. Must run outside React's render, since renderToString renders with the same reconciler. */
-export function layout({ state, width, pictureRows, branch, expanded, waiting }: TranscriptInput): Transcript {
+export function layout({ state, width, pictureRows, branch, expanded, seenOpen, waiting }: TranscriptInput): Transcript {
   const rows: Row[] = [];
   const starts = new Map<string, number>();
+  const kept = new Map<string, [number, number]>();
+  /** The kept step whose calls are being laid out, and the index of the item past its last. */
+  let keeping: { key: string; end: number } | null = null;
+  const closeKept = () => {
+    if (keeping) kept.set(keeping.key, [starts.get(keeping.key) ?? rows.length, rows.length]);
+    keeping = null;
+  };
   const view = { cwd: state.cwd, home: state.home, width, pictureRows };
   wantPictures(state.items, width - GUTTER, pictureRows);
 
@@ -88,7 +99,8 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting }:
     0,
     0,
   );
-  for (const entry of arrange(state, waiting, expanded)) {
+  for (const entry of arrange(state, waiting, expanded, seenOpen)) {
+    if (keeping && entry.index >= keeping.end) closeKept();
     const { rail } = entry;
     const railed = `${rail.spaced}${rail.joined}${rail.through}`;
     if (entry.kind === "step") {
@@ -98,6 +110,7 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting }:
         <StepView step={row} rail={rail} open={open} width={width} />
       ));
       add(entry.key, lines, rail.spaced ? 1 : 0, GUTTER, true, open);
+      if (entry.kept) keeping = { key: entry.key, end: entry.end };
       continue;
     }
     const { item } = entry;
@@ -111,9 +124,10 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting }:
     ));
     add(item.key, lines, rail.spaced ? 1 : 0, GUTTER, opens, isOpen);
   }
+  closeKept();
   const live = state.live;
   if (live) add("live", draw(live, `${width}`, width, () => <LiveView live={live} width={width} />), 1, GUTTER);
-  return { rows, starts };
+  return { rows, starts, kept };
 }
 
 /**
@@ -153,7 +167,7 @@ export function useTranscript(input: TranscriptInput) {
     return () => {
       stale = true;
     };
-  }, [input.state.items, input.state.live, input.state.cwd, input.width, input.pictureRows, input.branch, input.expanded, waiting]);
+  }, [input.state.items, input.state.live, input.state.cwd, input.width, input.pictureRows, input.branch, input.expanded, input.seenOpen, waiting]);
 
   useEffect(
     () => () => {
