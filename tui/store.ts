@@ -50,6 +50,8 @@ export class Store {
   private held: ViewEvent[] = [];
   private waiting = false;
   private listeners = new Set<() => void>();
+  /** The interface is to be told of a change, once the events arriving with it are in. */
+  private notifying = false;
 
   constructor(
     private readonly cwd: string,
@@ -132,7 +134,18 @@ export class Store {
 
   getSnapshot = () => this.state;
 
+  /**
+   * Tells the interface the state changed, once for a run of events. Claude Code's messages often
+   * come in a burst, each a microtask after the last, and Ink draws each change at once. Drawn one by
+   * one, a burst of fifty or more counts as nested updates in React, which then gives up with
+   * "Maximum update depth exceeded" and takes Claude Code's stream down with it.
+   */
   private notify() {
-    for (const listener of this.listeners) listener();
+    if (this.notifying) return;
+    this.notifying = true;
+    setImmediate(() => {
+      this.notifying = false;
+      for (const listener of this.listeners) listener();
+    });
   }
 }
