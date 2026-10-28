@@ -3,11 +3,11 @@
 // redraw the rows on screen, and a selection knows exactly what text it covers.
 import { renderToString } from "ink";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { Item, State } from "../src/view/state";
+import type { Item, State, ToolCall } from "../src/view/state";
 import { Banner } from "./banner";
 import { arrange } from "./arrange";
-import { ItemView, LiveView, opensByDefault, StepView, turnWork } from "./entries";
-import { imagesOf, wantPictures } from "./pictures";
+import { ItemView, LiveView, opensByDefault, stepPieces, turnWork, type Piece, type StepRow } from "./entries";
+import { imagesOf, isReady, wantPictures } from "./pictures";
 import { GUTTER } from "./rail";
 
 /** A line of the transcript: its text with color codes, and the entry it belongs to. */
@@ -19,8 +19,10 @@ export type Row = {
   line: number;
   /** The entry's first line of content, which for a tool call is its row. */
   head: boolean;
-  /** A click here opens or closes the entry: any row of a tool call, a `!` command, a step, or a turn's closer that did work. */
+  /** A click here acts on the entry, or on its `target`: a tool call, a `!` command, a step's lines, or a turn's closer that did work. */
   hot: boolean;
+  /** What a click on the row acts on, where it isn't the entry: a call a step's line stands for, or the step. */
+  target?: string;
   /** The entry is open, with its whole output under its first row. */
   open: boolean;
   /** Cells the rail takes at the start of the row, which a selection leaves out. */
@@ -29,10 +31,8 @@ export type Row = {
 
 export type Transcript = {
   rows: Row[];
-  /** Where each entry starts in `rows`. */
+  /** Where each entry starts in `rows`, and each tool call's line in a step, by its item's key. */
   starts: Map<string, number>;
-  /** The rows of each step kept open only because you saw it open, from its row to past its last call, by key. */
-  kept: Map<string, [number, number]>;
 };
 
 export type TranscriptInput = {
@@ -41,15 +41,15 @@ export type TranscriptInput = {
   /** How tall a picture in an entry may be. */
   pictureRows: number;
   branch?: string;
-  /** Entries and steps opened or closed by a click, away from how they start (`opensByDefault()`, `stepOpens()`), by key. */
+  /** Entries and steps opened or closed by a click, away from how they start (`opensByDefault()`; steps start closed), by key. */
   expanded: ReadonlySet<string>;
-  /** Steps that were open on screen, which stay open while you can see them. */
-  seenOpen: ReadonlySet<string>;
   /** Tool calls waiting on a permission prompt or a question, by call id. */
   waiting: ReadonlySet<string>;
+  /** The call the inspector shows, whose line is marked. */
+  picked?: string;
 };
 
-const EMPTY: Transcript = { rows: [], starts: new Map(), kept: new Map() };
+const EMPTY: Transcript = { rows: [], starts: new Map() };
 
 /** How long the width has to hold still before the transcript is drawn again for it. */
 const RESIZE_SETTLE_MS = 80;
@@ -57,30 +57,46 @@ const RESIZE_SETTLE_MS = 80;
 /** Each entry's lines, kept with what they were drawn for. Items are replaced, not changed, when they change. */
 const drawn = new WeakMap<object, { drawnFor: string; lines: string[] }>();
 const BANNER = {};
-/** A step's row is kept by its first item, under an owner of its own, since the item has lines of its own too. */
+/** A step's lines are kept by its first item, under an owner of their own, since the item has lines of its own too. */
 const stepRows = new WeakMap<Item, object>();
 const stepOwner = (first: Item) => stepRows.get(first) ?? stepRows.set(first, {}).get(first)!;
+const drawnSteps = new WeakMap<object, { drawnFor: string; lines: string[]; targets: (string | undefined)[]; pieces: string[] }>();
 
 function draw(owner: object, drawnFor: string, width: number, element: () => ReactNode) {
   const kept = drawn.get(owner);
   if (kept?.drawnFor === drawnFor) return kept.lines;
-  const text = renderToString(element(), { columns: width });
-  const lines = text === "" ? [] : text.split("\n");
+  const lines = linesOf(element(), width);
   drawn.set(owner, { drawnFor, lines });
   return lines;
 }
 
+function linesOf(element: ReactNode, width: number) {
+  const text = renderToString(element, { columns: width });
+  return text === "" ? [] : text.split("\n");
+}
+
+/** A step's lines, each piece drawn on its own so each line knows what a click on it acts on. */
+function drawStep(owner: object, drawnFor: string, width: number, pieces: () => Piece[]) {
+  const kept = drawnSteps.get(owner);
+  if (kept?.drawnFor === drawnFor) return kept;
+  const lines: string[] = [];
+  const targets: (string | undefined)[] = [];
+  const keys: string[] = [];
+  for (const piece of pieces()) {
+    const drawn = linesOf(piece.node, width);
+    lines.push(...drawn);
+    targets.push(...drawn.map(() => piece.target));
+    keys.push(...drawn.map(() => piece.key));
+  }
+  const result = { drawnFor, lines, targets, pieces: keys };
+  drawnSteps.set(owner, result);
+  return result;
+}
+
 /** The whole transcript. Must run outside React's render, since renderToString renders with the same reconciler. */
-export function layout({ state, width, pictureRows, branch, expanded, seenOpen, waiting }: TranscriptInput): Transcript {
+export function layout({ state, width, pictureRows, branch, expanded, waiting, picked }: TranscriptInput): Transcript {
   const rows: Row[] = [];
   const starts = new Map<string, number>();
-  const kept = new Map<string, [number, number]>();
-  /** The kept step whose calls are being laid out, and the index of the item past its last. */
-  let keeping: { key: string; end: number } | null = null;
-  const closeKept = () => {
-    if (keeping) kept.set(keeping.key, [starts.get(keeping.key) ?? rows.length, rows.length]);
-    keeping = null;
-  };
   const view = { cwd: state.cwd, home: state.home, width, pictureRows };
   wantPictures(state.items, width - GUTTER, pictureRows);
 
@@ -99,18 +115,34 @@ export function layout({ state, width, pictureRows, branch, expanded, seenOpen, 
     0,
     0,
   );
-  for (const entry of arrange(state, waiting, expanded, seenOpen)) {
-    if (keeping && entry.index >= keeping.end) closeKept();
+  for (const entry of arrange(state, waiting, expanded)) {
     const { rail } = entry;
     const railed = `${rail.spaced}${rail.joined}${rail.through}`;
     if (entry.kind === "step") {
       const { row, open } = entry;
-      const summary = row.summary.map((group) => group.map((part) => part.text).join("")).join("|");
-      const lines = draw(stepOwner(entry.first), `${width}|${open}|${row.status}|${row.title}|${summary}|${row.span}|${railed}`, width, () => (
-        <StepView step={row} rail={rail} open={open} width={width} />
-      ));
-      add(entry.key, lines, rail.spaced ? 1 : 0, GUTTER, true, open);
-      if (entry.kept) keeping = { key: entry.key, end: entry.end };
+      const calls = row.flow.flatMap((one) => (one.kind === "row" ? one.row.calls : []));
+      const mine = picked !== undefined && calls.some((call) => call.id === picked) ? picked : undefined;
+      const drawn = drawStep(stepOwner(entry.first), `${width}|${pictureRows}|${open}|${mine}|${railed}|${signature(row)}`, width, () =>
+        stepPieces({ step: row, rail, open, width, picked: mine, pictureRows, links: "screen", cwd: state.cwd, home: state.home }),
+      );
+      const start = rows.length;
+      starts.set(entry.key, start);
+      drawn.lines.forEach((text, line) => {
+        // The row that sets the step apart from the entry before isn't part of what a click acts on.
+        const target = rail.spaced && line === 0 ? undefined : drawn.targets[line];
+        rows.push({ text, key: entry.key, line, head: target !== undefined, hot: target !== undefined, open: false, inset: GUTTER, target });
+      });
+      // Each call's line, for scrolling to a call and for Alt+Shift+↑ and ↓. A call a closed step
+      // leaves out is at the step's row.
+      for (const one of row.flow) {
+        if (one.kind !== "row") continue;
+        const at = drawn.pieces.indexOf(`row:${one.row.calls[0]!.id}`);
+        for (const call of one.row.calls) {
+          const index = state.tools[call.id];
+          const item = index === undefined ? undefined : state.items[index];
+          if (item) starts.set(item.key, at === -1 ? start : start + at);
+        }
+      }
       continue;
     }
     const { item } = entry;
@@ -124,10 +156,18 @@ export function layout({ state, width, pictureRows, branch, expanded, seenOpen, 
     ));
     add(item.key, lines, rail.spaced ? 1 : 0, GUTTER, opens, isOpen);
   }
-  closeKept();
   const live = state.live;
   if (live) add("live", draw(live, `${width}`, width, () => <LiveView live={live} width={width} />), 1, GUTTER);
-  return { rows, starts, kept };
+  return { rows, starts };
+}
+
+/** What a step's lines are drawn from, so they're drawn again only when that changes. */
+function signature(row: StepRow) {
+  return JSON.stringify(row, (key, value: unknown) => {
+    if (key !== "calls" || !Array.isArray(value)) return value;
+    // A call shows its pictures once they're ready, and a running subagent its latest calls.
+    return (value as ToolCall[]).map((call) => [call.id, call.subagent ?? null, (call.images ?? []).map(isReady)]);
+  });
 }
 
 /**
@@ -167,7 +207,7 @@ export function useTranscript(input: TranscriptInput) {
     return () => {
       stale = true;
     };
-  }, [input.state.items, input.state.live, input.state.cwd, input.width, input.pictureRows, input.branch, input.expanded, input.seenOpen, waiting]);
+  }, [input.state.items, input.state.live, input.state.cwd, input.width, input.pictureRows, input.branch, input.expanded, input.picked, waiting]);
 
   useEffect(
     () => () => {

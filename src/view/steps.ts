@@ -3,7 +3,7 @@
 // title (a long explanation, a reply) stays as it is. Without a sentence to use, a title is made
 // from the calls. Calls that show you something on purpose (a picture, a plan, a question) stand
 // apart, since a closed step would hide them.
-import { field, plural, SHOW_TOOL, shortPath, toolLabel, toolTarget } from "./tools";
+import { SHOW_TOOL, shortPath, toolLabel, toolTarget } from "./tools";
 import type { Item, ToolItem } from "./state";
 
 /** Calls that stay out of steps, drawn whole. */
@@ -109,26 +109,31 @@ export function titleOf(text: string) {
 /** What the step is called, and whether it was made from its calls for want of a sentence. */
 export function stepTitle(step: Step, cwd: string, home: string): { text: string; made: boolean } {
   if (step.title) return { text: titleOf(step.title.text), made: false };
-  // Consecutive calls of one tool read as one phrase: `Read queue.ts, fixtures.ts`.
+  // Consecutive calls of one tool read as one phrase: `Read queue.ts and fixtures.ts`.
   const phrases: string[] = [];
-  /** Phrases from Claude's descriptions, which read on in lower case; a tool's name keeps its capital. */
+  /** Phrases from Claude's descriptions and tools that read as verbs, which read on in lower case; a tool's name keeps its capital. */
   const said = new Set<number>();
   let last = "";
-  for (const { call } of step.calls) {
-    // A command reads best by what Claude said it does.
+  const calls = step.calls.filter(({ call }) => !SETUP.has(call.name));
+  for (const { call } of calls.length ? calls : step.calls) {
+    // A command or a subagent reads best by what Claude said it does.
     const description = typeof call.input.description === "string" ? call.input.description.trim() : "";
-    if (call.name === "Bash" && description) {
+    if ((call.name === "Bash" || call.name === "Agent" || call.name === "Task") && description) {
       said.add(phrases.length);
       phrases.push(description);
       last = "";
       continue;
     }
-    const label = toolLabel(call.name);
+    const action = ACTIONS[call.name];
+    const label = action ?? toolLabel(call.name);
     const target = shortTarget(call, cwd, home);
+    if (label === last && phrases.length) {
+      phrases[phrases.length - 1] += target ? ` and ${target}` : "";
+      continue;
+    }
     // Claude Code's own tools are verbs, and read on like Claude's words.
-    if (VERBS.has(call.name)) said.add(phrases.length);
-    if (label === last && phrases.length) phrases[phrases.length - 1] += target ? ` and ${target}` : "";
-    else phrases.push(target ? `${label} ${target}` : label);
+    if (action) said.add(phrases.length);
+    phrases.push(target ? `${label} ${target}` : label);
     last = label;
   }
   // Phrases after the first read on as one sentence: `Find the test, read retry.ts`.
@@ -136,107 +141,34 @@ export function stepTitle(step: Step, cwd: string, home: string): { text: string
   return { text: [phrases[0] ?? "", ...rest].join(", "), made: true };
 }
 
-/** Tools whose names read as verbs in a title: `read math.js`. */
-const VERBS = new Set(["Read", "Edit", "Write"]);
+/** Claude Code's tools as the verbs a title made from them uses: `Read math.js`, `Fetch example.com`. */
+const ACTIONS: Record<string, string> = {
+  Read: "Read",
+  Edit: "Edit",
+  MultiEdit: "Edit",
+  NotebookEdit: "Edit",
+  Write: "Write",
+  Grep: "Search for",
+  Glob: "Find",
+  WebFetch: "Fetch",
+  WebSearch: "Search the web for",
+  TodoWrite: "Update the to-dos",
+  Skill: "Load",
+};
 
-/** A target short enough for a title: a file's name without its folder. */
+/** Calls that only make other tools ready, which a title leaves out when the step has others. */
+const SETUP = new Set(["ToolSearch"]);
+
+/** A target short enough for a title: a file's name without its folder, a page without its scheme. */
 function shortTarget(call: ToolItem["call"], cwd: string, home: string) {
   const target = toolTarget(call, cwd, home);
-  return call.name === "Read" || call.name === "Edit" || call.name === "Write" ? basename(target) : target;
+  if (call.name === "TodoWrite") return "";
+  if (call.name === "WebFetch") return target.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  if (call.name === "Grep" || call.name === "Glob") return String(call.input.pattern ?? target);
+  return ["Read", "Edit", "MultiEdit", "NotebookEdit", "Write"].includes(call.name) ? basename(target) : target;
 }
 
 const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1) || path;
-
-/** A piece of a step's summary; `tone` colors it. */
-export type Part = { text: string; tone: "plain" | "added" | "removed" | "failed" };
-
-/** What each kind of call counts as. */
-const COUNTED: Record<string, string> = {
-  Read: "read",
-  Grep: "search",
-  Glob: "search",
-  WebFetch: "web",
-  WebSearch: "web",
-  Task: "agent",
-  Agent: "agent",
-};
-
-/**
- * What the step did, at a glance: `edit queue.ts +9 −4 · $ bun test · read 3`. Edits and commands
- * come first, since they're what changed something; failures are counted in rose.
- */
-export function stepSummary(step: Step, cwd: string, home: string): Part[][] {
-  const groups: Part[][] = [];
-  const edits = step.calls.filter(({ call }) => call.name === "Edit" || call.name === "Write" || call.name === "MultiEdit" || call.name === "NotebookEdit");
-  if (edits.length) {
-    const files = new Set(edits.map(({ call }) => String(call.input.file_path ?? call.input.notebook_path ?? "")));
-    let added = 0;
-    let removed = 0;
-    for (const { call } of edits) {
-      const counts = changed(call);
-      added += counts.added;
-      removed += counts.removed;
-    }
-    const verb = edits.every(({ call }) => call.name === "Write") ? "write" : "edit";
-    const what = files.size === 1 ? basename(shortPath([...files][0]!, cwd, home)) : `${files.size} files`;
-    const group: Part[] = [{ text: `${verb} ${what}`, tone: "plain" }];
-    if (added) group.push({ text: ` +${added}`, tone: "added" });
-    if (removed) group.push({ text: ` −${removed}`, tone: "removed" });
-    groups.push(group);
-  }
-  const commands = step.calls.filter(({ call }) => call.name === "Bash");
-  if (commands.length) {
-    const failed = commands.filter(({ call }) => call.status === "error").length;
-    // One command shows itself, unless it's a script that reads as noise in a line.
-    const command = commands.length === 1 ? String(commands[0]!.call.input.command ?? "") : "";
-    const one = command && !command.includes("\n") && !command.includes("<<") ? `$ ${toolTarget(commands[0]!.call, cwd, home)}` : plural(commands.length, "command");
-    const group: Part[] = [{ text: one, tone: "plain" }];
-    if (failed) group.push({ text: commands.length === 1 ? " ✗" : ` ✗${failed}`, tone: "failed" });
-    groups.push(group);
-  }
-  const counts = new Map<string, number>();
-  for (const { call } of step.calls) {
-    if (call.name === "Bash" || edits.some((edit) => edit.call === call)) continue;
-    const noun = COUNTED[call.name] ?? "other";
-    counts.set(noun, (counts.get(noun) ?? 0) + 1);
-  }
-  for (const [noun, count] of counts) groups.push([{ text: `${noun} ${count}`, tone: "plain" }]);
-  const failed = step.calls.filter(({ call }) => call.name !== "Bash" && call.status === "error").length;
-  if (failed) groups.push([{ text: `${failed} failed`, tone: "failed" }]);
-  return groups;
-}
-
-/** Lines an edit or write added and removed, from Claude Code's patch where it gave one. */
-export function changed(call: ToolItem["call"]) {
-  const hunks = field(call.output, "structuredPatch");
-  if (Array.isArray(hunks) && hunks.length) {
-    let added = 0;
-    let removed = 0;
-    for (const hunk of hunks) {
-      const lines = field(hunk, "lines");
-      for (const line of Array.isArray(lines) ? lines.map(String) : []) {
-        if (line.startsWith("+")) added += 1;
-        else if (line.startsWith("-")) removed += 1;
-      }
-    }
-    return { added, removed };
-  }
-  const text = (key: string) => (typeof call.input[key] === "string" ? (call.input[key] as string) : "");
-  if (call.name === "Write") return { added: text("content").split("\n").length, removed: 0 };
-  // Lines each side has that the other doesn't, counted as a multiset.
-  const before = text("old_string").split("\n");
-  const after = text("new_string").split("\n");
-  const left = new Map<string, number>();
-  for (const line of before) left.set(line, (left.get(line) ?? 0) + 1);
-  let added = 0;
-  for (const line of after) {
-    const count = left.get(line) ?? 0;
-    if (count) left.set(line, count - 1);
-    else added += 1;
-  }
-  const removed = [...left.values()].reduce((sum, count) => sum + count, 0);
-  return { added, removed };
-}
 
 /**
  * How the step is going. It has `failed` when its last call failed; a failure Claude got past

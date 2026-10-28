@@ -29,6 +29,14 @@ export function duration(ms: number) {
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
 
+/** How long something took, to a tenth of a second under ten seconds: `0.4s`, `6.2s`, `1m 12s`. */
+export function took(ms: number) {
+  return ms < 10_000 ? `${(Math.max(0, ms) / 1000).toFixed(1)}s` : duration(ms);
+}
+
+/** Whether a time is long enough to be worth saying: under a tenth of a second it would read `0.0s`. */
+export const timed = (ms: number | undefined): ms is number => ms !== undefined && ms >= 100;
+
 /** 1234 reads as 1.2k. */
 export function compact(count: number) {
   if (count < 1000) return String(count);

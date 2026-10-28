@@ -82,7 +82,7 @@ export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, 
  * you, and each subagent it started, indented under the one that started it, with what that one is
  * doing while it runs.
  */
-function SubagentLines({ call, cwd, home, width }: { call: ToolCall; cwd: string; home: string; width: number }) {
+export function SubagentLines({ call, cwd, home, width }: { call: ToolCall; cwd: string; home: string; width: number }) {
   const { last, nested, waitingOn } = call.subagent ?? { nested: [] };
   const latest = (one: SubagentCall | undefined, depth: number) =>
     // A subagent waiting on one it started shows that one instead.

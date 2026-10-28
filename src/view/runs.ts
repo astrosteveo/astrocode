@@ -122,6 +122,12 @@ export function runInsight(run: Run): { text: string; tone: Tone } {
   return { text: line || "No output", tone: line && run.status === "error" ? "failed" : "quiet" };
 }
 
+/** The one line a run printed, when it printed only one, such as `42` or a commit's hash; else empty. */
+export function onlyLine(run: Run) {
+  const lines = meaningful([run.stdout, run.stderr].filter((text) => text.trim()).join("\n"));
+  return lines.length === 1 ? lines[0]! : "";
+}
+
 /** Lines of a failed command's errors its card keeps. */
 export const FAILURE_LINES = 3;
 
@@ -143,6 +149,41 @@ export function failureLines(run: Run, count: number) {
 /** A running command's last `count` lines, for its live card. */
 export function tailLines(run: Run, count: number) {
   return run.stdout.replace(/\n+$/, "").split("\n").slice(-count);
+}
+
+/** A line that reads as an error: a test that failed, a compiler's or tool's error, a crash. */
+const ERROR_WORDS = /(?:^|\s)(?:✗|✕|×)\s|\(fail\)|\bFAIL(?:ED)?\b|\b(?:error|fatal|panic)(?:\[[^\]]*\]| [A-Z]+\d+)?:|\b\w*(?:Error|Exception)\b|No such file|not found|[Pp]ermission denied|command not found/;
+/** An exception's own line, as Python and Node print it: `AssertionError: add(2, 3) = -1`. */
+const EXCEPTION = /^[\w.$]*(?:Error|Exception)(?:\[[^\]]*\])?: \S/;
+
+/**
+ * The line of a failed run that says the most about why: an exception's own line, else the first
+ * that reads as an error, in what it printed as errors or in the end of what it printed, else its
+ * last line. A traceback's heading says only that one follows.
+ */
+export function failureLine(run: Run) {
+  if (run.status !== "error") return "";
+  const lines = (run.stderr.trim() ? meaningful(run.stderr) : meaningful(run.stdout).slice(-60)).filter((line) => !/^Traceback \(most recent call last\)/.test(line));
+  return lines.findLast((line) => EXCEPTION.test(line)) ?? lines.find((line) => ERROR_WORDS.test(line)) ?? lines.at(-1) ?? "";
+}
+
+const COUNTS = [
+  { pattern: /(\d+)\s+(?:tests?\s+)?pass(?:ed|es|ing)?\b/gi, word: "passed", failed: false },
+  { pattern: /(\d+)\s+(?:tests?\s+)?fail(?:ed|s|ing|ures?)?\b/gi, word: "failed", failed: true },
+  { pattern: /(\d+)\s+(?:tests?\s+)?skip(?:ped|s)?\b/gi, word: "skipped", failed: false },
+];
+
+/**
+ * A test run's counts, from the summary test runners print last: `47 passed`, `1 failed`. Counts
+ * of none are left out, and so is everything when the output has no such summary.
+ */
+export function testCounts(text: string): { text: string; failed: boolean }[] {
+  const tail = meaningful(text).slice(-30).join("\n");
+  return COUNTS.flatMap(({ pattern, word, failed }) => {
+    const last = [...tail.matchAll(pattern)].at(-1);
+    const count = Number(last?.[1] ?? 0);
+    return count ? [{ text: `${count} ${word}`, failed }] : [];
+  });
 }
 
 /** A line of totals, as test runners, linters, installers and git print last: `14 pass · 0 fail`. */

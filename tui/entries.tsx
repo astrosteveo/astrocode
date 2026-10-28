@@ -4,8 +4,8 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
-import type { Part } from "../src/view/steps";
-import { compact, duration } from "../src/view/format";
+import type { ActivityRow, Part, Tone } from "../src/view/activity";
+import { compact, duration, timed, took } from "../src/view/format";
 import { runOfCall, runOfShell } from "../src/view/runs";
 import { plural, shortPath } from "../src/view/tools";
 import type { Item, Live } from "../src/view/state";
@@ -16,9 +16,9 @@ import { hyperlink } from "./links";
 import { ImageView, isReady } from "./pictures";
 import { GUTTER, LIVE, Railed, type Rail } from "./rail";
 import { ShellCard } from "./shell-card";
-import { PALETTE } from "./theme";
-import { DraftRow, toolNode, ToolRow } from "./tool-row";
-import { Figure, shownOf } from "./figure";
+import { mix, PALETTE } from "./theme";
+import { DraftRow, SubagentLines, toolNode, ToolRow } from "./tool-row";
+import { Figure, hasPictures, shownOf, type FigureLinks } from "./figure";
 import { PROMPT_LINK } from "./window";
 
 /** `pictureRows`: how tall a picture in an entry may be. */
@@ -133,7 +133,7 @@ const NOTICE_TONES = {
 } as const;
 
 /** A step's node by how it went: a check once done, a cross when its last call failed. */
-const STEP_NODES = {
+export const STEP_NODES = {
   done: { node: "✓", color: PALETTE.teal },
   running: { node: "●", color: PALETTE.teal },
   waiting: { node: "●", color: PALETTE.gold },
@@ -141,68 +141,307 @@ const STEP_NODES = {
   stopped: { node: "■", color: PALETTE.ember },
 } as const;
 
-const PART_COLORS = { plain: PALETTE.haze, added: PALETTE.teal, removed: PALETTE.rose, failed: PALETTE.rose } as const;
+/** What an activity line's targets are drawn in: a step back from the title, which is the brightest. */
+const BODY = mix(PALETTE.star, PALETTE.haze, 0.3);
 
-/** The most of the row a step's summary takes, so its title keeps the rest. */
-const SUMMARY_SHARE = 0.42;
+const TONES: Record<Tone, string> = {
+  plain: BODY,
+  bright: PALETTE.star,
+  quiet: PALETTE.haze,
+  faint: PALETTE.dust,
+  code: PALETTE.tealLight,
+  added: PALETTE.teal,
+  removed: PALETTE.rose,
+  done: PALETTE.teal,
+  failed: PALETTE.rose,
+  stopped: PALETTE.ember,
+  waiting: PALETTE.gold,
+};
+
+/** Cells before an activity line's verb, and the verb's column, so targets line up down a step. */
+const INDENT = 2;
+const VERB = 10;
+/** Where a line's target starts: what goes under a line (why it failed, a subagent's calls, pictures) starts there too. */
+const UNDER = INDENT + VERB;
+/** Lines a closed step shows; past that, the first two and the last three, and a line for the rest. */
+const MOST_ROWS = 6;
+
+/** Thinking, Claude's words and progress lines between a step's calls, and the calls as activity lines, in order. */
+export type Flow =
+  | { kind: "row"; row: ActivityRow }
+  | { kind: "thinking"; key: string; text: string }
+  | { kind: "notice"; key: string; text: string; tone: "info" | "warning" | "error" };
 
 export type StepRow = {
+  key: string;
   title: string;
   /** Made from the calls, for want of a sentence from Claude: drawn quieter. */
   made: boolean;
   /** Claude's whole sentence, when there's more of it than the title, shown once the step opens. */
   more?: string;
-  summary: Part[][];
   status: keyof typeof STEP_NODES;
   span?: number;
+  flow: Flow[];
 };
 
+/** A piece of a step as full screen lays it out: what it draws, and what a click on it acts on. */
+export type Piece = { key: string; target?: string; node: ReactNode };
+
+/** What a click on an activity line acts on: the first of the calls it stands for, to inspect. */
+export const callTarget = (id: string) => `call:${id}`;
+export const targetCall = (target: string) => (target.startsWith("call:") ? target.slice(5) : undefined);
+
+type StepProps = {
+  step: StepRow;
+  rail: Rail;
+  open: boolean;
+  width: number;
+  /** The call the inspector shows, whose line is marked. */
+  picked?: string;
+  pictureRows: number;
+  links?: FigureLinks;
+  cwd: string;
+  home: string;
+  /** Whether a click acts on it, as in full screen, which the marks for opening and inspecting say. */
+  clickable?: boolean;
+};
+
+/** Whether the step has more to show open than closed: Claude's words, thinking, or lines past the most a closed step shows. */
+export function opens(step: StepRow) {
+  return Boolean(step.more) || step.flow.some((one) => one.kind !== "row") || step.flow.length > MOST_ROWS;
+}
+
 /**
- * A step in one row: what Claude set out to do, and on the right what it did and how long it took,
- * with ▸ closed or ▾ open. Open, its calls follow it on the rail, each as it would be drawn alone.
- * The summary drops groups from its end until it fits its share of the row.
+ * A step as an activity log: what Claude set out to do, with how long it took, and under it a line
+ * for each thing it did, what that acted on and what came of it. A failure says why under its line,
+ * a running subagent shows its latest calls, and pictures a call returned show under it. Open, the
+ * step shows Claude's thinking between its calls too, and every line.
  */
-export function StepView({ step, rail, open, width }: { step: StepRow; rail: Rail; open: boolean; width: number }) {
+export function StepView(props: StepProps) {
+  return (
+    <Box flexDirection="column">
+      {stepPieces(props).map((piece) => (
+        <Box key={piece.key} flexDirection="column">
+          {piece.node}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+/** The step's pieces, top to bottom, each with what a click on it acts on. */
+export function stepPieces({ step, rail, open, width, picked, pictureRows, links, cwd, home, clickable = true }: StepProps): Piece[] {
   const { node, color } = STEP_NODES[step.status];
   const inner = width - GUTTER;
-  const tail = `${step.span !== undefined ? `  ${duration(step.span)}` : ""}  ${open ? "▾" : "▸"}`;
-  const room = Math.floor(inner * SUMMARY_SHARE) - cellWidth(tail);
-  const groups: Part[][] = [];
-  let used = 0;
-  for (const group of step.summary) {
-    const size = cellWidth(group.map((part) => part.text).join("")) + (groups.length ? 3 : 0);
-    if (used + size > room) break;
-    groups.push(group);
-    used += size;
-  }
-  // A single group too wide for the room is cut to fit rather than dropped.
-  if (!groups.length && step.summary[0] && room > 8) groups.push([{ ...step.summary[0][0]!, text: fit(step.summary[0][0]!.text, room, false) }]);
-  const right = cellWidth(tail) + groups.reduce((sum, group, i) => sum + cellWidth(group.map((part) => part.text).join("")) + (i ? 3 : 0), 0);
-  const title = fit(step.title, inner - right - 2, false);
+  const openable = clickable && opens(step);
+  const tail = `${timed(step.span) ? took(step.span) : ""}${openable ? `  ${open ? "▾" : "▸"}` : ""}`;
   const live = step.status === "running" || step.status === "waiting";
-  return (
-    <Railed node={node} color={color} rail={rail}>
-      <Box justifyContent="space-between" width={inner}>
-        <Text wrap="truncate-end" color={step.made ? PALETTE.haze : live ? PALETTE.star : undefined} italic={step.made}>
-          {title}
-        </Text>
-        <Text wrap="truncate-end">
-          {groups.map((group, i) => (
-            <Text key={i}>
-              {i ? <Text color={PALETTE.dust}>{" · "}</Text> : null}
-              {group.map((part, j) => (
-                <Text key={j} color={PART_COLORS[part.tone]}>
-                  {part.text}
-                </Text>
-              ))}
+  const on: Rail = { spaced: false, joined: true, through: rail.through };
+  const railed = (key: string, child: ReactNode, target?: string): Piece => ({
+    key,
+    target,
+    node: (
+      <Railed node="│" color={PALETTE.dust} rail={on}>
+        {child}
+      </Railed>
+    ),
+  });
+  const pieces: Piece[] = [
+    {
+      key: "title",
+      target: openable ? step.key : undefined,
+      node: (
+        <Railed node={node} color={color} rail={rail}>
+          <Box justifyContent="space-between" width={inner}>
+            <Text wrap="truncate-end" color={step.made ? PALETTE.haze : PALETTE.star} italic={step.made} bold={live && !step.made}>
+              {fit(step.title, inner - cellWidth(tail) - 2, false)}
             </Text>
-          ))}
-          <Text color={PALETTE.dust}>{tail}</Text>
-        </Text>
-      </Box>
-      {open && step.more ? <Markdown text={step.more} width={inner} /> : null}
-    </Railed>
+            <Text color={PALETTE.dust}>{tail}</Text>
+          </Box>
+          {open && step.more ? <Markdown text={step.more} width={inner} /> : null}
+        </Railed>
+      ),
+    },
+  ];
+  // Closed, a step leaves out its thinking, and the lines between its first two and last three.
+  const rows = step.flow.filter((one) => one.kind === "row");
+  let shown: Flow[] = step.flow;
+  let hidden: ActivityRow[] = [];
+  if (!open) {
+    shown = rows;
+    if (rows.length > MOST_ROWS) {
+      hidden = rows.slice(2, -3).map((one) => one.row);
+      shown = [...rows.slice(0, 2), ...rows.slice(-3)];
+    }
+  }
+  /** The verb of the line just drawn: a line that does the same leaves its verb out, so a run of commands reads as one. */
+  let verb = "";
+  shown.forEach((one, i) => {
+    if (one.kind !== "row") verb = "";
+    if (one.kind === "thinking") {
+      pieces.push(
+        railed(
+          one.key,
+          <Box paddingLeft={INDENT}>
+            <Text color={PALETTE.haze}>∴ </Text>
+            <Markdown text={one.text} width={inner - INDENT - 2} voice="thinking" />
+          </Box>,
+        ),
+      );
+      return;
+    }
+    if (one.kind === "notice") {
+      pieces.push(railed(one.key, <Box paddingLeft={INDENT}><Text color={one.tone === "error" ? PALETTE.rose : one.tone === "warning" ? PALETTE.ember : PALETTE.haze}>{one.text}</Text></Box>));
+      return;
+    }
+    const { row } = one;
+    const id = row.calls[0]!.id;
+    const target = callTarget(id);
+    // A closed step's line for what it leaves out goes after its first two lines.
+    if (hidden.length && i === 2) {
+      verb = "";
+      const failed = hidden.filter((one) => one.status === "error").length;
+      pieces.push(
+        railed(
+          "more",
+          <Text wrap="truncate-end">
+            <Text color={PALETTE.dust}>{`${" ".repeat(INDENT)}… ${hidden.length} more`}</Text>
+            {failed ? <Text color={PALETTE.rose}>{` · ${failed} failed`}</Text> : null}
+          </Text>,
+          step.key,
+        ),
+      );
+    }
+    const isPicked = picked !== undefined && row.calls.some((call) => call.id === picked);
+    pieces.push(railed(`row:${id}`, <ActivityLine row={row} width={inner} picked={isPicked} again={row.verb === verb} clickable={clickable} />, target));
+    // What goes under the line sets the next one apart, which then says its verb again.
+    verb = row.failure || row.calls.some((call) => (call.status === "running" && call.subagent) || hasPictures(call)) ? "" : row.verb;
+    if (row.failure) {
+      pieces.push(
+        railed(
+          `why:${id}`,
+          <Text wrap="truncate-end" color={PALETTE.rose}>
+            {`${" ".repeat(UNDER)}${fit(row.failure, inner - UNDER, false)}`}
+          </Text>,
+          target,
+        ),
+      );
+    }
+    const agent = row.calls.find((call) => call.status === "running" && call.subagent);
+    if (agent) {
+      pieces.push(
+        railed(
+          `agent:${id}`,
+          <Box paddingLeft={UNDER}>
+            <SubagentLines call={agent} cwd={cwd} home={home} width={inner - UNDER} />
+          </Box>,
+          target,
+        ),
+      );
+    }
+    for (const call of row.calls.filter(hasPictures)) {
+      pieces.push(
+        railed(
+          `pictures:${call.id}`,
+          <Box paddingLeft={UNDER}>
+            <Figure shown={shownOf(call)} width={inner - UNDER} rows={Math.max(4, Math.floor(pictureRows / 2))} links={links} />
+          </Box>,
+        ),
+      );
+    }
+  });
+  return pieces;
+}
+
+/**
+ * `  Edited    src/retry.ts            +9 −4  ■■■■□  ›`: the verb, what the calls acted on, and what
+ * came of them against the right edge. `again`: the line above has the same verb, which this one
+ * leaves out. The line the inspector shows is banded, with a gold mark.
+ */
+function ActivityLine({ row, width, picked, again, clickable }: { row: ActivityRow; width: number; picked: boolean; again: boolean; clickable: boolean }) {
+  const verbColor = row.status === "waiting" ? PALETTE.gold : row.status === "running" ? PALETTE.teal : PALETTE.dust;
+  const named = row.verb.length >= VERB ? `${row.verb} ` : row.verb.padEnd(VERB);
+  // A verb the line above has is left out, unless how the line is going colors it.
+  const verb = again && row.status !== "waiting" && row.status !== "running" ? " ".repeat(cellWidth(named)) : named;
+  const result = row.result.reduce((sum, part) => sum + cellWidth(part.text), 0);
+  const bars = row.diff && row.diff.added + row.diff.removed > 0 ? 7 : 0;
+  const right = result + bars + (clickable ? 3 : 0);
+  const room = Math.max(4, width - INDENT - cellWidth(verb) - right - 2);
+  const target = fitParts(row.target, room, row.path);
+  return (
+    <Box justifyContent="space-between" width={width} backgroundColor={picked ? PALETTE.hover : undefined}>
+      <Text wrap="truncate-end">
+        <Text color={PALETTE.gold}>{picked ? "▌ " : "  "}</Text>
+        <Text color={verbColor}>{verb}</Text>
+        {target.map((part, i) => (
+          <Text key={i} color={TONES[part.tone]}>
+            {part.text}
+          </Text>
+        ))}
+      </Text>
+      <Text>
+        {row.result.map((part, i) => (
+          <Text key={i} color={TONES[part.tone]}>
+            {part.text}
+          </Text>
+        ))}
+        {bars ? <Diffstat added={row.diff!.added} removed={row.diff!.removed} /> : null}
+        {clickable ? <Text color={picked ? PALETTE.gold : PALETTE.dust}>{"  ›"}</Text> : null}
+      </Text>
+    </Box>
   );
+}
+
+/** Five squares, teal for the share added and rose for the share removed, more of them for a bigger change. */
+function Diffstat({ added, removed }: { added: number; removed: number }) {
+  const total = added + removed;
+  const filled = Math.min(5, Math.max(1, Math.ceil(Math.log2(total + 1))));
+  const teal = added ? Math.max(1, Math.round((filled * added) / total)) : 0;
+  const rose = Math.min(filled - teal, removed ? Math.max(1, filled - teal) : 0);
+  return (
+    <Text>
+      <Text>{"  "}</Text>
+      <Text color={PALETTE.teal}>{"■".repeat(teal)}</Text>
+      <Text color={PALETTE.rose}>{"■".repeat(rose)}</Text>
+      <Text color={PALETTE.raised}>{"■".repeat(5 - teal - rose)}</Text>
+    </Text>
+  );
+}
+
+/** Parts cut to `room` cells: paths keep their ends, anything else its start. */
+function fitParts(parts: Part[], room: number, isPath: boolean): Part[] {
+  const whole = parts.map((part) => part.text).join("");
+  if (cellWidth(whole) <= room) return parts;
+  if (isPath) {
+    // Cut from the start, keeping the last parts whole as far as they go.
+    const out: Part[] = [];
+    let left = room - 1;
+    for (let i = parts.length - 1; i >= 0 && left > 0; i--) {
+      const part = parts[i]!;
+      const cells = cellWidth(part.text);
+      if (cells <= left) {
+        out.unshift(part);
+        left -= cells;
+      } else {
+        out.unshift({ ...part, text: fit(part.text, left + 1, true).slice(1) });
+        left = 0;
+      }
+    }
+    return [{ text: "…", tone: "faint" }, ...out];
+  }
+  const out: Part[] = [];
+  let left = room;
+  for (const part of parts) {
+    const cells = cellWidth(part.text);
+    if (cells < left) {
+      out.push(part);
+      left -= cells;
+      continue;
+    }
+    out.push({ ...part, text: fit(part.text, left, false) });
+    break;
+  }
+  return out;
 }
 
 /**
