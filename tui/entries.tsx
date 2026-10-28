@@ -5,6 +5,7 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
 import { foldSpan, foldSummary, type Fold } from "../src/view/folds";
+import type { Part } from "../src/view/steps";
 import { compact, duration } from "../src/view/format";
 import { runOfCall, runOfShell } from "../src/view/runs";
 import { plural, shortPath, toolLabel, toolTarget } from "../src/view/tools";
@@ -171,6 +172,79 @@ export function FoldView({ fold, rail, open, cwd, home, width }: { fold: Fold; r
             </Text>
           ))}
       {!open && fold.calls.length > FOLD_LISTED ? <Text color={PALETTE.dust}>{`… ${fold.calls.length - FOLD_LISTED + 1} more`}</Text> : null}
+    </Railed>
+  );
+}
+
+/** A step's node by how it went: a check once done, a cross when its last call failed. */
+const STEP_NODES = {
+  done: { node: "✓", color: PALETTE.teal },
+  running: { node: "●", color: PALETTE.teal },
+  waiting: { node: "●", color: PALETTE.gold },
+  failed: { node: "✗", color: PALETTE.rose },
+  stopped: { node: "■", color: PALETTE.ember },
+} as const;
+
+const PART_COLORS = { plain: PALETTE.haze, added: PALETTE.teal, removed: PALETTE.rose, failed: PALETTE.rose } as const;
+
+/** The most of the row a step's summary takes, so its title keeps the rest. */
+const SUMMARY_SHARE = 0.42;
+
+export type StepRow = {
+  title: string;
+  /** Made from the calls, for want of a sentence from Claude: drawn quieter. */
+  made: boolean;
+  /** Claude's whole sentence, when there's more of it than the title, shown once the step opens. */
+  more?: string;
+  summary: Part[][];
+  status: keyof typeof STEP_NODES;
+  span?: number;
+};
+
+/**
+ * A step in one row: what Claude set out to do, and on the right what it did and how long it took,
+ * with ▸ closed or ▾ open. Open, its calls follow it on the rail, each as it would be drawn alone.
+ * The summary drops groups from its end until it fits its share of the row.
+ */
+export function StepView({ step, rail, open, width }: { step: StepRow; rail: Rail; open: boolean; width: number }) {
+  const { node, color } = STEP_NODES[step.status];
+  const inner = width - GUTTER;
+  const tail = `${step.span !== undefined ? `  ${duration(step.span)}` : ""}  ${open ? "▾" : "▸"}`;
+  const room = Math.floor(inner * SUMMARY_SHARE) - cellWidth(tail);
+  const groups: Part[][] = [];
+  let used = 0;
+  for (const group of step.summary) {
+    const size = cellWidth(group.map((part) => part.text).join("")) + (groups.length ? 3 : 0);
+    if (used + size > room) break;
+    groups.push(group);
+    used += size;
+  }
+  // A single group too wide for the room is cut to fit rather than dropped.
+  if (!groups.length && step.summary[0] && room > 8) groups.push([{ ...step.summary[0][0]!, text: fit(step.summary[0][0]!.text, room, false) }]);
+  const right = cellWidth(tail) + groups.reduce((sum, group, i) => sum + cellWidth(group.map((part) => part.text).join("")) + (i ? 3 : 0), 0);
+  const title = fit(step.title, inner - right - 2, false);
+  const live = step.status === "running" || step.status === "waiting";
+  return (
+    <Railed node={node} color={color} rail={rail}>
+      <Box justifyContent="space-between" width={inner}>
+        <Text wrap="truncate-end" color={step.made ? PALETTE.haze : live ? PALETTE.star : undefined} italic={step.made}>
+          {title}
+        </Text>
+        <Text wrap="truncate-end">
+          {groups.map((group, i) => (
+            <Text key={i}>
+              {i ? <Text color={PALETTE.dust}>{" · "}</Text> : null}
+              {group.map((part, j) => (
+                <Text key={j} color={PART_COLORS[part.tone]}>
+                  {part.text}
+                </Text>
+              ))}
+            </Text>
+          ))}
+          <Text color={PALETTE.dust}>{tail}</Text>
+        </Text>
+      </Box>
+      {open && step.more ? <Markdown text={step.more} width={inner} /> : null}
     </Railed>
   );
 }

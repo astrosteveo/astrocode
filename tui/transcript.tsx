@@ -3,10 +3,10 @@
 // redraw the rows on screen, and a selection knows exactly what text it covers.
 import { renderToString } from "ink";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { folds } from "../src/view/folds";
+import { isCurrent, stepSpan, stepStatus, steps, stepSummary, stepTitle, restOf, type Step } from "../src/view/steps";
 import type { Item, State } from "../src/view/state";
 import { Banner } from "./banner";
-import { FoldView, ItemView, LiveView, opensByDefault, turnWork } from "./entries";
+import { ItemView, LiveView, opensByDefault, StepView, turnWork, type StepRow } from "./entries";
 import { imagesOf, wantPictures } from "./pictures";
 import { GUTTER, rails } from "./rail";
 
@@ -39,7 +39,7 @@ export type TranscriptInput = {
   /** How tall a picture in an entry may be. */
   pictureRows: number;
   branch?: string;
-  /** Entries opened or closed by a click, away from how they start (`opensByDefault()`), by item key, and folds opened, by fold key. */
+  /** Entries and steps opened or closed by a click, away from how they start (`opensByDefault()`, `stepOpens()`), by key. */
   expanded: ReadonlySet<string>;
   /** Tool calls waiting on a permission prompt or a question, by call id. */
   waiting: ReadonlySet<string>;
@@ -53,9 +53,22 @@ const RESIZE_SETTLE_MS = 80;
 /** Each entry's lines, kept with what they were drawn for. Items are replaced, not changed, when they change. */
 const drawn = new WeakMap<object, { drawnFor: string; lines: string[] }>();
 const BANNER = {};
-/** A fold's row is kept by its first call, under an owner of its own, since the call has lines of its own too. */
-const foldRows = new WeakMap<Item, object>();
-const foldOwner = (first: Item) => foldRows.get(first) ?? foldRows.set(first, {}).get(first)!;
+/** A step's row is kept by its first item, under an owner of its own, since the item has lines of its own too. */
+const stepRows = new WeakMap<Item, object>();
+const stepOwner = (first: Item) => stepRows.get(first) ?? stepRows.set(first, {}).get(first)!;
+
+/** A step's row as it's drawn, from the step and how its calls went. */
+function stepRow(step: Step, state: State, waiting: ReadonlySet<string>): StepRow {
+  const title = stepTitle(step, state.cwd, state.home);
+  const more = step.title ? restOf(step.title.text) || undefined : undefined;
+  return { title: title.text, made: title.made, more, summary: stepSummary(step, state.cwd, state.home), status: stepStatus(step, waiting), span: stepSpan(step) };
+}
+
+/** Whether a step starts open: the one Claude is working in, one waiting for you, and one whose last call failed. */
+export function stepOpens(state: State, start: number, step: Step, waiting: ReadonlySet<string>) {
+  const status = stepStatus(step, waiting);
+  return isCurrent(state.items, start, step, state.busy) || status === "waiting" || status === "failed";
+}
 
 function draw(owner: object, drawnFor: string, width: number, element: () => ReactNode) {
   const kept = drawn.get(owner);
@@ -89,26 +102,38 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting }:
     0,
   );
   const placed = rails(state.items);
-  const folded = folds(state.items);
-  /** Where the closed fold being passed over ends. Its calls have no rows, so they have no start either. */
+  const found = steps(state.items);
+  /** Where the step being passed over ends, closed, or its title, open. Skipped items have no rows, so they have no start either. */
   let skipUntil = -1;
+  /** The first item under an open step's row, which stacks under it as calls stack under each other. */
+  let under = -1;
+  /** Whether the last entry drawn was a closed step, which the next step's row stacks under. */
+  let afterStep = false;
   state.items.forEach((item, i) => {
     if (i < skipUntil) return;
     let rail = placed[i]!;
-    const fold = folded.get(i);
-    if (fold) {
-      const open = expanded.has(fold.key);
-      const lines = draw(foldOwner(item), `${width}|${open}|${fold.calls.length}|${rail.spaced}${rail.joined}${rail.through}`, width, () => (
-        <FoldView fold={fold} rail={rail} open={open} cwd={state.cwd} home={state.home} width={width} />
-      ));
-      add(fold.key, lines, rail.spaced ? 1 : 0, GUTTER, true, open);
+    const step = found.get(i);
+    if (step) {
+      const row = stepRow(step, state, waiting);
+      const open = stepOpens(state, i, step, waiting) !== expanded.has(step.key);
+      if (afterStep) rail = { ...rail, spaced: false };
+      const summary = row.summary.map((group) => group.map((part) => part.text).join("")).join("|");
+      const drawnFor = `${width}|${open}|${row.status}|${row.title}|${summary}|${row.span}|${rail.spaced}${rail.joined}${rail.through}`;
+      const lines = draw(stepOwner(item), drawnFor, width, () => <StepView step={row} rail={rail} open={open} width={width} />);
+      add(step.key, lines, rail.spaced ? 1 : 0, GUTTER, true, open);
+      afterStep = !open;
       if (!open) {
-        skipUntil = i + fold.calls.length;
+        skipUntil = i + (step.title ? 1 : 0) + step.members.length;
         return;
       }
-      // Open, the first call stacks under the fold's row as calls stack under each other.
-      rail = { ...rail, spaced: isCard(item) };
-    }
+      // Open, the title is the row, and the calls follow it.
+      under = step.title ? i + 1 : i;
+      if (step.title) {
+        skipUntil = i + 1;
+        return;
+      }
+    } else afterStep = false;
+    if (i === under) rail = { ...rail, spaced: isCard(item) };
     const isWaiting = item.kind === "tool" && waiting.has(item.call.id);
     // A turn that changed files or ran commands opens to list them.
     const opens = item.kind === "tool" || item.kind === "shell" || (item.kind === "turn" && turnWork(item) !== "");

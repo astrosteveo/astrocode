@@ -76,13 +76,23 @@ export function steps(items: Item[]): Map<number, Step> {
 /** Words that open Claude's narration and say nothing: "Now", "Next,", "Let me". */
 const FILLER = /^(now|next|first|then|so|okay|ok|alright|good|great|right|done|perfect)\b[,:.!]?\s+|^(let me|i'll|i will|i'm going to|i am going to)\s+/i;
 
+/** Where the first sentence of `text` ends: after its stop, or at the end. */
+const SENTENCE_END = /[.!?](\s+(?=[A-Z("'“`*])|$)/;
+
+/** What Claude wrote after the sentence that titles its step, which the step shows once open. */
+export function restOf(text: string) {
+  const trimmed = text.trim();
+  const end = trimmed.search(SENTENCE_END);
+  return end === -1 ? "" : trimmed.slice(end + 1).trim();
+}
+
 /** The first sentence of `text`, without filler or markdown, capitalized and without its closing stop. */
 export function titleOf(text: string) {
   let line = text
     .trim()
     .replace(/\s+/g, " ")
     .replace(/(\*\*|__|`)/g, "");
-  const end = line.search(/[.!?](\s+(?=[A-Z("'“])|$)/);
+  const end = line.search(SENTENCE_END);
   if (end !== -1) line = line.slice(0, end + 1);
   for (let before = ""; before !== line; ) {
     before = line;
@@ -97,22 +107,27 @@ export function stepTitle(step: Step, cwd: string, home: string): { text: string
   if (step.title) return { text: titleOf(step.title.text), made: false };
   // Consecutive calls of one tool read as one phrase: `Read queue.ts, fixtures.ts`.
   const phrases: string[] = [];
+  /** Phrases from Claude's descriptions, which read on in lower case; a tool's name keeps its capital. */
+  const said = new Set<number>();
   let last = "";
   for (const { call } of step.calls) {
     // A command reads best by what Claude said it does.
-    const said = typeof call.input.description === "string" ? call.input.description.trim() : "";
-    if (call.name === "Bash" && said) {
-      phrases.push(said);
+    const description = typeof call.input.description === "string" ? call.input.description.trim() : "";
+    if (call.name === "Bash" && description) {
+      said.add(phrases.length);
+      phrases.push(description);
       last = "";
       continue;
     }
     const label = toolLabel(call.name);
     const target = shortTarget(call, cwd, home);
-    if (label === last && phrases.length) phrases[phrases.length - 1] += target ? `, ${target}` : "";
+    if (label === last && phrases.length) phrases[phrases.length - 1] += target ? ` and ${target}` : "";
     else phrases.push(target ? `${label} ${target}` : label);
     last = label;
   }
-  return { text: phrases.join(" · "), made: true };
+  // Phrases after the first read on as one sentence: `Find the test, read retry.ts`.
+  const rest = phrases.slice(1).map((phrase, i) => (said.has(i + 1) && /^[A-Z][a-z]/.test(phrase) ? phrase.charAt(0).toLowerCase() + phrase.slice(1) : phrase));
+  return { text: [phrases[0] ?? "", ...rest].join(", "), made: true };
 }
 
 /** A target short enough for a title: a file's name without its folder. */
@@ -239,10 +254,4 @@ export function isCurrent(items: Item[], start: number, step: Step, busy: boolea
   if (!busy) return false;
   const end = start + (step.title ? 1 : 0) + step.members.length;
   return items.slice(end).every((item) => item.kind === "thinking" || item.kind === "notice");
-}
-
-/** The step an item is in, if any, so opening the item can open its step first. */
-export function stepOf(all: Map<number, Step>, key: string) {
-  for (const step of all.values()) if (step.title?.key === key || step.members.some((member) => member.key === key)) return step;
-  return undefined;
 }

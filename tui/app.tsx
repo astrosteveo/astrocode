@@ -15,7 +15,8 @@ import { remember, settingsPath, type NotifyMode, type Remembered, type TodoMode
 import { runShell } from "../src/shell";
 import { saveStash } from "../src/stash";
 import { ago, canStopThinking, currentModel, duration } from "../src/view/format";
-import { folds, foldOf, type Fold } from "../src/view/folds";
+import { folds, type Fold } from "../src/view/folds";
+import { steps } from "../src/view/steps";
 import { findRunning, runningKeyOf, runningList, type Running } from "../src/view/runs";
 import type { Item, State } from "../src/view/state";
 import { todoList } from "../src/view/todos";
@@ -59,6 +60,7 @@ import { RemotePanel } from "./remote";
 import { GUTTER, rails, type Rail } from "./rail";
 import { SandboxPanel } from "./sandbox";
 import { Screen } from "./screen";
+import { stepOpens } from "./transcript";
 import { SessionPreview } from "./session-preview";
 import { SkillsPanel } from "./skills";
 import { StatusBar } from "./status";
@@ -499,13 +501,17 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     const index = state.tools[id];
     const item = index === undefined ? state.items.find((one) => one.kind === "shell" && one.id === id) : state.items[index];
     if (!fullscreen || !item) return store.emit({ kind: "output", id });
-    // Open it, whichever way it starts, and the fold it's in.
-    const fold = foldOf(folds(state.items), item.key);
+    // Open it, whichever way it starts, and the step it's in.
+    const found = [...steps(state.items)].find(([, step]) => step.members.includes(item));
     setExpanded((open) => {
       const next = new Set(open);
       if (opensByDefault(item)) next.delete(item.key);
       else next.add(item.key);
-      if (fold) next.add(fold.key);
+      if (found) {
+        const [start, step] = found;
+        if (stepOpens(state, start, step, waiting)) next.delete(step.key);
+        else next.add(step.key);
+      }
       return next;
     });
     setReveal({ key: item.key });
