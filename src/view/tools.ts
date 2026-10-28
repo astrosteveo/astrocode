@@ -92,7 +92,7 @@ function doneSummary(call: ToolCall) {
       return typeof call.input.content === "string" ? `+${lineCount(call.input.content)}` : "done";
     case "Agent":
     case "Task":
-      return plural(call.subagentCalls, "tool call");
+      return plural(subagentCallCount(call), "tool call");
     case "AskUserQuestion":
       return "answered";
     case "Read": {
@@ -129,7 +129,8 @@ function doneSummary(call: ToolCall) {
 
 /** How work that went to the background is going, or how it ended. */
 function backgroundSummary(call: ToolCall) {
-  const calls = call.subagentCalls ? ` · ${plural(call.subagentCalls, "tool call")}` : "";
+  const count = subagentCallCount(call);
+  const calls = count ? ` · ${plural(count, "tool call")}` : "";
   switch (call.background) {
     case "running":
       return `in the background${calls}`;
@@ -142,6 +143,33 @@ function backgroundSummary(call: ToolCall) {
     default:
       return "went to the background";
   }
+}
+
+/**
+ * How many tool calls a subagent made: Claude Code's own count once it ends, else those seen as it
+ * ran. A saved conversation keeps neither, only the usage at the end of the result's text.
+ */
+export function subagentCallCount(call: ToolCall) {
+  const total = field(call.output, "totalToolUseCount");
+  if (typeof total === "number") return total;
+  const saved = /<usage>[\s\S]*?\btool_uses: (\d+)[\s\S]*?<\/usage>/.exec(call.result ?? "");
+  return saved ? Math.max(Number(saved[1]), call.subagentCalls) : call.subagentCalls;
+}
+
+/**
+ * A subagent's report, without what Claude Code adds for Claude: how to continue the agent, and its
+ * usage. A report handed back with SubagentHandback is in the structured result; a saved
+ * conversation keeps only Claude Code's note that it came as a message of its own.
+ */
+export function subagentReport(call: ToolCall) {
+  const handedBack = field(field(call.output, "handbackReport"), "text");
+  if (typeof handedBack === "string") return handedBack;
+  const text = (call.result ?? "")
+    .replace(/<usage>[\s\S]*?<\/usage>\s*$/, "")
+    .replace(/^agentId: \S+ \(use SendMessage[^\n]*\)\s*$/m, "")
+    .trim();
+  if (/^This agent's report was delivered to you as a message/.test(text)) return "It handed its report back to Claude as a message of its own.";
+  return text;
 }
 
 /** What a Bash call printed, from Claude Code's structured output, without its notes about itself. */
