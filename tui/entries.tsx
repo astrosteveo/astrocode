@@ -4,11 +4,10 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
-import { foldSpan, foldSummary, type Fold } from "../src/view/folds";
 import type { Part } from "../src/view/steps";
 import { compact, duration } from "../src/view/format";
 import { runOfCall, runOfShell } from "../src/view/runs";
-import { plural, shortPath, toolLabel, toolTarget } from "../src/view/tools";
+import { plural, shortPath } from "../src/view/tools";
 import type { Item, Live } from "../src/view/state";
 import { cellWidth } from "./markdown";
 import { fit, Markdown } from "./markdown-view";
@@ -132,49 +131,6 @@ const NOTICE_TONES = {
   warning: { node: "▲", color: PALETTE.ember, text: PALETTE.ember },
   error: { node: "✕", color: PALETTE.rose, text: PALETTE.rose },
 } as const;
-
-/** The most calls a closed fold lists under its row; past that, a last line says how many more. */
-const FOLD_LISTED = 8;
-
-/**
- * A run of tool calls folded into one row: how many, of what kinds, and how long they took, with
- * ▸ closed or ▾ open. Closed, each call is a line under it, a command as `$ command` and anything
- * else as its tool and target. Open, the calls follow it on the rail, each as it would be drawn alone.
- */
-export function FoldView({ fold, rail, open, cwd, home, width }: { fold: Fold; rail: Rail; open: boolean; cwd: string; home: string; width: number }) {
-  const span = foldSpan(fold);
-  const right = `${span !== undefined ? `${duration(span)}  ` : ""}${open ? "▾" : "▸"}`;
-  const inner = width - GUTTER;
-  return (
-    <Railed node="⬢" color={PALETTE.teal} rail={rail}>
-      <Box justifyContent="space-between" width={inner}>
-        <Text wrap="truncate-end">
-          <Text color={PALETTE.teal}>{`${fold.calls.length} tool calls`}</Text>
-          <Text color={PALETTE.haze}>{`  ${fit(foldSummary(fold), inner - cellWidth(right) - 16, false)}`}</Text>
-        </Text>
-        <Text color={PALETTE.dust}>{right}</Text>
-      </Box>
-      {open
-        ? null
-        : fold.calls.slice(0, fold.calls.length > FOLD_LISTED ? FOLD_LISTED - 1 : FOLD_LISTED).map(({ key, call }) => (
-            <Text key={key} wrap="truncate-end">
-              {call.name === "Bash" && typeof call.input.command === "string" ? (
-                <>
-                  <Text color={PALETTE.dust}>{"$ "}</Text>
-                  <Text color={PALETTE.haze}>{firstLine(call.input.command)}</Text>
-                </>
-              ) : (
-                <>
-                  <Text color={PALETTE.dust}>{`${toolLabel(call.name)}  `}</Text>
-                  <Text color={PALETTE.haze}>{toolTarget(call, cwd, home)}</Text>
-                </>
-              )}
-            </Text>
-          ))}
-      {!open && fold.calls.length > FOLD_LISTED ? <Text color={PALETTE.dust}>{`… ${fold.calls.length - FOLD_LISTED + 1} more`}</Text> : null}
-    </Railed>
-  );
-}
 
 /** A step's node by how it went: a check once done, a cross when its last call failed. */
 const STEP_NODES = {

@@ -121,6 +121,8 @@ export function stepTitle(step: Step, cwd: string, home: string): { text: string
     }
     const label = toolLabel(call.name);
     const target = shortTarget(call, cwd, home);
+    // Claude Code's own tools are verbs, and read on like Claude's words.
+    if (VERBS.has(call.name)) said.add(phrases.length);
     if (label === last && phrases.length) phrases[phrases.length - 1] += target ? ` and ${target}` : "";
     else phrases.push(target ? `${label} ${target}` : label);
     last = label;
@@ -129,6 +131,9 @@ export function stepTitle(step: Step, cwd: string, home: string): { text: string
   const rest = phrases.slice(1).map((phrase, i) => (said.has(i + 1) && /^[A-Z][a-z]/.test(phrase) ? phrase.charAt(0).toLowerCase() + phrase.slice(1) : phrase));
   return { text: [phrases[0] ?? "", ...rest].join(", "), made: true };
 }
+
+/** Tools whose names read as verbs in a title: `read math.js`. */
+const VERBS = new Set(["Read", "Edit", "Write"]);
 
 /** A target short enough for a title: a file's name without its folder. */
 function shortTarget(call: ToolItem["call"], cwd: string, home: string) {
