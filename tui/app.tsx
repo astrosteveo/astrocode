@@ -15,7 +15,7 @@ import { remember, settingsPath, type NotifyMode, type Remembered, type TodoMode
 import { runShell } from "../src/shell";
 import { saveStash } from "../src/stash";
 import { ago, canStopThinking, currentModel, duration } from "../src/view/format";
-import { folds, foldOf, type Fold } from "../src/view/folds";
+import { isCurrent, steps, titleWorthy } from "../src/view/steps";
 import { findRunning, runningKeyOf, runningList, type Running } from "../src/view/runs";
 import type { Item, State } from "../src/view/state";
 import { todoList } from "../src/view/todos";
@@ -34,7 +34,7 @@ import { EFFORT_NOTES, effortsOf, ULTRACODE_NOTE } from "./effort";
 import { editFile, editText } from "./editor";
 import { FindBar, type Find } from "./find";
 import { HooksPanel } from "./hooks";
-import { FoldView, ItemView, LiveView, opensByDefault } from "./entries";
+import { ItemView, LiveView, opensByDefault, StepView } from "./entries";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
 import { keyFor, keyLabel } from "./keys";
@@ -56,9 +56,10 @@ import { Prompt } from "./prompt";
 import { QuestionPrompt } from "./question";
 import { QueuedMessages } from "./queued";
 import { RemotePanel } from "./remote";
-import { GUTTER, rails, type Rail } from "./rail";
+import { GUTTER } from "./rail";
 import { SandboxPanel } from "./sandbox";
 import { Screen } from "./screen";
+import { arrange, stepOpens, type Entry } from "./arrange";
 import { SessionPreview } from "./session-preview";
 import { SkillsPanel } from "./skills";
 import { StatusBar } from "./status";
@@ -151,7 +152,7 @@ const FULLSCREEN_HELP = [
   "Full screen: the wheel, PgUp and PgDn scroll; Ctrl+Home and Ctrl+End go to the top and the end.",
   "Ctrl+F finds text in the conversation: Enter or ↑ goes to the match before, ↓ to the one after. Alt+↑ and Alt+↓ jump between your messages, Alt+Shift+↑ and Alt+Shift+↓ between tool calls and commands.",
   "Drag to copy, double-click to copy a word, triple-click to copy a line.",
-  "Click a tool call or a command to open it (a running one shows its live output), a run of tool calls folded into one row to unfold it, an option to choose it, the mode, the model or the effort to change it.",
+  "Click a tool call or a command to open it (a running one shows its live output), a step to open its tool calls, an option to choose it, the mode, the model or the effort to change it.",
   "Click copy on a code block to copy it, and a turn's closing line to list the files it changed and the commands it ran.",
   "Click a picture to enlarge it, with ← and → to flip through the others.",
   "Hold Shift to select with the terminal's own selection instead.",
@@ -499,13 +500,16 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     const index = state.tools[id];
     const item = index === undefined ? state.items.find((one) => one.kind === "shell" && one.id === id) : state.items[index];
     if (!fullscreen || !item) return store.emit({ kind: "output", id });
-    // Open it, whichever way it starts, and the fold it's in.
-    const fold = foldOf(folds(state.items), item.key);
+    // Open it, whichever way it starts, and the step it's in.
+    const step = [...steps(state.items).values()].find((one) => one.members.includes(item));
     setExpanded((open) => {
       const next = new Set(open);
       if (opensByDefault(item)) next.delete(item.key);
       else next.add(item.key);
-      if (fold) next.add(fold.key);
+      if (step) {
+        if (stepOpens(state, step, waiting)) next.delete(step.key);
+        else next.add(step.key);
+      }
       return next;
     });
     setReveal({ key: item.key });
@@ -1471,29 +1475,20 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     );
   }
 
-  const settled = settledCount(state.items, waiting);
-  const placed = rails(state.items);
-  // Static has written a live turn's calls by the time the turn ends, so only replayed turns fold here.
-  const folded = folds(state.items.slice(0, settled), (turn) => turn.replayed === true);
-  const entries: ({ kind: "banner"; key: string } | { kind: "item"; item: Item; rail: Rail; key: string } | { kind: "fold"; fold: Fold; rail: Rail; key: string })[] = [
-    { kind: "banner", key: "banner" },
-  ];
-  for (let i = 0; i < settled; i++) {
-    const fold = folded.get(i);
-    if (fold) {
-      entries.push({ kind: "fold", fold, rail: placed[i]!, key: fold.key });
-      i += fold.calls.length - 1;
-    } else entries.push({ kind: "item", item: state.items[i]!, rail: placed[i]!, key: state.items[i]!.key });
-  }
+  const settled = settledSteps(state, settledCount(state.items, waiting));
+  // What's written for good is arranged on its own, as of a turn that's over, so it can't change later.
+  const written = arrange({ ...state, items: state.items.slice(0, settled), busy: false }, waiting, NONE);
+  const entries: ({ kind: "banner"; key: string } | Entry)[] = [{ kind: "banner", key: "banner" }, ...written];
+  const unsettled = arrange(state, waiting, NONE).filter((entry) => entry.index >= settled);
   return (
     <>
       <Static key={store.epoch} items={entries}>
         {(entry) => (
-          <Box key={entry.key} flexDirection="column">
+          <Box key={entry.kind === "item" ? entry.item.key : entry.key} flexDirection="column">
             {entry.kind === "item" ? (
               <ItemView item={entry.item} rail={entry.rail} detailed scrollback {...view} />
-            ) : entry.kind === "fold" ? (
-              <FoldView fold={entry.fold} rail={entry.rail} open={false} cwd={state.cwd} home={state.home} width={width} />
+            ) : entry.kind === "step" ? (
+              <StepView step={entry.row} rail={entry.rail} open={entry.open} width={width} />
             ) : (
               <Banner cwd={state.cwd} home={state.home} branch={branch} width={width} />
             )}
@@ -1501,15 +1496,19 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         )}
       </Static>
       <Box flexDirection="column">
-        {state.items.slice(settled).map((item, i) => (
-          <ItemView
-            key={item.key}
-            item={item}
-            rail={placed[settled + i]!}
-            waiting={item.kind === "tool" && waiting.has(item.call.id)}
-            {...view}
-          />
-        ))}
+        {unsettled.map((entry) =>
+          entry.kind === "step" ? (
+            <StepView key={entry.key} step={entry.row} rail={entry.rail} open={entry.open} width={width} />
+          ) : (
+            <ItemView
+              key={entry.item.key}
+              item={entry.item}
+              rail={entry.rail}
+              waiting={entry.item.kind === "tool" && waiting.has(entry.item.call.id)}
+              {...view}
+            />
+          ),
+        )}
         <LiveView live={state.live} width={width} room={Math.max(4, rows - 16)} />
         {panel}
       </Box>
@@ -1576,6 +1575,23 @@ function toolCalls(items: Item[], { cwd, home, width }: { cwd: string; home: str
 }
 
 /** How many leading items are finished, so they can go into scrollback for good. */
+const NONE: ReadonlySet<string> = new Set();
+
+/**
+ * How many items scrollback may write for good, held back so a step goes whole: not one Claude is
+ * still working in, nor thinking or a sentence that may yet start one.
+ */
+function settledSteps(state: State, settled: number) {
+  for (const [start, step] of steps(state.items)) {
+    if (start >= settled) break;
+    if (step.end > settled || isCurrent(state.items, step, state.busy)) return start;
+  }
+  if (!state.busy) return settled;
+  let held = settled;
+  for (let item = state.items[held - 1]; item && (item.kind === "thinking" || (item.kind === "text" && titleWorthy(item.text))); item = state.items[held - 1]) held -= 1;
+  return held;
+}
+
 function settledCount(items: Item[], waiting: Set<string>) {
   const index = items.findIndex(
     (item) =>

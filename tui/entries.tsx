@@ -4,10 +4,10 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
-import { foldSpan, foldSummary, type Fold } from "../src/view/folds";
+import type { Part } from "../src/view/steps";
 import { compact, duration } from "../src/view/format";
 import { runOfCall, runOfShell } from "../src/view/runs";
-import { plural, shortPath, toolLabel, toolTarget } from "../src/view/tools";
+import { plural, shortPath } from "../src/view/tools";
 import type { Item, Live } from "../src/view/state";
 import { cellWidth } from "./markdown";
 import { fit, Markdown } from "./markdown-view";
@@ -132,45 +132,75 @@ const NOTICE_TONES = {
   error: { node: "✕", color: PALETTE.rose, text: PALETTE.rose },
 } as const;
 
-/** The most calls a closed fold lists under its row; past that, a last line says how many more. */
-const FOLD_LISTED = 8;
+/** A step's node by how it went: a check once done, a cross when its last call failed. */
+const STEP_NODES = {
+  done: { node: "✓", color: PALETTE.teal },
+  running: { node: "●", color: PALETTE.teal },
+  waiting: { node: "●", color: PALETTE.gold },
+  failed: { node: "✗", color: PALETTE.rose },
+  stopped: { node: "■", color: PALETTE.ember },
+} as const;
+
+const PART_COLORS = { plain: PALETTE.haze, added: PALETTE.teal, removed: PALETTE.rose, failed: PALETTE.rose } as const;
+
+/** The most of the row a step's summary takes, so its title keeps the rest. */
+const SUMMARY_SHARE = 0.42;
+
+export type StepRow = {
+  title: string;
+  /** Made from the calls, for want of a sentence from Claude: drawn quieter. */
+  made: boolean;
+  /** Claude's whole sentence, when there's more of it than the title, shown once the step opens. */
+  more?: string;
+  summary: Part[][];
+  status: keyof typeof STEP_NODES;
+  span?: number;
+};
 
 /**
- * A run of tool calls folded into one row: how many, of what kinds, and how long they took, with
- * ▸ closed or ▾ open. Closed, each call is a line under it, a command as `$ command` and anything
- * else as its tool and target. Open, the calls follow it on the rail, each as it would be drawn alone.
+ * A step in one row: what Claude set out to do, and on the right what it did and how long it took,
+ * with ▸ closed or ▾ open. Open, its calls follow it on the rail, each as it would be drawn alone.
+ * The summary drops groups from its end until it fits its share of the row.
  */
-export function FoldView({ fold, rail, open, cwd, home, width }: { fold: Fold; rail: Rail; open: boolean; cwd: string; home: string; width: number }) {
-  const span = foldSpan(fold);
-  const right = `${span !== undefined ? `${duration(span)}  ` : ""}${open ? "▾" : "▸"}`;
+export function StepView({ step, rail, open, width }: { step: StepRow; rail: Rail; open: boolean; width: number }) {
+  const { node, color } = STEP_NODES[step.status];
   const inner = width - GUTTER;
+  const tail = `${step.span !== undefined ? `  ${duration(step.span)}` : ""}  ${open ? "▾" : "▸"}`;
+  const room = Math.floor(inner * SUMMARY_SHARE) - cellWidth(tail);
+  const groups: Part[][] = [];
+  let used = 0;
+  for (const group of step.summary) {
+    const size = cellWidth(group.map((part) => part.text).join("")) + (groups.length ? 3 : 0);
+    if (used + size > room) break;
+    groups.push(group);
+    used += size;
+  }
+  // A single group too wide for the room is cut to fit rather than dropped.
+  if (!groups.length && step.summary[0] && room > 8) groups.push([{ ...step.summary[0][0]!, text: fit(step.summary[0][0]!.text, room, false) }]);
+  const right = cellWidth(tail) + groups.reduce((sum, group, i) => sum + cellWidth(group.map((part) => part.text).join("")) + (i ? 3 : 0), 0);
+  const title = fit(step.title, inner - right - 2, false);
+  const live = step.status === "running" || step.status === "waiting";
   return (
-    <Railed node="⬢" color={PALETTE.teal} rail={rail}>
+    <Railed node={node} color={color} rail={rail}>
       <Box justifyContent="space-between" width={inner}>
-        <Text wrap="truncate-end">
-          <Text color={PALETTE.teal}>{`${fold.calls.length} tool calls`}</Text>
-          <Text color={PALETTE.haze}>{`  ${fit(foldSummary(fold), inner - cellWidth(right) - 16, false)}`}</Text>
+        <Text wrap="truncate-end" color={step.made ? PALETTE.haze : live ? PALETTE.star : undefined} italic={step.made}>
+          {title}
         </Text>
-        <Text color={PALETTE.dust}>{right}</Text>
-      </Box>
-      {open
-        ? null
-        : fold.calls.slice(0, fold.calls.length > FOLD_LISTED ? FOLD_LISTED - 1 : FOLD_LISTED).map(({ key, call }) => (
-            <Text key={key} wrap="truncate-end">
-              {call.name === "Bash" && typeof call.input.command === "string" ? (
-                <>
-                  <Text color={PALETTE.dust}>{"$ "}</Text>
-                  <Text color={PALETTE.haze}>{firstLine(call.input.command)}</Text>
-                </>
-              ) : (
-                <>
-                  <Text color={PALETTE.dust}>{`${toolLabel(call.name)}  `}</Text>
-                  <Text color={PALETTE.haze}>{toolTarget(call, cwd, home)}</Text>
-                </>
-              )}
+        <Text wrap="truncate-end">
+          {groups.map((group, i) => (
+            <Text key={i}>
+              {i ? <Text color={PALETTE.dust}>{" · "}</Text> : null}
+              {group.map((part, j) => (
+                <Text key={j} color={PART_COLORS[part.tone]}>
+                  {part.text}
+                </Text>
+              ))}
             </Text>
           ))}
-      {!open && fold.calls.length > FOLD_LISTED ? <Text color={PALETTE.dust}>{`… ${fold.calls.length - FOLD_LISTED + 1} more`}</Text> : null}
+          <Text color={PALETTE.dust}>{tail}</Text>
+        </Text>
+      </Box>
+      {open && step.more ? <Markdown text={step.more} width={inner} /> : null}
     </Railed>
   );
 }
