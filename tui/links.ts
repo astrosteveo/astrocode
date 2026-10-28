@@ -41,6 +41,19 @@ export function copyLink(text: string) {
 /** What a link made by `copyLink()` copies, or undefined for any other link. */
 export const copiedBy = (url: string) => copyable.get(url);
 
+/** Commands a click runs, such as a shell code block's, kept as `copyable` keeps text. */
+const runnable = new Map<string, string>();
+
+/** The address of a link that runs `command` as a `!` command does. */
+export function runLink(command: string) {
+  const url = `astrocode:run:${Bun.hash(command).toString(36)}`;
+  runnable.set(url, command);
+  return url;
+}
+
+/** What a link made by `runLink()` runs, or undefined for any other link. */
+export const ranBy = (url: string) => runnable.get(url);
+
 /**
  * A file's address for a link, with this machine's name, as kitty and others want so they open it
  * only when it's on the machine they run on.

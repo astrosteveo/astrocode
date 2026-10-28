@@ -67,6 +67,7 @@ Keys you change in Claude Code's `~/.claude/keybindings.json` change in astrocod
 | `/effort` | Set how hard Claude thinks (or `/effort high`). `/effort ultracode` has Claude run a workflow of agents on every substantive task, for this session, where Claude Code offers it; a level turns it off |
 | `/clear` | Start a new session on a clean screen |
 | `/output` | Same as Ctrl+O |
+| `/play` | Pick a command from Claude's shell code blocks (`bash`, `sh`, `zsh`, `shell`, or a `console` block's `$` lines) and run it as a `!` command: its output streams into a card, `/tasks` stops it, and Claude sees what it printed once it ends |
 | `/pictures` | The conversation's pictures, as large as the screen allows, starting from the newest: ← and → flip through them, `o` opens one in your image viewer, `b` opens a mockup in your browser, `c` copies a diagram's source |
 | `/plugins` | Manage plugins: turn them on or off, install, update and uninstall them, and add or remove marketplaces |
 | `/config` | astrocode's settings: model, effort (ultracode past the highest level), thinking, permission mode, when the to-do list shows, full screen, plan usage, keeping the cache warm, agent progress and notifications. ↑↓ chooses, ←→ changes, Esc puts the changes into effect and saves them, Ctrl+C throws them away |
@@ -124,6 +125,7 @@ astrocode's look takes its colors from the Hubble palette, the gold and teal of 
 | Double-click, triple-click | Copies a word (or a path or URL), or a line |
 | Click a step | Opens it, with its tool calls under its row; click again to close it |
 | Click a tool call | Opens its whole output under its row; click again to close it. Ctrl+O opens one from a list, opening its step, and scrolls to it |
+| Click `▶ run` on a shell code block | Runs it as `/play` does. `copy` beside it copies it |
 | Click a picture | Enlarges it, as `/pictures` does; ← and → flip to the pictures before and after it |
 | Click an option | Chooses it, in permission prompts, Claude's questions, pickers, `/plugins`, and the `/` and `@` menus |
 | Click the mode, the model or the effort | Changes the permission mode, or opens the model or effort picker |

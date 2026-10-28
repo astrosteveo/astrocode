@@ -24,7 +24,8 @@ import {
 import { isDiagram } from "../src/canvas";
 import { drawDiagram, drawnDiagram } from "./diagrams";
 import { keywordsIn, paintKeywords } from "./keywords";
-import { copyLink, hyperlink } from "./links";
+import { copyLink, hyperlink, runLink } from "./links";
+import { runnable } from "./runnable";
 import { Figure, type FigureLinks } from "./figure";
 import { drawsImages, isReady } from "./pictures";
 import { PALETTE } from "./theme";
@@ -62,7 +63,10 @@ const VOICES: Record<Voice, { text: { bold?: boolean; italic?: boolean; color?: 
  */
 export type Diagrams = { rows: number; links?: FigureLinks } | "start";
 
-/** `copyable`: code blocks get a `copy` a click acts on, in full screen, where the mouse is astrocode's. */
+/**
+ * `copyable`: code blocks get a `copy` a click acts on, in full screen, where the mouse is astrocode's,
+ * and a finished shell block a `▶ run` too.
+ */
 export function Markdown({ text, width, voice = "claude", copyable = false, diagrams }: { text: string; width: number; voice?: Voice; copyable?: boolean; diagrams?: Diagrams }) {
   return (
     <Box flexDirection="column" rowGap={1}>
@@ -82,7 +86,8 @@ function BlockView({ block, width, voice, copyable, diagrams }: { block: Block; 
       const lines = source.split("\n").length;
       // Under a list item, the panel starts where the item's text does, but always keeps half the width.
       const indent = Math.min(block.indent ?? 0, Math.floor(width / 2));
-      const action = copyable ? { text: "copy", href: copyLink(source) } : undefined;
+      const command = copyable && !block.isOpen ? runnable(block.language, source) : undefined;
+      const actions = copyable ? [...(command ? [{ text: "▶ run", href: runLink(command) }] : []), { text: "copy", href: copyLink(source) }] : undefined;
       const diagram = diagrams && !block.isOpen && isDiagram(block.language) ? drawnDiagram(block.language, source) : undefined;
       if (diagrams === "start" && !block.isOpen && isDiagram(block.language) && !diagram) void drawDiagram(block.language, source);
       if (diagram && "image" in diagram && isReady(diagram.image) && typeof diagrams === "object") {
@@ -94,7 +99,7 @@ function BlockView({ block, width, voice, copyable, diagrams }: { block: Block; 
       }
       return (
         <Box paddingLeft={indent} flexDirection="column">
-          <Panel label={block.language} note={lines >= LINE_COUNT_FROM ? plural(lines, "line") : undefined} action={action} width={width - indent}>
+          <Panel label={block.language} note={lines >= LINE_COUNT_FROM ? plural(lines, "line") : undefined} actions={actions} width={width - indent}>
             <Text>{onPanel(highlightCode(source, block.language))}</Text>
           </Panel>
           {diagram && "error" in diagram ? (
@@ -247,13 +252,16 @@ export function Panel({
   paddingX = 1,
   open = false,
   behind,
-  action,
+  actions = [],
   children,
 }: {
   label?: string;
   note?: string;
-  /** A word on the top edge, after the note, that's a link a click acts on, such as a code block's `copy`. */
-  action?: { text: string; href: string };
+  /**
+   * Words on the top edge, after the note, that are links a click acts on, such as a code block's
+   * `copy`. Those that don't fit are left off, from the last.
+   */
+  actions?: { text: string; href: string }[];
   width: number;
   accent?: string;
   background?: string;
@@ -265,8 +273,12 @@ export function Panel({
   const room = Math.max(0, width - 2);
   const left = label ? ` ${takeCells(label, Math.max(1, room - 2))[0]} ` : "";
   const right = note && cellWidth(left) + cellWidth(note) + 3 <= room ? ` ${note} ` : "";
-  const act = action && cellWidth(left) + cellWidth(right) + cellWidth(action.text) + 4 <= room ? action : undefined;
-  const fill = Math.max(0, room - cellWidth(left) - cellWidth(right) - (act ? cellWidth(act.text) + 1 + (right ? 0 : 1) : 0));
+  const words = (some: { text: string }[]) => some.reduce((sum, one) => sum + cellWidth(one.text) + 1, 0) - 1;
+  const fits = (count: number) => cellWidth(left) + cellWidth(right) + words(actions.slice(0, count)) + 4 <= room;
+  let count = actions.length;
+  while (count && !fits(count)) count--;
+  const acts = actions.slice(0, count);
+  const fill = Math.max(0, room - cellWidth(left) - cellWidth(right) - (acts.length ? words(acts) + 1 + (right ? 0 : 1) : 0));
   const edge = accent ?? background;
   const line = accent ? "▁" : "▄";
   return (
@@ -276,7 +288,7 @@ export function Panel({
         <Text color={PALETTE.haze}>{left}</Text>
         <Text color={edge}>{line.repeat(fill)}</Text>
         <Text color={PALETTE.dust}>{right}</Text>
-        {act ? <Text color={PALETTE.haze}>{`${right ? "" : " "}${hyperlink(act.href, act.text)} `}</Text> : null}
+        {acts.length ? <Text color={PALETTE.haze}>{`${right ? "" : " "}${acts.map((act) => hyperlink(act.href, act.text)).join(" ")} `}</Text> : null}
         <Text color={edge}>{line}</Text>
       </Text>
       <Box backgroundColor={background} paddingX={paddingX} width={width} flexDirection="column">
