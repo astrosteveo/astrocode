@@ -1,10 +1,10 @@
 // Claude's multiple-choice questions (the AskUserQuestion tool), one at a time, on a panel with a
-// gold top edge. In full screen, clicking an option is pressing its number.
+// gold top edge, each option's preview beside the options or under them. In full screen, clicking an option is pressing its number.
 import { Box, Text, useInput, usePaste, type DOMElement } from "ink";
 import { useRef, useState } from "react";
 import type { Answers, ImageAttachment, QuestionRequest } from "../src/events";
 import { ChoiceRow } from "./choice";
-import { drawnPreview, isHtmlPreview } from "./diagrams";
+import { drawnPreview, isHtmlPreview, PREVIEW_GAP, previewLayout } from "./diagrams";
 import { wrapText } from "./markdown";
 import { Panel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
@@ -103,17 +103,76 @@ export function QuestionPrompt({ request, width, rows: screenRows, onAnswer }: P
     }
   });
 
-  const inner = width - 2;
+  // On a wide screen the preview stands beside the options, and the question fits on one screen;
+  // on a narrow one it goes under them.
+  const layout = previewLayout(width, question.options.some((option) => !!option.preview?.trim()));
+  const { beside, list: listWidth, preview: previewWidth, room } = layout;
   // The preview follows the pointer, else the chosen option. It's as tall as the tallest of them,
-  // so the options above it don't move as it changes: in full screen this panel is pinned to the
-  // bottom, and a taller preview would push another option under a pointer that held still.
-  const room = inner - 2;
-  // A drawn preview gets what the options, the panel's other lines and the message box leave.
-  const most = Math.max(4, screenRows - 2 * (other + 1) - (questions.length > 1 ? 13 : 12));
+  // so the options don't move as it changes: in full screen this panel is pinned to the bottom,
+  // and a taller preview would push another option under a pointer that held still.
+  // A drawn preview gets what the panel's other lines and the message box leave, and under the
+  // options, what they leave too.
+  const around = questions.length > 1 ? 13 : 12;
+  const most = Math.max(4, beside ? screenRows - around + 1 : screenRows - 2 * (other + 1) - around);
   const shapes = question.options.map((option) => previewShape(option.preview, room, most));
   const tallest = Math.max(0, ...shapes.map((shape) => shape.rows));
   const previewed = hovered !== null && hovered !== other ? hovered : selected;
   const shape = shapes[previewed];
+  const options = (
+    <Box ref={list} flexDirection="column" width={listWidth} flexShrink={0}>
+      {[...question.options, { label: "Other…", description: "Type your own answer" }].map((option, i) => {
+        const isFocused = i === selected;
+        const box = question.multiSelect && i !== other ? (checked.includes(i) ? "● " : "○ ") : "";
+        const indent = " ".repeat(3 + box.length);
+        // Wrapped here, so its lines hang under the label rather than under the number.
+        const description = option.description ? wrapText(option.description, Math.max(8, listWidth - 2 - indent.length), true) : [];
+        return (
+          <Box
+            key={i}
+            flexDirection="column"
+            ref={(element) => {
+              rows.current[i] = element;
+            }}
+          >
+            <ChoiceRow selected={isFocused} hovered={i === hovered} width={listWidth}>
+              <Text>
+                <Text color={PALETTE.dust}>{`${i + 1}  `}</Text>
+                {box ? <Text color={checked.includes(i) ? PALETTE.gold : PALETTE.dust}>{box}</Text> : null}
+                <Text bold={isFocused} color={isFocused ? PALETTE.star : undefined}>
+                  {option.label}
+                </Text>
+              </Text>
+              {description.map((line, j) => (
+                <Text key={j} color={PALETTE.haze}>
+                  {indent + line.map((run) => run.text).join("")}
+                </Text>
+              ))}
+            </ChoiceRow>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+  const preview =
+    tallest > 0 && typing === null ? (
+      <Panel label={beside ? undefined : "preview"} width={previewWidth} background={PALETTE.raised}>
+        {shape?.kind === "picture" ? (
+          <Box height={tallest} flexDirection="column">
+            <ImageView image={shape.image} width={room} rows={most} />
+          </Box>
+        ) : (
+          Array.from({ length: tallest }, (_, i) => {
+            const lines = shape?.kind === "text" ? shape.lines : [];
+            const empty = shape?.kind === "error" ? `Couldn't draw this preview: ${shape.error}` : "No preview for this one.";
+            return (
+              <Text key={i} wrap="truncate-end" color={lines.length ? undefined : shape?.kind === "error" ? PALETTE.rose : PALETTE.dust}>
+                {lines.length ? lines[i] || " " : i === 0 ? empty : " "}
+              </Text>
+            );
+          })
+        )}
+      </Panel>
+    ) : null;
   return (
     <Panel width={width} accent={PALETTE.gold} note={questions.length > 1 ? `${step + 1} of ${questions.length}` : undefined}>
       {questions.length > 1 ? (
@@ -128,32 +187,14 @@ export function QuestionPrompt({ request, width, rows: screenRows, onAnswer }: P
       <Text bold color={PALETTE.star}>
         {question.question}
       </Text>
-      <Box ref={list} flexDirection="column" marginTop={1}>
-        {[...question.options, { label: "Other…", description: "Type your own answer" }].map((option, i) => {
-          const isFocused = i === selected;
-          const box = question.multiSelect && i !== other ? (checked.includes(i) ? "● " : "○ ") : "";
-          return (
-            <Box
-              key={i}
-              flexDirection="column"
-              ref={(element) => {
-                rows.current[i] = element;
-              }}
-            >
-              <ChoiceRow selected={isFocused} hovered={i === hovered} width={inner}>
-                <Text>
-                  <Text color={PALETTE.dust}>{`${i + 1}  `}</Text>
-                  {box ? <Text color={checked.includes(i) ? PALETTE.gold : PALETTE.dust}>{box}</Text> : null}
-                  <Text bold={isFocused} color={isFocused ? PALETTE.star : undefined}>
-                    {option.label}
-                  </Text>
-                </Text>
-                {option.description ? <Text color={PALETTE.haze}>{`${" ".repeat(3 + box.length)}${option.description}`}</Text> : null}
-              </ChoiceRow>
-            </Box>
-          );
-        })}
-      </Box>
+      {beside ? (
+        <Box marginTop={1} columnGap={PREVIEW_GAP}>
+          {options}
+          {preview}
+        </Box>
+      ) : (
+        <Box marginTop={1}>{options}</Box>
+      )}
       {typing !== null ? (
         <Box marginTop={1}>
           <Text>
@@ -163,27 +204,7 @@ export function QuestionPrompt({ request, width, rows: screenRows, onAnswer }: P
           </Text>
         </Box>
       ) : null}
-      {tallest > 0 && typing === null ? (
-        <Box marginTop={1}>
-          <Panel label="preview" width={inner} background={PALETTE.raised}>
-            {shape?.kind === "picture" ? (
-              <Box height={tallest} flexDirection="column">
-                <ImageView image={shape.image} width={room} rows={most} />
-              </Box>
-            ) : (
-              Array.from({ length: tallest }, (_, i) => {
-                const lines = shape?.kind === "text" ? shape.lines : [];
-                const empty = shape?.kind === "error" ? `Couldn't draw this preview: ${shape.error}` : "No preview for this one.";
-                return (
-                  <Text key={i} wrap="truncate-end" color={lines.length ? undefined : shape?.kind === "error" ? PALETTE.rose : PALETTE.dust}>
-                    {lines.length ? lines[i] || " " : i === 0 ? empty : " "}
-                  </Text>
-                );
-              })
-            )}
-          </Panel>
-        </Box>
-      ) : null}
+      {preview && !beside ? <Box marginTop={1}>{preview}</Box> : null}
       <Box marginTop={1}>
         <Text color={PALETTE.dust}>
           {typing !== null
