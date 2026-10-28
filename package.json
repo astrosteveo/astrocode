@@ -16,6 +16,7 @@
     "cli-highlight": "^2.1.11",
     "ink": "8.0.0",
     "react": "^19.3.1",
+    "uqr": "0.1.2",
     "wrap-ansi": "^10.0.2"
   },
   "devDependencies": {

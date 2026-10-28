@@ -109,6 +109,12 @@ export function sdkEvent(message: SDKMessage, at?: number): SessionEvent {
 
 export type CommandInfo = { name: string; description: string; argumentHint: string };
 
+/**
+ * Remote Control: the session reachable from claude.ai/code and the Claude app. `url` is the link to
+ * it, once Claude Code has said; `detail` says why it failed, or what it's waiting on.
+ */
+export type RemoteControl = { status: "connecting" | "connected" | "failed"; url?: string; detail?: string };
+
 export type SessionEvent =
   /** Claude Code started: the account, and the models and slash commands it offers. */
   | { kind: "ready"; plan?: string; models: ModelChoice[]; commands: CommandInfo[] }
@@ -118,8 +124,9 @@ export type SessionEvent =
    * A message you sent. `uuid` is its id in the transcript, which rewinding goes back to. `images`
    * are the images it carried, by the number of the `[Image #n]` each went with. `at` is when it
    * was sent, known for a replayed one. `later`: sent while Claude works, to wait for the turn's end.
+   * `remote`: sent from claude.ai or the Claude app over Remote Control, as Claude starts on it.
    */
-  | { kind: "prompt"; text: string; uuid?: string; images?: Record<number, ImageAttachment>; at?: number; later?: boolean }
+  | { kind: "prompt"; text: string; uuid?: string; images?: Record<number, ImageAttachment>; at?: number; later?: boolean; remote?: boolean }
   /**
    * A command you ran with `!`: as it starts, what its terminal shows as it runs, and how it ended.
    * `at` is when each happened, from Claude Code's timestamps in a replayed conversation.
@@ -137,7 +144,8 @@ export type SessionEvent =
   | { kind: "permission"; request: PermissionRequest }
   | { kind: "question"; request: QuestionRequest }
   | { kind: "elicitation"; request: ElicitationRequest }
-  | { kind: "resolved"; id: string; outcome: Decision | "answered" | "cancelled" }
+  /** `withdrawn`: Claude Code took it back, as after an interrupt or an answer given over Remote Control. */
+  | { kind: "resolved"; id: string; outcome: Decision | "answered" | "cancelled" | "withdrawn" }
   | { kind: "mode"; mode: PermissionMode }
   | { kind: "model"; model: string }
   | { kind: "effort"; effort: EffortLevel }
@@ -152,6 +160,8 @@ export type SessionEvent =
   | { kind: "context"; percentage: number; tokens: number; max: number }
   /** A keep-warm request read the conversation's prompt cache at `at`, so it's warm for its TTL from then. */
   | { kind: "cache-warmed"; at: number }
+  /** Remote Control as it is now, or null once it's off. */
+  | { kind: "remote"; remote: RemoteControl | null }
   | { kind: "notice"; tone: NoticeTone; text: string };
 
 /** How a notice reads: by the way, a warning (ember), or a failure (rose). */

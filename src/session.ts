@@ -13,6 +13,7 @@ import {
   type PermissionResult,
   type PermissionUpdate,
   type Query,
+  type SDKMessage,
   type SDKUserMessage,
   type SessionMessage,
   type SlashCommand,
@@ -20,6 +21,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { hooksListing, memoryDialog, permissionRules, sandboxDialog, skillsDialog, statusDialog } from "./dialogs";
 import {
+  imageBlocks,
   MODES,
   sdkEvent,
   type Answers,
@@ -31,6 +33,7 @@ import {
   type ImageAttachment,
   type PermissionRequest,
   type Question,
+  type RemoteControl,
   type SessionEvent,
 } from "./events";
 import { AsyncQueue } from "./queue";
@@ -53,6 +56,8 @@ export type SessionOptions = {
   continue?: boolean;
   /** Claude Code writes a line every half minute on what each subagent is doing, for the task view. */
   agentSummaries?: boolean;
+  /** Start with Remote Control on. */
+  remoteControl?: boolean;
   /** Where Claude Code's own stderr goes. Defaults to this process's stderr. */
   onStderr?: (data: string) => void;
   emit: (event: SessionEvent) => void;
@@ -125,6 +130,12 @@ export class AgentSession {
   private continueLast: boolean;
   /** Where a rewound conversation picks up: the last message kept. Until something new is sent. */
   private resumeAt: string | undefined;
+  /** Remote Control asked for. It stays on through a restart of Claude Code, with a new link. */
+  private remoteWanted: boolean;
+  /** Remote Control as last reported, or null while it's off. */
+  private remote: RemoteControl | null = null;
+  /** The messages and notes sent from here that Claude Code hasn't echoed back yet, by uuid. */
+  private sent = new Set<string>();
 
   constructor(private readonly options: SessionOptions) {
     this.model = options.model;
@@ -134,6 +145,7 @@ export class AgentSession {
     this.resumeFrom = options.resume;
     this.continueLast = options.continue ?? false;
     this.agentSummaries = options.agentSummaries ?? false;
+    this.remoteWanted = options.remoteControl ?? false;
   }
 
   /** The conversation's id, once Claude Code has reported it. */
@@ -166,6 +178,9 @@ export class AgentSession {
         // turn. Without this, Claude Code stops every background agent and workflow along with it.
         perTaskStopAffordance: true,
         agentProgressSummaries: this.agentSummaries,
+        // Claude Code echoes every message back as it takes it. That's the only way a message sent
+        // from claude.ai or the Claude app over Remote Control reaches astrocode; the rest are ours.
+        extraArgs: { "replay-user-messages": null },
         settings: { ...(this.fast ? { fastMode: true } : {}), ...(this.ultracode ? { ultracode: true } : {}) },
         canUseTool: (toolName, input, context) => this.ask(run, toolName, input, context),
         onElicitation: (request, { signal }) => this.elicit(run, request, signal),
@@ -251,6 +266,7 @@ export class AgentSession {
     this.start();
     this.resumeAt = undefined;
     const uuid = randomUUID();
+    this.sent.add(uuid);
     const mentions = mentionsIn(text, images);
     this.options.emit({ kind: "prompt", text, uuid, images: Object.fromEntries(mentions.map(({ n, image }) => [n, image])), at: Date.now(), later: how.later });
     const run = this.run;
@@ -285,7 +301,9 @@ export class AgentSession {
    */
   note(text: string) {
     this.start();
-    this.post(this.run, async () => ({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null, shouldQuery: false }));
+    const uuid = randomUUID();
+    this.sent.add(uuid);
+    this.post(this.run, async () => ({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null, uuid, shouldQuery: false }));
   }
 
   /** Sends a message once those before it have gone, and whatever it waits on is done. */
@@ -485,6 +503,82 @@ export class AgentSession {
   }
 
   /**
+   * Remote Control: the session can be reached from claude.ai/code and the Claude app, where your
+   * messages and answers to its prompts go to Claude as typed here, until it's turned off or
+   * astrocode quits. A restart of Claude Code, as after /clear, starts a new remote session with a
+   * link of its own.
+   */
+  async setRemoteControl(on: boolean) {
+    this.remoteWanted = on;
+    const run = this.running();
+    if (on) return this.connectRemote(run);
+    this.reportRemote(null);
+    await remoteOf(run).enableRemoteControl?.(false);
+  }
+
+  private async connectRemote(run: Run) {
+    const query = remoteOf(run);
+    if (!query.enableRemoteControl) throw new Error("This Agent SDK can't turn on Remote Control (enableRemoteControl is missing).");
+    this.reportRemote({ status: "connecting" });
+    try {
+      const answer = await query.enableRemoteControl(true);
+      if (run.closing || !this.remoteWanted) return;
+      const url = field(answer, "session_url");
+      // Claude Code may have said it's connected while this was on its way.
+      this.reportRemote({ status: this.remote?.status ?? "connecting", url: typeof url === "string" && url ? url : undefined });
+    } catch (error) {
+      if (!run.closing && this.remoteWanted) this.reportRemote({ status: "failed", detail: messageOf(error) });
+      throw error;
+    }
+  }
+
+  /**
+   * Claude Code's `bridge_state`, which isn't in the SDK's types: `ready` as it registers, then
+   * `connected`, or `failed` with a `detail`, or `policy_disabled` where an organization turns it off.
+   */
+  private bridged(message: SDKMessage) {
+    if (!this.remoteWanted || !this.remote) return;
+    const state = field(message, "state");
+    const detail = field(message, "detail");
+    const status = state === "connected" ? "connected" : state === "failed" || state === "policy_disabled" ? "failed" : "connecting";
+    const why = typeof detail === "string" && detail ? detail : state === "policy_disabled" ? "Your organization's policy turns Remote Control off." : undefined;
+    this.reportRemote({ status, url: this.remote.url, detail: status === "connected" ? undefined : why });
+  }
+
+  private reportRemote(remote: RemoteControl | null) {
+    this.remote = remote;
+    this.options.emit({ kind: "remote", remote });
+  }
+
+  /**
+   * A message Claude Code echoed back as it took it. One sent from here is in the transcript already.
+   * One a person sent from elsewhere, as from claude.ai or the Claude app over Remote Control, comes
+   * in as a message of yours: Claude Code stamps both human. True when it's dealt with.
+   */
+  private echoed(message: SDKMessage): boolean {
+    if (message.type !== "user" || !("isReplay" in message) || !message.isReplay || message.parent_tool_use_id) return false;
+    const content = message.message.content;
+    if (Array.isArray(content) && content.some((block) => block.type === "tool_result")) return false;
+    if (this.sent.delete(message.uuid)) return true;
+    if (message.origin?.kind !== "human") return false;
+    const text = typeof content === "string" ? content : content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
+    // Claude Code's own wrapped messages, such as a command's output, aren't anyone's typing.
+    if (text.trimStart().startsWith("<")) return false;
+    const images = imageBlocks(content);
+    const labels = images.map((_, i) => `[Image #${i + 1}]`).join(" ");
+    const at = typeof message.timestamp === "string" ? Date.parse(message.timestamp) : NaN;
+    this.options.emit({
+      kind: "prompt",
+      text: [text.trim(), labels].filter(Boolean).join(text.trim() ? " " : ""),
+      uuid: message.uuid,
+      images: images.length ? Object.fromEntries(images.map((image, i) => [i + 1, image])) : undefined,
+      at: Number.isNaN(at) ? Date.now() : at,
+      remote: true,
+    });
+    return true;
+  }
+
+  /**
    * Turns thinking on or off for the rest of the session. A budget of 0 turns it off, and any other
    * turns it back on (adaptive, on models that decide for themselves). Null goes back to how Claude
    * Code started, which is on unless it started with thinking off.
@@ -648,7 +742,7 @@ export class AgentSession {
           return;
         }
         this.questions.set(id, { run, value: input, resolve });
-        context.signal.addEventListener("abort", () => this.answer(id, null), { once: true });
+        context.signal.addEventListener("abort", () => this.withdraw(id), { once: true });
         this.options.emit({ kind: "question", request: { id, questions } });
         return;
       }
@@ -665,12 +759,26 @@ export class AgentSession {
         fromSubagent: context.agentID !== undefined,
       };
       this.permissions.set(id, { run, value: request, resolve });
-      context.signal.addEventListener("abort", () => this.cancel(id), { once: true });
+      context.signal.addEventListener("abort", () => this.withdraw(id), { once: true });
       this.options.emit({ kind: "permission", request });
     });
   }
 
-  /** Settles a permission prompt Claude Code no longer needs, such as after an interrupt. */
+  /**
+   * A prompt or question Claude Code took back: after an interrupt, or once it was answered on
+   * claude.ai or the Claude app over Remote Control. The tool call's result says how it went, or,
+   * if none comes, the turn's end stops it.
+   */
+  private withdraw(id: string) {
+    const waiting = this.permissions.get(id) ?? this.questions.get(id);
+    if (!waiting) return;
+    this.permissions.delete(id);
+    this.questions.delete(id);
+    waiting.resolve({ behavior: "deny", message: "The request was cancelled." });
+    this.options.emit({ kind: "resolved", id, outcome: "withdrawn" });
+  }
+
+  /** Settles a permission prompt as Claude Code stops, as on /clear or a crash. */
   private cancel(id: string, announce = true) {
     const waiting = this.permissions.get(id);
     if (!waiting) return;
@@ -703,6 +811,8 @@ export class AgentSession {
         if (message.type === "system" && message.subtype === "init") this.mode = message.permissionMode;
         // Claude Code changes modes too, such as when Claude leaves plan mode. A restart carries on in that one.
         if (message.type === "system" && message.subtype === "status" && message.permissionMode) this.mode = message.permissionMode;
+        if (this.echoed(message)) continue;
+        if (message.type === "system" && field(message, "subtype") === "bridge_state") this.bridged(message);
         this.options.emit(sdkEvent(message, Date.now()));
         // Skills found as Claude works in a folder bring commands of their own.
         if (message.type === "system" && message.subtype === "commands_changed") this.options.emit({ kind: "commands", commands: message.commands.map(commandInfo) });
@@ -716,6 +826,8 @@ export class AgentSession {
     } finally {
       if (this.run === run) this.run = null;
       this.cancelWaiting(run, !run.closing);
+      // The link was to this Claude Code. The next one connects again, with a link of its own.
+      if (this.remoteWanted && this.remote && !this.run) this.reportRemote({ status: "connecting" });
     }
   }
 
@@ -769,6 +881,11 @@ export class AgentSession {
       // Claude Code doesn't report its default effort, so only a level chosen here is shown.
       if (this.effort) this.options.emit({ kind: "effort", effort: this.effort });
       if (this.thinking !== undefined) this.options.emit({ kind: "thinking", on: this.thinking });
+      if (this.remoteWanted) {
+        this.connectRemote(run).catch((error: unknown) => {
+          if (!run.closing) this.options.emit({ kind: "notice", tone: "error", text: `Remote Control couldn't start: ${messageOf(error)}` });
+        });
+      }
       await Promise.all([this.reportContext(run), this.reportUltracode(run)]);
     } catch {
       // A failed start is reported by pump().
@@ -842,6 +959,14 @@ export class AgentSession {
       // Context usage is a nicety; the session goes on without it.
     }
   }
+}
+
+/**
+ * Remote Control's request, which the SDK has in its code, sending `remote_control`, but not in
+ * Query's type. Claude Code answers turning it on with the link, `session_url`.
+ */
+function remoteOf(run: Run) {
+  return run.query as Query & { enableRemoteControl?: (enabled: boolean) => Promise<unknown> };
 }
 
 /** "Claude Max", "API key", or the cloud provider in use. */

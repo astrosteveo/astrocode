@@ -53,6 +53,7 @@ import { PluginManager } from "./plugins";
 import { Prompt } from "./prompt";
 import { QuestionPrompt } from "./question";
 import { QueuedMessages } from "./queued";
+import { RemotePanel } from "./remote";
 import { GUTTER, rails, type Rail } from "./rail";
 import { SandboxPanel } from "./sandbox";
 import { Screen } from "./screen";
@@ -94,6 +95,8 @@ type Overlay =
   | { kind: "output-style"; styles: { styles: string[]; current: string } | null }
   /** A question on the side, asked with /btw. */
   | { kind: "btw"; question: string }
+  /** Remote Control's link, its QR code and how it's doing. */
+  | { kind: "remote" }
   /** Finding text in full screen's transcript. */
   | { kind: "find" }
   | null;
@@ -134,7 +137,8 @@ const HELP = [
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
   "/mcp, /permissions, /memory, /skills, /hooks, /sandbox and /status show Claude Code's MCP servers, permission rules, memory, skills, hooks, sandbox and status, and change what can be changed.",
   "/btw asks a question on the side while Claude works. /copy copies Claude's last reply, /export saves or copies the conversation, and /output-style picks how Claude writes.",
-  "/config changes the model, effort, thinking, mode, to-do list, full screen, notifications, when plan usage shows, keeping the cache warm and agent progress, and keeps them for next time, except plan mode, max effort and ultracode. /fullscreen switches layouts.",
+  "/remote-control (or /rc) lets you carry on with this session from claude.ai or the Claude app: it shows the session's link and a QR code to scan with your phone. ⇄ remote in the status bar says it's on, and /remote-control off turns it off.",
+  "/config changes the model, effort, thinking, mode, to-do list, full screen, notifications, when plan usage shows, keeping the cache warm, agent progress and Remote Control, and keeps them for next time, except plan mode, max effort and ultracode. /fullscreen switches layouts.",
   "The status bar's cache says how long the prompt cache stays warm; past that, your next message re-caches the conversation. With keep warm on (/config, or click it in full screen) it shows ↻, and astrocode refreshes the cache before it expires while you're away, for up to 8 hours.",
 ].join("\n");
 
@@ -307,7 +311,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         report(error);
       }
     };
-    const { model, effort, ultracode, thinking, mode, todos, notify, usage, keepWarm: warm, agentSummaries, fullscreen: layout } = changes;
+    const { model, effort, ultracode, thinking, mode, todos, notify, usage, keepWarm: warm, agentSummaries, remoteControl, fullscreen: layout } = changes;
     if (model) await attempt(() => session.setModel(model), () => (kept.model = model));
     if (effort) await attempt(() => session.setEffort(effort), () => (kept.effort = effort));
     // After the effort, since a level of its own turns ultracode off. For this session only.
@@ -342,6 +346,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       store.agentSummaries = agentSummaries;
       session.setAgentSummaries(agentSummaries);
       kept.agentSummaries = agentSummaries;
+    }
+    // Remembered for every session, and put into effect for this one.
+    if (remoteControl !== undefined) {
+      store.remoteControl = remoteControl;
+      kept.remoteControl = remoteControl;
+      if (remoteControl !== Boolean(state.remote)) await attempt(() => session.setRemoteControl(remoteControl), () => {});
     }
     if (layout !== undefined) kept.fullscreen = layout;
     if (!Object.keys(kept).length) return;
@@ -415,6 +425,26 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   const stopRunning = (entry: Running) => {
     if (entry.shellId) store.shells.get(entry.shellId)?.abort();
     else if (entry.taskId) session.stopTask(entry.taskId).catch(report);
+  };
+
+  /**
+   * Remote Control, for this session: on, it opens its panel, with the link to the session and a
+   * QR code of it. /config's switch is the one remembered for every session.
+   */
+  const setRemote = (on: boolean) => {
+    if (on) setOverlay({ kind: "remote" });
+    session.setRemoteControl(on).then(() => {
+      if (!on) setToast("Remote Control off");
+    }, report);
+  };
+
+  /** /remote-control: on or off as asked; with nothing asked, on if it's off, and its panel either way. */
+  const openRemote = (argument: string) => {
+    const asked = argument.toLowerCase();
+    if (asked === "off") return state.remote ? setRemote(false) : notice("info", "Remote Control is off already.");
+    if (asked && asked !== "on") return notice("error", "/remote-control takes on or off.");
+    if (state.remote) return setOverlay({ kind: "remote" });
+    setRemote(true);
   };
 
   /** Full screen or scrollback, kept for next time even when it's the layout already showing. */
@@ -673,6 +703,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
               usage: usageMode,
               keepWarm,
               agentSummaries: store.agentSummaries,
+              remoteControl: store.remoteControl,
             },
           });
         }
@@ -711,6 +742,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         return openExport(argument);
       case "/copy":
         return copyReply(argument);
+      case "/remote-control":
+      case "/rc":
+        return openRemote(argument);
       case "/btw":
         if (!argument) return notice("info", "Ask with /btw and your question. Claude answers on the side, without stopping or adding to the conversation.");
         return setOverlay({ kind: "btw", question: argument });
@@ -913,11 +947,18 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     { name: "status", description: "Claude Code's version, session, account and model", argumentHint: "" },
     { name: "output-style", description: "Pick how Claude writes its replies", argumentHint: "[style]" },
     { name: "btw", description: "Ask a question on the side, without stopping Claude or adding it to the conversation", argumentHint: "<question>" },
+    {
+      name: "remote-control",
+      description: state.remote ? "Remote Control's link and QR code, or turn it off" : "Continue this session from claude.ai or the Claude app on your phone",
+      argumentHint: "[on|off]",
+    },
+    // In the menu too, so Enter on /rc runs it rather than a command with "rc" inside its name.
+    { name: "rc", description: "Remote Control, as /remote-control", argumentHint: "[on|off]" },
     { name: "copy", description: "Copy Claude's last reply, or with a number, the one that many back", argumentHint: "[n]" },
     { name: "export", description: "Save the conversation to a file, or copy it", argumentHint: "[file]" },
     {
       name: "config",
-      description: "astrocode's settings: model, effort, thinking, mode, to-dos, full screen, notifications, plan usage, keeping the cache warm and agent progress",
+      description: "astrocode's settings: model, effort, thinking, mode, to-dos, full screen, notifications, plan usage, keeping the cache warm, agent progress and Remote Control",
       argumentHint: "",
     },
     {
@@ -1170,6 +1211,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
               rows: [
                 { label: "Settings", value: shortPath(settingsPath(), state.cwd, state.home) },
                 { label: "Layout", value: fullscreen ? "full screen" : "scrollback" },
+                { label: "Remote Control", value: state.remote ? (state.remote.url ?? state.remote.status) : "off" },
               ],
             }}
             width={width}
@@ -1218,6 +1260,25 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           />
         );
       }
+      case "remote":
+        return (
+          <RemotePanel
+            remote={state.remote}
+            width={width}
+            rows={Math.max(0, rows - 16)}
+            onRetry={() => setRemote(true)}
+            onTurnOff={() => {
+              close();
+              setRemote(false);
+            }}
+            onCopy={(url) => {
+              copy(url);
+              setToast("Copied the link");
+            }}
+            onOpen={openAddress}
+            onClose={close}
+          />
+        );
       case "btw":
         return (
           <AsidePanel
@@ -1339,6 +1400,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           onThinking={toggleThinking}
           onFast={toggleFast}
           onTasks={openTasks}
+          onRemote={() => setOverlay({ kind: "remote" })}
         />
       </Box>
     </>
