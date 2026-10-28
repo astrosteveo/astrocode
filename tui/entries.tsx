@@ -63,7 +63,8 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
     case "text":
       return (
         <Railed node="◆" color={PALETTE.teal} rail={rail}>
-          <Markdown text={item.text} width={inner.width} copyable={copyable} />
+          {/* A diagram may take the whole screen, since shrinking it shrinks its words. */}
+          <Markdown text={item.text} width={inner.width} copyable={copyable} diagrams={{ rows: view.pictureRows * 2 }} />
         </Railed>
       );
     case "thinking":
@@ -292,7 +293,7 @@ export function LiveView({ live, width, room }: { live: Live | null; width: numb
     <Box flexDirection="column">
       {text ? (
         <Railed node="◆" color={PALETTE.teal} rail={LIVE}>
-          <Markdown text={room === undefined ? text : tail(text, inner, room)} width={inner} />
+          <Markdown text={room === undefined ? text : tail(text, inner, room)} width={inner} diagrams="start" />
         </Railed>
       ) : null}
       {tool?.name ? (

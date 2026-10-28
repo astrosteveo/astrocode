@@ -21,8 +21,11 @@ import {
   type Callout,
   type Span,
 } from "./markdown";
+import { isDiagram } from "../src/canvas";
+import { drawDiagram, drawnDiagram } from "./diagrams";
 import { keywordsIn, paintKeywords } from "./keywords";
 import { copyLink, hyperlink } from "./links";
+import { drawsImages, ImageView, isReady } from "./pictures";
 import { PALETTE } from "./theme";
 
 const CALLOUTS: Record<Callout, { color: string; title: string }> = {
@@ -51,18 +54,25 @@ const VOICES: Record<Voice, { text: { bold?: boolean; italic?: boolean; color?: 
   thinking: { text: { italic: true, color: PALETTE.haze }, accent: PALETTE.haze },
 };
 
+/**
+ * How Claude's diagram fences (mermaid, dot, d2, vega-lite) are drawn. `rows`: as pictures at most
+ * this tall, once they're drawn. `start`: start drawing them, but show their source meanwhile, as a
+ * reply still being written does.
+ */
+export type Diagrams = { rows: number } | "start";
+
 /** `copyable`: code blocks get a `copy` a click acts on, in full screen, where the mouse is astrocode's. */
-export function Markdown({ text, width, voice = "claude", copyable = false }: { text: string; width: number; voice?: Voice; copyable?: boolean }) {
+export function Markdown({ text, width, voice = "claude", copyable = false, diagrams }: { text: string; width: number; voice?: Voice; copyable?: boolean; diagrams?: Diagrams }) {
   return (
     <Box flexDirection="column" rowGap={1}>
       {parse(text).map((block, i) => (
-        <BlockView key={i} block={block} width={width} voice={voice} copyable={copyable} />
+        <BlockView key={i} block={block} width={width} voice={voice} copyable={copyable} diagrams={drawsImages ? diagrams : undefined} />
       ))}
     </Box>
   );
 }
 
-function BlockView({ block, width, voice, copyable }: { block: Block; width: number; voice: Voice; copyable: boolean }) {
+function BlockView({ block, width, voice, copyable, diagrams }: { block: Block; width: number; voice: Voice; copyable: boolean; diagrams?: Diagrams }) {
   switch (block.kind) {
     case "prose":
       return <Prose text={block.text} width={width} voice={voice} />;
@@ -71,16 +81,28 @@ function BlockView({ block, width, voice, copyable }: { block: Block; width: num
       const lines = source.split("\n").length;
       // Under a list item, the panel starts where the item's text does, but always keeps half the width.
       const indent = Math.min(block.indent ?? 0, Math.floor(width / 2));
+      const action = copyable ? { text: "copy", href: copyLink(source) } : undefined;
+      const diagram = diagrams && !block.isOpen && isDiagram(block.language) ? drawnDiagram(block.language, source) : undefined;
+      if (diagrams === "start" && !block.isOpen && isDiagram(block.language) && !diagram) void drawDiagram(block.language, source);
+      if (diagram && "image" in diagram && isReady(diagram.image) && typeof diagrams === "object") {
+        return (
+          <Box paddingLeft={indent}>
+            <Panel label={block.language} action={action} width={width - indent}>
+              <ImageView image={diagram.image} width={width - indent - 2} rows={diagrams.rows} />
+            </Panel>
+          </Box>
+        );
+      }
       return (
-        <Box paddingLeft={indent}>
-          <Panel
-            label={block.language}
-            note={lines >= LINE_COUNT_FROM ? plural(lines, "line") : undefined}
-            action={copyable ? { text: "copy", href: copyLink(source) } : undefined}
-            width={width - indent}
-          >
+        <Box paddingLeft={indent} flexDirection="column">
+          <Panel label={block.language} note={lines >= LINE_COUNT_FROM ? plural(lines, "line") : undefined} action={action} width={width - indent}>
             <Text>{onPanel(highlightCode(source, block.language))}</Text>
           </Panel>
+          {diagram && "error" in diagram ? (
+            <Text color={PALETTE.rose} wrap="truncate-end">
+              {`Couldn't draw this: ${diagram.error.split("\n")[0]}`}
+            </Text>
+          ) : null}
         </Box>
       );
     }

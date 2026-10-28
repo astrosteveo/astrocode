@@ -3,17 +3,16 @@
 // U+10EEEE with the image's id as the foreground color, the first cell of each row marked with its
 // row and column as diacritics. Ink lays those out as ordinary text, so a picture scrolls with the
 // transcript and sits in <Static> and in full screen's lines alike.
-import { dlopen, FFIType } from "bun:ffi";
 import { Box, Text } from "ink";
 import { useRef } from "react";
 import type { ImageAttachment } from "../src/events";
 import type { Item, ViewEvent } from "../src/view/state";
+import { cellSize } from "./cells";
+import { diagramImages, diagramsIn, drawDiagram, drawnDiagram } from "./diagrams";
 
 /** kitty draws images. Under tmux or screen each image would have to be wrapped to pass through, so not there. */
 export const drawsImages = process.env.TERM === "xterm-kitty" && !process.env.TMUX && !process.env.STY;
 
-/** A cell's size in pixels when the terminal doesn't say: about twice as tall as wide. */
-const GUESS = { width: 10, height: 20 };
 /** Images go to the terminal at most this many pixels on a side, since kitty keeps each one decoded. */
 const MAX_PIXELS = 2048;
 /** How long after a frame `afterFrame()` waits to have kitty look again, so it has drawn the frame first. */
@@ -60,8 +59,22 @@ export function prepare(image: ImageAttachment): Promise<void> {
  */
 export function whenReady(event: ViewEvent): Promise<unknown> | null {
   if (!drawsImages) return null;
-  const waiting = imagesIn(event).filter((image) => !pictures.has(image));
-  return waiting.length ? Promise.all(waiting.map(prepare)) : null;
+  const waiting: Promise<unknown>[] = imagesIn(event)
+    .filter((image) => !pictures.has(image))
+    .map(prepare);
+  for (const { language, source } of diagramsOf(event)) {
+    const done = drawnDiagram(language, source);
+    if (done && ("error" in done || pictures.has(done.image))) continue;
+    waiting.push(drawDiagram(language, source).then((result) => ("image" in result ? prepare(result.image) : undefined)));
+  }
+  return waiting.length ? Promise.all(waiting) : null;
+}
+
+/** The diagrams in what Claude wrote, which are drawn before the reply is shown. */
+function diagramsOf(event: ViewEvent): { language: string; source: string }[] {
+  if (event.kind === "history") return event.events.flatMap(diagramsOf);
+  if (event.kind !== "sdk" || event.message.type !== "assistant" || event.message.parent_tool_use_id) return [];
+  return event.message.message.content.flatMap((block) => (block.type === "text" ? diagramsIn(block.text) : []));
 }
 
 function imagesIn(event: ViewEvent): ImageAttachment[] {
@@ -77,9 +90,10 @@ function imagesIn(event: ViewEvent): ImageAttachment[] {
   }
 }
 
-/** The images an entry draws: what you sent with a message, or what a tool's result carried. */
+/** The images an entry draws: what you sent with a message, what a tool's result carried, or Claude's diagrams. */
 export function imagesOf(item: Item): ImageAttachment[] {
   if (item.kind === "prompt") return Object.values(item.images ?? {});
+  if (item.kind === "text") return drawsImages ? diagramImages(item.text) : [];
   if (item.kind === "tool") return item.call.images ?? [];
   if (item.kind === "output") return item.of.kind === "tool" ? (item.of.call.images ?? []) : [];
   return [];
@@ -90,38 +104,6 @@ async function toPicture(image: ImageAttachment): Promise<Picture> {
   const png = new Bun.Image(Buffer.from(image.data, "base64")).resize(MAX_PIXELS, MAX_PIXELS, { fit: "inside", withoutEnlargement: true }).png();
   const data = await png.toBase64();
   return { id: 1 + Math.floor(Math.random() * 0xfffffe), png: data, width: png.width, height: png.height };
-}
-
-/**
- * A cell's size in pixels. It sets a picture's shape, and keeps a small image from being blown up.
- * kitty gives it in the window size the terminal reports (TIOCGWINSZ), pixels as well as rows and
- * columns, which a new font size changes along with the window. Asking with an escape sequence
- * instead would put the answer in stdin, which is Ink's. kitty fits an image into its cells without
- * stretching it, so a wrong size only leaves a margin.
- */
-let cell: { width: number; height: number } | null = null;
-process.stdout.on("resize", () => {
-  cell = null;
-});
-
-function cellSize() {
-  cell ??= windowCell() ?? GUESS;
-  return cell;
-}
-
-let ioctl: ((fd: number, request: number, size: Uint16Array) => number) | null = null;
-
-function windowCell() {
-  if (process.platform !== "linux") return null;
-  try {
-    ioctl ??= dlopen("libc.so.6", { ioctl: { args: [FFIType.i32, FFIType.u64, FFIType.ptr], returns: FFIType.i32 } }).symbols.ioctl;
-    // TIOCGWINSZ fills rows, columns, then width and height in pixels.
-    const size = new Uint16Array(4);
-    const [rows = 0, cols = 0, width = 0, height = 0] = ioctl(1, 0x5413, size) === 0 ? size : [];
-    return rows && cols && width && height ? { width: width / cols, height: height / rows } : null;
-  } catch {
-    return null;
-  }
 }
 
 /** Whether `image` is ready to draw. */
@@ -153,6 +135,8 @@ function sizeOf(picture: Picture, width: number, rows: number): Size {
  * (`forgetSent()`), and full screen sends them again after an editor or a suspend.
  */
 let placed = new Map<Picture, Size>();
+/** The size each picture was last drawn at, which a line drawn earlier and reused still shows. */
+const drawnAt = new WeakMap<Picture, Size>();
 /** Pictures drawn in this frame that the terminal doesn't have at that size yet. */
 const wanted = new Map<Picture, Size>();
 /** Pictures were drawn in new places, and kitty should look for them again after the frame. */
@@ -180,7 +164,7 @@ export function wantPictures(items: readonly Item[], width: number, rows: number
   for (const item of items) {
     for (const image of imagesOf(item)) {
       const picture = pictures.get(image);
-      if (picture) want(picture, sizeOf(picture, width, rows));
+      if (picture) want(picture, drawnAt.get(picture) ?? sizeOf(picture, width, rows));
     }
   }
 }
@@ -255,6 +239,7 @@ export function ImageView({ image, width, rows }: { image: ImageAttachment; widt
   const picture = pictures.get(image);
   if (!picture) return null;
   const size = sizeOf(picture, width, rows);
+  drawnAt.set(picture, size);
   want(picture, size);
   rescan = true;
   const { id } = picture;

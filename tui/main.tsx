@@ -6,6 +6,7 @@ import { AgentSession } from "../src/session";
 import { loadSettings, saved as settingsSaved } from "../src/settings";
 import { loadStash, stashSaved } from "../src/stash";
 import { App } from "./app";
+import { canvas } from "./diagrams";
 import { gitInfo } from "./git";
 import { loadKeymap } from "./keys";
 import { Mouse, MouseContext } from "./mouse";
@@ -131,7 +132,7 @@ export async function startTerminal(options: TerminalOptions) {
 
   session.close();
   store.window.stop();
-  await Promise.all([settingsSaved(), stashSaved()]);
+  await Promise.all([settingsSaved(), stashSaved(), canvas.close()]);
   if (session.id) console.log(`\nResume this conversation with: astrocode --resume ${session.id}`);
   process.exit(0);
 }

@@ -97,6 +97,7 @@ astrocode's look takes its colors from the Hubble palette, the gold and teal of 
 - **The mirror.** astrocode's mark is the James Webb Space Telescope's primary mirror: 18 gold hexagons, the center one missing. Full screen opens on it drawn large, its segments lighting up as astrocode starts.
 - **Live replies.** Claude's replies stream in at the tip of the rail, where a dot circles while Claude works and light passes over what it's doing ("Thinking", "Writing", "Running Bash"), with the time so far and the tokens written. It turns gold and holds still when Claude is waiting on you.
 - **Panels.** Prose sits on your terminal's background; code and anything a tool printed sit on a panel, a filled surface with soft edges and its language set into the top edge. Code is highlighted in the same palette, tables have no grid, and quotes and callouts hang off a hairline.
+- **Diagrams and charts.** In kitty, a diagram or chart Claude writes as a `mermaid`, `dot`, `d2` or `vega-lite` fence is drawn as a picture on its panel, in the same palette, once the fence is finished. The source is still what's saved, so `claude`, Remote Control and other terminals show the fence itself. In full screen the panel's `copy` copies the source. A diagram that can't be drawn shows its source and says why. astrocode draws with the Chromium on your `PATH` (or `ASTROCODE_BROWSER`), started when it's first needed and closed after five minutes unused; `d2` fences need `d2` installed.
 - **Tool calls.** A tool call's hexagon says how it went: filled teal once it's done, rose if it failed, an outline while it runs or after it was stopped or denied, gold while it waits for you. Its row names the tool and what it acts on, with the result against the right edge. A finished call keeps a command's output, an edit's diff (added lines tinted teal, removed ones rose), the to-do list, or your answers to Claude's questions.
 - **Permission prompts.** They show the command, diff or file before you choose. "Always allow" applies only the narrowest rule Claude Code suggests, and the option names that rule. Enter, Space and number keys pressed in the first half-second after a prompt appears are ignored, so a key you meant for something else can't approve it.
 - **Claude's questions.** When Claude asks a multiple-choice question, you pick from a list with descriptions and previews, check several options where that's allowed, or type your own answer. This works in every mode, bypass included.
@@ -136,6 +137,7 @@ Full screen uses the terminal's alternate screen, so the conversation isn't in y
 | `ASTROCODE_MODEL` | Claude Code's default | The model, as with `-m` |
 | `ASTROCODE_EFFORT` | Claude Code's default | The effort, as with `-e` |
 | `ASTROCODE_FULLSCREEN` | off | `1` starts in full screen, as with `-f` |
+| `ASTROCODE_BROWSER` | the first Chromium on your `PATH` | The browser astrocode draws diagrams and charts with |
 
 astrocode is designed for a dark theme with true color, such as kitty. Its colors are its own, so it looks the same whatever theme your terminal uses.
 
@@ -152,6 +154,7 @@ Keep it for your own use. Anthropic's [terms for Claude Code](https://code.claud
 - `src/events.ts` defines what the session tells the interface.
 - `src/history.ts` lists saved sessions and loads a saved conversation.
 - `src/plugins.ts` lists and changes plugins and marketplaces through `claude plugin`, with the Claude Code binary the SDK ships.
+- `src/canvas.ts` draws diagrams, charts, SVG and HTML as pictures, with a headless Chromium that reaches neither the network nor the disk.
 - `src/view/` holds the reducer that turns events into what's on screen (live and replayed alike), plus tool summaries, permission wording and formatting.
 - `tui/` is the Ink front end. `tui/theme.ts` holds the palette, `tui/rail.tsx` the rail, and `tui/markdown-view.tsx` the panels and Markdown drawing; `tui/markdown.ts` is the Markdown parser. `tui/plugins.tsx` is `/plugins`, and `tui/files.ts` finds files for `@`. `tui/screen.tsx` is full screen: `tui/transcript.tsx` draws the conversation as lines, `tui/mouse.ts` reads the mouse, and `tui/selection.ts` and `tui/clipboard.ts` copy.
 
