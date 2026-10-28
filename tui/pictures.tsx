@@ -90,10 +90,21 @@ function imagesIn(event: ViewEvent): ImageAttachment[] {
   }
 }
 
+/**
+ * A reply's drawn diagrams, worked out once per reply, since full screen asks on every layout. A
+ * reply enters the transcript only once its diagrams are drawn, so the answer doesn't change.
+ */
+const replyImages = new WeakMap<Item, ImageAttachment[]>();
+function textImages(item: Extract<Item, { kind: "text" }>) {
+  let images = replyImages.get(item);
+  if (!images) replyImages.set(item, (images = diagramImages(item.text)));
+  return images;
+}
+
 /** The images an entry draws: what you sent with a message, what a tool's result carried, or Claude's diagrams. */
 export function imagesOf(item: Item): ImageAttachment[] {
   if (item.kind === "prompt") return Object.values(item.images ?? {});
-  if (item.kind === "text") return drawsImages ? diagramImages(item.text) : [];
+  if (item.kind === "text") return drawsImages ? textImages(item) : [];
   if (item.kind === "tool") return item.call.images ?? [];
   if (item.kind === "output") return item.of.kind === "tool" ? (item.of.call.images ?? []) : [];
   return [];

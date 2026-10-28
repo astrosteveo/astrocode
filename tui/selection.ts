@@ -20,8 +20,11 @@ const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const PANEL_EDGE = /^[▄▀]/;
 /** The hairline before a quote or a callout. */
 const HAIRLINE = /^▏ /;
-/** A row of a picture's placeholder cells (`pictures.tsx`). Coloring them would change which image they show. */
-const PICTURE = /^\u{10EEEE}/u;
+/**
+ * A row of a picture's placeholder cells (`pictures.tsx`), on a panel after its padding, as a
+ * diagram is. Coloring them would change which image they show.
+ */
+const PICTURE = /^ ?\u{10EEEE}/u;
 /** What a double click selects: a word, a path, a URL or a number. */
 const WORD = /[\p{L}\p{N}_\-./~:@#%+=?&$]/u;
 
