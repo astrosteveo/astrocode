@@ -68,7 +68,8 @@ export function toolSummary(call: ToolCall, waiting: boolean) {
   if (waiting) return "waiting for you";
   switch (call.status) {
     case "running":
-      return call.subagentCalls ? plural(call.subagentCalls, "tool call") : "running";
+      if (call.name === "Agent" || call.name === "Task") return [agentType(call), call.subagentCalls ? plural(call.subagentCalls, "tool call") : "running"].filter(Boolean).join(" · ");
+      return "running";
     case "denied":
       return call.deniedBy ? `denied by ${call.deniedBy}` : "denied";
     case "stopped":
@@ -92,7 +93,7 @@ function doneSummary(call: ToolCall) {
       return typeof call.input.content === "string" ? `+${lineCount(call.input.content)}` : "done";
     case "Agent":
     case "Task":
-      return plural(subagentCallCount(call), "tool call");
+      return [agentType(call), plural(subagentCallCount(call), "tool call")].filter(Boolean).join(" · ");
     case "AskUserQuestion":
       return "answered";
     case "Read": {
@@ -143,6 +144,11 @@ function backgroundSummary(call: ToolCall) {
     default:
       return "went to the background";
   }
+}
+
+/** The kind of subagent an Agent call asked for, such as Explore, where it named one. */
+function agentType(call: ToolCall) {
+  return typeof call.input.subagent_type === "string" ? call.input.subagent_type : "";
 }
 
 /**
