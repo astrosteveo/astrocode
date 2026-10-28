@@ -3,14 +3,15 @@ import { render } from "ink";
 import { homedir } from "node:os";
 import { loadHistory, savedSessions, sessionTitle } from "../src/history";
 import { AgentSession } from "../src/session";
+import { showServer, visualInstructions } from "../src/show";
 import { loadSettings, saved as settingsSaved } from "../src/settings";
 import { loadStash, stashSaved } from "../src/stash";
 import { App } from "./app";
-import { canvas } from "./diagrams";
+import { CANVAS_COLORS, canvas } from "./diagrams";
 import { gitInfo } from "./git";
 import { loadKeymap } from "./keys";
 import { Mouse, MouseContext } from "./mouse";
-import { afterFrame, forgetSent } from "./pictures";
+import { afterFrame, drawsImages, forgetSent } from "./pictures";
 import { Store } from "./store";
 import { markPrompts, TerminalWindow } from "./window";
 
@@ -59,6 +60,11 @@ export async function startTerminal(options: TerminalOptions) {
     resume,
     agentSummaries: saved.agentSummaries,
     remoteControl: saved.remoteControl,
+    // Claude draws only where the pictures can be seen.
+    visuals:
+      drawsImages && canvas.available
+        ? { server: () => showServer(canvas, options.cwd), instructions: visualInstructions(CANVAS_COLORS, false), htmlPreviews: false }
+        : undefined,
     emit: store.emit,
     onStderr: () => {},
   });

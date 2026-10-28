@@ -6,7 +6,7 @@ import { Box, Text } from "ink";
 import { resolve } from "node:path";
 import type { ToolCall } from "../src/view/state";
 import type { Todo } from "../src/view/todos";
-import { field, plural, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
+import { field, plural, SHOW_TOOL, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
 import { Diff, editLines } from "./diff";
 import { fileUrl, hyperlink } from "./links";
 import { cellWidth, printable } from "./markdown";
@@ -59,7 +59,8 @@ export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, 
         {summary ? <Text color={summaryColor}>{summary}</Text> : null}
       </Box>
       {detailed ? <Detail call={call} width={width} /> : null}
-      {detailed ? <Pictures images={picturesOf(call)} width={width} rows={pictureRows} /> : null}
+      {/* What Claude shows you on purpose may take the whole screen; a picture a tool returned, half. */}
+      {detailed ? <Pictures images={picturesOf(call)} width={width} rows={call.name === SHOW_TOOL ? pictureRows * 2 : pictureRows} /> : null}
     </Box>
   );
 }
