@@ -31,6 +31,8 @@ export type ToolCall = {
   images?: ImageAttachment[];
   /** Tool calls a subagent made under this call. */
   subagentCalls: number;
+  /** For an Agent call: what its subagent is doing as it runs, and the subagents it started. */
+  subagent?: Subagent;
   /** When the call came and when its result did, in ms. A saved conversation doesn't say. */
   startedAt?: number;
   endedAt?: number;
@@ -47,6 +49,35 @@ export type ToolCall = {
   /** Who said no without asking you, such as auto mode's classifier or a rule. */
   deniedBy?: string;
 };
+
+/** A tool call a subagent made, the latest of its calls Claude Code has reported. */
+export type SubagentCall = { id: string; name: string; input: Record<string, unknown> };
+
+/**
+ * A subagent started by another subagent, at any depth under an Agent call of Claude's: `depth` 1
+ * for one the call's own subagent started. Kept on that call, after the agent that started it.
+ */
+export type NestedAgent = {
+  /** The Agent call that started it. */
+  id: string;
+  depth: number;
+  description: string;
+  type?: string;
+  calls: number;
+  /**
+   * Claude Code forwards only the calls of the subagent Claude started, so for one nested deeper
+   * there's only the name of its latest tool, from its task's progress.
+   */
+  last?: SubagentCall;
+  lastTool?: string;
+  status: "running" | "done" | "error";
+};
+
+/**
+ * What an Agent call's subagent is doing: its latest call, the subagents it started, and the call
+ * of any of them that waits on a permission prompt.
+ */
+export type Subagent = { last?: SubagentCall; nested: NestedAgent[]; waitingOn?: string };
 
 /**
  * A command you ran with `!`. `stdout` is what its terminal shows, as it runs and once it's done.
@@ -281,8 +312,20 @@ export function reduce(state: State, event: ViewEvent): State {
     }
     case "sdk":
       return applySdk(state, event.message, event.images, event.at);
-    case "permission":
-      return { ...state, pending: [...state.pending.filter((p) => p.id !== event.request.id), event.request] };
+    case "permission": {
+      const next = { ...state, pending: [...state.pending.filter((p) => p.id !== event.request.id), event.request] };
+      // A subagent's prompt marks its call on the Agent call it runs under. A nested subagent's calls
+      // never arrive, so the prompt's is its latest.
+      const { agentId, id, toolName, input } = event.request;
+      const started = agentId === undefined ? undefined : state.taskInfo[agentId]?.toolUseId;
+      const owner = agentId === undefined ? undefined : agentCallOf(state, agentId);
+      if (!owner) return next;
+      return updateTool(next, owner, (call) => {
+        const subagent = call.subagent ?? { nested: [] };
+        const nested = subagent.nested.map((one) => (one.id === started ? { ...one, last: { id, name: toolName, input } } : one));
+        return { subagent: { ...subagent, nested, waitingOn: id } };
+      });
+    }
     case "question":
       return { ...state, questions: [...state.questions.filter((q) => q.id !== event.request.id), event.request] };
     case "elicitation":
@@ -294,6 +337,8 @@ export function reduce(state: State, event: ViewEvent): State {
         questions: state.questions.filter((q) => q.id !== event.id),
         elicitations: state.elicitations.filter((e) => e.id !== event.id),
       };
+      const owner = state.items.find((item): item is ToolItem => item.kind === "tool" && item.call.subagent?.waitingOn === event.id);
+      if (owner) return updateTool(next, owner.call.id, (call) => ({ subagent: { nested: [], ...call.subagent, waitingOn: undefined } }));
       if (event.outcome === "deny") return updateTool(next, event.id, () => ({ status: "denied" }));
       if (event.outcome === "cancelled") return updateTool(next, event.id, () => ({ status: "stopped" }));
       return next;
@@ -372,8 +417,8 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
           };
           return { ...state, taskInfo: { ...state.taskInfo, [task.id]: task } };
         }
-        case "task_progress":
-          return updateTask(state, message.task_id, (task) => ({
+        case "task_progress": {
+          const next = updateTask(state, message.task_id, (task) => ({
             summary: message.summary ?? task.summary,
             lastTool: message.last_tool_name ?? task.lastTool,
             tokens: message.usage.total_tokens,
@@ -381,6 +426,26 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
             // Not in the SDK's types: a workflow's phases and agents.
             workflow: workflowOf(field(message, "workflow_progress")) ?? task.workflow,
           }));
+          // A nested subagent's progress is all there is of its calls.
+          const started = state.taskInfo[message.task_id]?.toolUseId;
+          const owner = started === undefined || state.tools[started] !== undefined ? undefined : nestedOwner(state, started);
+          if (!owner) return next;
+          return updateTool(next, owner, (call) => {
+            const subagent = call.subagent ?? { nested: [] };
+            const nested = subagent.nested.map((one) =>
+              one.id === started
+                ? {
+                    ...one,
+                    calls: Math.max(one.calls, message.usage.tool_uses),
+                    // Newer than a prompt it answered, but not than one it waits on.
+                    last: one.last && one.last.id === subagent.waitingOn ? one.last : undefined,
+                    lastTool: message.last_tool_name ?? one.lastTool,
+                  }
+                : one,
+            );
+            return { subagent: { ...subagent, nested } };
+          });
+        }
         case "task_updated":
           return message.patch.is_backgrounded ? updateTask(state, message.task_id, () => ({ background: true })) : state;
         case "task_notification": {
@@ -554,8 +619,8 @@ function applyStream(state: State, event: StreamEvent): State {
 function applyAssistant(state: State, message: SDKAssistantMessage, at?: number): State {
   const content = message.message.content;
   if (message.parent_tool_use_id) {
-    const calls = content.filter((block) => block.type === "tool_use").length;
-    return calls ? updateTool(state, message.parent_tool_use_id, (call) => ({ subagentCalls: call.subagentCalls + calls })) : state;
+    const calls = content.flatMap((block): SubagentCall[] => (block.type === "tool_use" ? [{ id: block.id, name: block.name, input: asRecord(block.input) }] : []));
+    return calls.length ? applySubagentCalls(state, message.parent_tool_use_id, calls) : state;
   }
   let next = state;
   if (message.error && !content.some((block) => block.type === "text")) {
@@ -589,9 +654,73 @@ function finalizeLive(state: State, messageId: string, block: AssistantBlock): S
   return { ...state, live: { ...live, finalized } };
 }
 
+/**
+ * Calls a subagent made, under the Agent call that started it: Claude's own, or one a subagent made
+ * under it. Agent calls among them start subagents of their own, kept after the one that started them.
+ */
+function applySubagentCalls(state: State, parent: string, calls: SubagentCall[]): State {
+  const last = calls[calls.length - 1];
+  const started = (depth: number) =>
+    calls.filter((call) => call.name === "Agent" || call.name === "Task").map((call): NestedAgent => {
+      const text = (key: string) => (typeof call.input[key] === "string" ? (call.input[key] as string) : undefined);
+      return { id: call.id, depth, description: text("description") ?? "", type: text("subagent_type"), calls: 0, status: "running" };
+    });
+  if (state.tools[parent] !== undefined) {
+    return updateTool(state, parent, (call) => {
+      const subagent = call.subagent ?? { nested: [] };
+      return { subagentCalls: call.subagentCalls + calls.length, subagent: { ...subagent, last, nested: [...subagent.nested, ...started(1)] } };
+    });
+  }
+  const owner = nestedOwner(state, parent);
+  if (!owner) return state;
+  return updateTool(state, owner, (call) => {
+    const subagent = call.subagent ?? { nested: [] };
+    const nested = subagent.nested.slice();
+    const at = nested.findIndex((one) => one.id === parent);
+    const agent = nested[at];
+    if (!agent) return {};
+    nested[at] = { ...agent, calls: agent.calls + calls.length, last };
+    // After the agents it already started, and theirs.
+    let end = at + 1;
+    while (end < nested.length && (nested[end]?.depth ?? 0) > agent.depth) end += 1;
+    nested.splice(end, 0, ...started(agent.depth + 1));
+    return { subagent: { ...subagent, nested } };
+  });
+}
+
+/** Claude's Agent call that a subagent's Agent call is nested under, by the nested call's id. */
+function nestedOwner(state: State, id: string) {
+  const owner = state.items.findLast((item): item is ToolItem => item.kind === "tool" && item.call.subagent?.nested.some((one) => one.id === id) === true);
+  return owner?.call.id;
+}
+
+/** Claude's Agent call that a subagent runs under, by its agent id, at any depth. */
+function agentCallOf(state: State, agentId: string) {
+  const started = state.taskInfo[agentId]?.toolUseId;
+  if (started === undefined) return undefined;
+  return state.tools[started] !== undefined ? started : nestedOwner(state, started);
+}
+
+/** A subagent's tool results: one for an Agent call it made says how that subagent ended. */
+function applySubagentResults(state: State, content: Exclude<UserMessage["message"]["content"], string>): State {
+  let next = state;
+  for (const block of content) {
+    if (block.type !== "tool_result") continue;
+    const owner = nestedOwner(next, block.tool_use_id);
+    if (!owner) continue;
+    const status = block.is_error ? "error" : "done";
+    next = updateTool(next, owner, (call) => {
+      const subagent = call.subagent ?? { nested: [] };
+      return { subagent: { ...subagent, nested: subagent.nested.map((one) => (one.id === block.tool_use_id ? { ...one, status } : one)) } };
+    });
+  }
+  return next;
+}
+
 function applyUser(state: State, message: UserMessage, images: Record<string, ImageAttachment[]>, at?: number): State {
   const content = message.message.content;
-  if (message.parent_tool_use_id || typeof content === "string") return state;
+  if (typeof content === "string") return state;
+  if (message.parent_tool_use_id) return applySubagentResults(state, content);
   const results = content.filter((block) => block.type === "tool_result");
   // The structured output belongs to the message's tool result, so it's only clear when there's one.
   const output = results.length === 1 && "tool_use_result" in message ? message.tool_use_result : undefined;

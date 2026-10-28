@@ -252,7 +252,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     setReveal(null);
   }, [store.epoch]);
 
-  const waiting = new Set([...state.pending.map((request) => request.id), ...state.questions.map((request) => request.id)]);
+  // An Agent call waits for you while its subagent, or one under it, does.
+  const waiting = new Set([
+    ...state.pending.map((request) => request.id),
+    ...state.questions.map((request) => request.id),
+    ...state.items.flatMap((item) => (item.kind === "tool" && item.call.subagent?.waitingOn ? [item.call.id] : [])),
+  ]);
   const question = state.questions[0];
   const elicitation = state.elicitations[0];
   const request = state.pending[0];

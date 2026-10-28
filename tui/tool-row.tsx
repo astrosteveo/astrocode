@@ -4,7 +4,7 @@
 // result on a panel under them. Bash calls are cards of their own (`shell-card.tsx`).
 import { Box, Text } from "ink";
 import { resolve } from "node:path";
-import type { ToolCall } from "../src/view/state";
+import type { NestedAgent, SubagentCall, ToolCall } from "../src/view/state";
 import type { Todo } from "../src/view/todos";
 import { field, plural, SHOW_TOOL, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
 import { Diff, editLines } from "./diff";
@@ -70,9 +70,75 @@ export function ToolRow({ call, waiting = false, cwd, home, width, pictureRows, 
         {summary ? <Text color={summaryColor}>{summary}</Text> : null}
       </Box>
       {detailed ? <Detail call={call} width={width} /> : null}
+      {call.status === "running" && call.subagent ? <SubagentLines call={call} cwd={cwd} home={home} width={width} /> : null}
       {/* What Claude shows you on purpose may take the whole screen; a picture a tool returned, half. */}
       {detailed ? <Figure shown={shownOf(call)} width={width} rows={call.name === SHOW_TOOL ? pictureRows * 2 : pictureRows} links={links} /> : null}
     </Box>
+  );
+}
+
+/**
+ * Under a running Agent call, what its subagent is doing: its latest call, gold while it waits for
+ * you, and each subagent it started, indented under the one that started it, with what that one is
+ * doing while it runs.
+ */
+function SubagentLines({ call, cwd, home, width }: { call: ToolCall; cwd: string; home: string; width: number }) {
+  const { last, nested, waitingOn } = call.subagent ?? { nested: [] };
+  const latest = (one: SubagentCall | undefined, depth: number) =>
+    // A subagent waiting on one it started shows that one instead.
+    one && one.name !== "Agent" && one.name !== "Task" ? (
+      <LatestCall key={`${one.id}:latest`} call={one} waiting={one.id === waitingOn} depth={depth} cwd={cwd} home={home} width={width} />
+    ) : null;
+  return (
+    <Box flexDirection="column" width={width}>
+      {latest(last, 0)}
+      {nested.flatMap((agent) => [
+        <NestedRow key={agent.id} agent={agent} width={width} />,
+        agent.status === "running" ? latest(agent.last ?? (agent.lastTool ? { id: `${agent.id}:tool`, name: agent.lastTool, input: {} } : undefined), agent.depth) : null,
+      ])}
+    </Box>
+  );
+}
+
+const NESTED = {
+  running: STATUS.running,
+  done: STATUS.done,
+  error: STATUS.error,
+} as const;
+
+/** A subagent another one started: how it's going, what it was asked to do, its kind and its calls. */
+function NestedRow({ agent, width }: { agent: NestedAgent; width: number }) {
+  const lead = `${"  ".repeat(agent.depth - 1)}└ `;
+  const { glyph, color } = NESTED[agent.status];
+  const about = [agent.type ?? "", agent.calls ? plural(agent.calls, "tool call") : agent.status === "running" ? "running" : ""].filter(Boolean).join(" · ");
+  const room = width - cellWidth(lead) - 2 - cellWidth("Agent  ") - (about ? cellWidth(about) + 2 : 0);
+  return (
+    <Box justifyContent="space-between" width={width}>
+      <Text wrap="truncate-end">
+        <Text color={PALETTE.dust}>{lead}</Text>
+        <Text color={color}>{`${glyph} `}</Text>
+        <Text color={PALETTE.teal}>Agent</Text>
+        <Text color={PALETTE.haze}>{`  ${fit(agent.description, room, false)}`}</Text>
+      </Text>
+      {about ? <Text color={agent.status === "error" ? PALETTE.rose : PALETTE.dust}>{about}</Text> : null}
+    </Box>
+  );
+}
+
+/** A subagent's latest call, a step in from its agent: the tool and what it acts on, gold while it waits for you. */
+function LatestCall({ call, waiting, depth, cwd, home, width }: { call: SubagentCall; waiting: boolean; depth: number; cwd: string; home: string; width: number }) {
+  const lead = `${"  ".repeat(depth)}└ `;
+  const name = toolLabel(call.name);
+  const said = waiting ? "waiting for your OK: " : "";
+  const room = width - cellWidth(lead) - 2 - cellWidth(said) - cellWidth(name) - 2;
+  const target = fit(toolTarget({ ...call, status: "running", subagentCalls: 0 }, cwd, home), room, PATHLIKE.has(call.name));
+  const { glyph, color } = STATUS[waiting ? "waiting" : "running"];
+  return (
+    <Text wrap="truncate-end">
+      <Text color={PALETTE.dust}>{lead}</Text>
+      <Text color={color}>{`${glyph} `}</Text>
+      <Text color={waiting ? PALETTE.gold : PALETTE.haze}>{`${said}${name}${target ? `  ${target}` : ""}`}</Text>
+    </Text>
   );
 }
 
