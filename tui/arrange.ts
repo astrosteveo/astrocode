@@ -9,7 +9,8 @@ import { rails, type Rail } from "./rail";
 /** `index`: the item the entry starts at. A step's `end` is the index just past its last item. */
 export type Entry =
   | { kind: "item"; item: Item; rail: Rail; index: number }
-  | { kind: "step"; key: string; row: StepRow; open: boolean; rail: Rail; index: number; end: number; first: Item };
+  /** `kept`: the step is open only because you saw it open, and closes once it's out of sight (`stepStartsOpen()`). */
+  | { kind: "step"; key: string; row: StepRow; open: boolean; kept: boolean; rail: Rail; index: number; end: number; first: Item };
 
 /** A step's row as it's drawn, from the step and how its calls went. One Claude is still working in shows as running. */
 function stepRow(step: Step, state: State, waiting: ReadonlySet<string>, current: boolean): StepRow {
@@ -32,10 +33,24 @@ export function stepOpens(state: State, step: Step, waiting: ReadonlySet<string>
   return isCurrent(state.items, step, state.busy) || status === "waiting" || status === "failed";
 }
 
+/**
+ * Whether a step is open unless you open or close it: as `stepOpens()` says, or because it was open
+ * on screen (`seen`). A step Claude has moved on from stays open while you can see it, since
+ * closing it then would pull what you were reading out from under you.
+ */
+export function stepStartsOpen(state: State, step: Step, waiting: ReadonlySet<string>, seen: ReadonlySet<string>) {
+  return stepOpens(state, step, waiting) || seen.has(step.key);
+}
+
+const NONE: ReadonlySet<string> = new Set();
+
 const isCard = (item: Item) => item.kind === "tool" && item.call.name === "Bash";
 
-/** The entries for `state.items`. `toggled` holds the steps opened or closed away from how they start (`stepOpens()`), by key. */
-export function arrange(state: State, waiting: ReadonlySet<string>, toggled: ReadonlySet<string>): Entry[] {
+/**
+ * The entries for `state.items`. `toggled` holds the steps opened or closed away from how they start
+ * (`stepStartsOpen()`), by key, and `seen` the steps that were open on screen.
+ */
+export function arrange(state: State, waiting: ReadonlySet<string>, toggled: ReadonlySet<string>, seen: ReadonlySet<string> = NONE): Entry[] {
   const placed = rails(state.items);
   const found = steps(state.items);
   const entries: Entry[] = [];
@@ -49,10 +64,12 @@ export function arrange(state: State, waiting: ReadonlySet<string>, toggled: Rea
     let rail = placed[i]!;
     const step = found.get(i);
     if (step) {
-      const isOpen = stepOpens(state, step, waiting) !== toggled.has(step.key);
+      const opens = stepOpens(state, step, waiting);
+      const isOpen = (opens || seen.has(step.key)) !== toggled.has(step.key);
+      const kept = isOpen && !opens && !toggled.has(step.key);
       if (afterStep) rail = { ...rail, spaced: false };
       const row = stepRow(step, state, waiting, isCurrent(state.items, step, state.busy));
-      entries.push({ kind: "step", key: step.key, row, open: isOpen, rail, index: i, end: step.end, first: item });
+      entries.push({ kind: "step", key: step.key, row, open: isOpen, kept, rail, index: i, end: step.end, first: item });
       afterStep = !isOpen;
       if (!isOpen) {
         i = step.end - 1;
