@@ -76,9 +76,13 @@ export function whenReady(event: ViewEvent): Promise<unknown> | null {
   return waiting.length ? Promise.all(waiting) : null;
 }
 
-/** The diagrams in what Claude wrote, which are drawn before the reply is shown. */
+/** The diagrams in what Claude wrote, which are drawn before the reply, or the plan, is shown. */
 function diagramsOf(event: ViewEvent): { language: string; source: string }[] {
   if (event.kind === "history") return event.events.flatMap(diagramsOf);
+  if (event.kind === "permission") {
+    const plan = event.request.toolName === "ExitPlanMode" ? event.request.input.plan : undefined;
+    return typeof plan === "string" ? diagramsIn(plan) : [];
+  }
   if (event.kind !== "sdk" || event.message.type !== "assistant" || event.message.parent_tool_use_id) return [];
   return event.message.message.content.flatMap((block) => (block.type === "text" ? diagramsIn(block.text) : []));
 }
