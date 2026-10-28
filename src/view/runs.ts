@@ -202,7 +202,8 @@ function firstLine(text: string) {
 
 /**
  * Something running alongside the conversation, or that ran there: a task of Claude Code's in the
- * background, or a command you ran with `!`. `key` names it for the task view.
+ * background, a subagent Claude waits on, or a command you ran with `!`. `key` names it for the
+ * task view.
  */
 export type Running = {
   key: string;
@@ -215,6 +216,8 @@ export type Running = {
   endedAt?: number;
   /** Claude Code's task, to read its output and stop it. */
   taskId?: string;
+  /** A subagent Claude waits on, by the tool call that started it, which can move it to the background. */
+  foreground?: string;
   /** Your command's id. */
   shellId?: string;
   /** Claude Code can read out what it printed, as it can for a command or a Monitor. */
@@ -232,13 +235,13 @@ export type Running = {
 
 /**
  * What runs alongside the conversation, and what ran there in this Claude Code process: running
- * first, then ended, newest first in each. Your commands show only while they run, since their
- * cards hold how they ended.
+ * first, then ended, newest first in each. Subagents Claude waits on are here too, so you can watch
+ * them. Your commands show only while they run, since their cards hold how they ended.
  */
 export function runningList(state: State): Running[] {
   const shells = state.items.flatMap((item) => (item.kind === "shell" && item.status === "running" ? [shellEntry(item)] : []));
   const tasks = Object.values(state.taskInfo)
-    .filter((task) => task.background)
+    .filter((task) => task.background || task.type === "local_agent")
     .map((task): Running => {
       const index = task.toolUseId ? state.tools[task.toolUseId] : undefined;
       const item = index === undefined ? undefined : state.items[index];
@@ -254,6 +257,7 @@ export function runningList(state: State): Running[] {
         startedAt: task.startedAt,
         endedAt: task.endedAt,
         taskId: task.id,
+        foreground: !task.background && task.status === "running" ? task.toolUseId : undefined,
         hasOutput: kind === "command" || kind === "monitor",
         agentId: kind === "subagent" && task.type === "local_agent" ? task.id : undefined,
         summary: task.summary,
@@ -289,10 +293,18 @@ function shellEntry(item: ShellItem): Running {
   };
 }
 
-/** The task to open for a transcript entry: a command of yours still running, or one of Claude's in the background. */
+/**
+ * The task to open for a transcript entry: a command of yours still running, a subagent Claude is
+ * waiting on, or one of Claude's in the background.
+ */
 export function runningKeyOf(item: Item, state: State) {
   if (item.kind === "shell") return item.status === "running" ? `shell:${item.id}` : undefined;
-  if (item.kind !== "tool" || !item.call.background) return undefined;
+  if (item.kind !== "tool") return undefined;
+  if (!item.call.background) {
+    if (item.call.status !== "running") return undefined;
+    const task = Object.values(state.taskInfo).find((one) => one.toolUseId === item.call.id && one.type === "local_agent");
+    return task ? `task:${task.id}` : undefined;
+  }
   const taskId = item.call.taskId ?? field(item.call.output, "backgroundTaskId");
   return typeof taskId === "string" && state.taskInfo[taskId] ? `task:${taskId}` : undefined;
 }

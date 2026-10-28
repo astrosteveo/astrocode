@@ -70,7 +70,7 @@ Keys you change in Claude Code's `~/.claude/keybindings.json` change in astrocod
 | `/pictures` | The conversation's pictures, as large as the screen allows, starting from the newest: ← and → flip through them, `o` opens one in your image viewer, `b` opens a mockup in your browser, `c` copies a diagram's source |
 | `/plugins` | Manage plugins: turn them on or off, install, update and uninstall them, and add or remove marketplaces |
 | `/config` | astrocode's settings: model, effort (ultracode past the highest level), thinking, permission mode, when the to-do list shows, full screen, plan usage, keeping the cache warm, agent progress and notifications. ↑↓ chooses, ←→ changes, Esc puts the changes into effect and saves them, Ctrl+C throws them away |
-| `/tasks` | What runs alongside the conversation: background commands, subagents, Monitors and workflows, and your `!` commands. Open one to watch it: a command's output, a subagent's transcript, a workflow's phases and agents. `x` stops it |
+| `/tasks` | What runs alongside the conversation: background commands, subagents (those Claude waits on too), Monitors and workflows, and your `!` commands. Open one to watch it: a command's output, a subagent's transcript, a workflow's phases and agents. `x` stops it, and `b` moves a subagent Claude waits on to the background |
 | `/fullscreen` | Switch to full screen, or back to the terminal's scrollback |
 | `/help`, `/exit` | Keys and commands, quit |
 
@@ -108,6 +108,7 @@ astrocode's look takes its colors from the Hubble palette, the gold and teal of 
 - **Plans.** Leaving plan mode shows the plan as Claude wrote it, its diagrams drawn, and the file it's kept in, before you start on it or keep planning.
 - **Keywords.** `ultrathink` in a message asks for deeper reasoning that turn, and `ultracode` for a workflow of agents. Claude Code acts on them; astrocode draws them through the palette's accents in the box and in your message, and the box says what each will do.
 - **Background work.** A subagent, Monitor or workflow that runs in the background says so on its row, a notice says when it ends, and when Claude picks up where it left off by itself, as on a Monitor's event, a line says why. Esc stops Claude's turn but not the work in the background; `/tasks` stops one thing, Ctrl+X Ctrl+K everything.
+- **Subagents.** A subagent Claude waits on counts as running in the status bar and is listed in `/tasks`, and in full screen a click on its row opens it: what it's doing, its last tool, and its transcript as it goes.
 - **Where your keys go.** The message box, a picker or a prompt that has your keys has a gold hairline along its top edge.
 - **The status bar.** The permission mode as a solid chip, then the model and the effort you set (or `ultracode`), `↯ fast` in fast mode, how full the context is, your plan's 5-hour and 7-day usage (with reset times once they get high), the git branch and changed files, and your plan. While a request is being tried again, or the conversation compacted, the line above the box says so.
 - **Scrollback.** Finished output goes into your terminal's own scrollback, like `claude`. A step goes there once Claude has moved on from it, as it was then: closed, unless it failed. Full screen can open any step again.
@@ -162,7 +163,3 @@ Keep it for your own use. Anthropic's [terms for Claude Code](https://code.claud
 - `src/canvas.ts` draws diagrams, charts, SVG and HTML as pictures, with a headless Chromium that reaches neither the network nor the disk.
 - `src/view/` holds the reducer that turns events into what's on screen (live and replayed alike), plus tool summaries, permission wording and formatting.
 - `tui/` is the Ink front end. `tui/theme.ts` holds the palette, `tui/rail.tsx` the rail, and `tui/markdown-view.tsx` the panels and Markdown drawing; `tui/markdown.ts` is the Markdown parser. `tui/plugins.tsx` is `/plugins`, and `tui/files.ts` finds files for `@`. `tui/screen.tsx` is full screen: `tui/transcript.tsx` draws the conversation as lines, `tui/mouse.ts` reads the mouse, and `tui/selection.ts` and `tui/clipboard.ts` copy.
-
-## Not built yet
-
-- Subagent transcripts. Only the number of tool calls a subagent made is shown.

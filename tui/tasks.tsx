@@ -1,7 +1,8 @@
 // One thing running alongside the conversation, opened from /tasks, the status bar or its card: a
 // command's or Monitor's output as it streams, a subagent's progress and the end of its own
 // transcript, or a workflow's phases and agents. Opening it never stops it. Only `x`, or a click on
-// Stop in full screen, does; ← goes back to the list and Esc closes.
+// Stop in full screen, does; `b` moves a subagent Claude waits on to the background, ← goes back to
+// the list and Esc closes.
 import { Box, Text, useInput, type DOMElement } from "ink";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { AgentSession } from "../src/session";
@@ -39,11 +40,13 @@ type Props = {
   /** Rows of output shown. */
   rows: number;
   onStop: (entry: Running) => void;
+  /** Moves a subagent Claude waits on to the background, so Claude goes on without it. */
+  onBackground: (entry: Running) => void;
   onBack: () => void;
   onClose: () => void;
 };
 
-export function TaskView({ entry, shellOutput, session, width, rows, onStop, onBack, onClose }: Props) {
+export function TaskView({ entry, shellOutput, session, width, rows, onStop, onBackground, onBack, onClose }: Props) {
   const running = entry?.status === "running";
   const now = useNow(running);
   const read = useTaskOutput(session, entry?.hasOutput ? entry.taskId : undefined, running);
@@ -63,6 +66,7 @@ export function TaskView({ entry, shellOutput, session, width, rows, onStop, onB
     if (key.escape || (key.ctrl && input === "c")) return onClose();
     if (key.leftArrow || key.backspace) return onBack();
     if (input === "x") return stop();
+    if (input === "b" && entry?.foreground && !stopping) return onBackground(entry);
   });
 
   useMouse((event) => {
@@ -84,7 +88,7 @@ export function TaskView({ entry, shellOutput, session, width, rows, onStop, onB
     return (
       <Panel width={width} accent={PALETTE.gold}>
         <Text color={PALETTE.haze}>That's no longer here.</Text>
-        <Footer running={false} stopping={false} overStop={false} overBack={overBack !== null} stopRef={stopButton} backRef={backButton} />
+        <Footer running={false} stopping={false} foreground={false} overStop={false} overBack={overBack !== null} stopRef={stopButton} backRef={backButton} />
       </Panel>
     );
   }
@@ -138,7 +142,7 @@ export function TaskView({ entry, shellOutput, session, width, rows, onStop, onB
       )}
       {entry.workflow ? <Workflow phases={entry.workflow} width={inner} rows={rows} /> : null}
       {entry.agentId ? <Transcript lines={transcript} width={inner} rows={rows} /> : null}
-      <Footer running={running} stopping={stopping} overStop={overStop !== null} overBack={overBack !== null} stopRef={stopButton} backRef={backButton} />
+      <Footer running={running} stopping={stopping} foreground={entry.foreground !== undefined} overStop={overStop !== null} overBack={overBack !== null} stopRef={stopButton} backRef={backButton} />
     </Panel>
   );
 }
@@ -236,6 +240,8 @@ function Transcript({ lines, width, rows }: { lines: TranscriptLine[] | undefine
 type FooterProps = {
   running: boolean;
   stopping: boolean;
+  /** Claude waits on it, so it can go to the background. */
+  foreground: boolean;
   overStop: boolean;
   overBack: boolean;
   stopRef: RefObject<DOMElement | null>;
@@ -243,7 +249,7 @@ type FooterProps = {
 };
 
 /** Stop as a button, in rose, and the keys. Stop shows only while there's something to stop. */
-function Footer({ running, stopping, overStop, overBack, stopRef, backRef }: FooterProps) {
+function Footer({ running, stopping, foreground, overStop, overBack, stopRef, backRef }: FooterProps) {
   return (
     <Box marginTop={1}>
       {running ? (
@@ -260,6 +266,7 @@ function Footer({ running, stopping, overStop, overBack, stopRef, backRef }: Foo
       <Box ref={backRef}>
         <Text color={overBack ? PALETTE.star : PALETTE.dust}>← back to the list</Text>
       </Box>
+      {foreground && !stopping ? <Text color={PALETTE.dust}>{"   b to the background"}</Text> : null}
       <Text color={PALETTE.dust}>{"   esc to close"}</Text>
     </Box>
   );
