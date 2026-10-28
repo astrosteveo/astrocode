@@ -80,14 +80,32 @@ export const isHtmlPreview = (preview: string | undefined): preview is string =>
 
 /** The widest a preview is drawn, in CSS pixels; wider, a mockup's words would shrink to fit the panel. */
 const PREVIEW_WIDTH = 960;
+/** The narrowest question panel that puts a preview beside the options rather than under them. */
+const BESIDE_FROM = 110;
+/** Columns between the options and the preview. */
+export const PREVIEW_GAP = 2;
+
+/**
+ * How a question's panel, `width` columns wide, lays out its options and their preview: side by
+ * side on a wide screen, so moving through the options changes the preview in place, else the
+ * preview under them. `room` is what the preview's content gets.
+ */
+export function previewLayout(width: number, previews: boolean) {
+  const inner = width - 2;
+  const beside = previews && inner >= BESIDE_FROM;
+  const list = beside ? Math.max(32, Math.min(52, Math.round(inner * 0.36))) : inner;
+  const preview = beside ? inner - list - PREVIEW_GAP : inner;
+  return { beside, list, preview, room: preview - 2 };
+}
 const previewKey = (html: string) => `preview\u0000${html}`;
 
 /**
- * Draws a question's HTML preview, once, on the preview panel's color and about as wide as the
- * panel, so its words come out near the terminal's own size.
+ * Draws a question's HTML preview, once, on the preview panel's color and as wide as the panel
+ * leaves it, so its words come out near the terminal's own size.
  */
 export function drawPreview(html: string) {
-  const width = Math.min(PREVIEW_WIDTH, Math.max(320, Math.round(((process.stdout.columns || 100) - 8) * cellSize().width)));
+  const { room } = previewLayout(Math.max(24, process.stdout.columns || 100), true);
+  const width = Math.min(PREVIEW_WIDTH, Math.max(320, Math.round(room * cellSize().width)));
   const page = `<!doctype html><meta charset="utf-8"><style>
     html, body { margin: 0; background: ${PALETTE.raised}; color: ${PALETTE.star}; font: ${fontPixels()}px system-ui, sans-serif; }
     body > div { padding: 12px; }
