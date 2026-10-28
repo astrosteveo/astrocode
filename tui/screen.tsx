@@ -11,7 +11,7 @@ import type { State } from "../src/view/state";
 import { plural } from "../src/view/tools";
 import { hit, MULTI_CLICK_MS, relative, useHover, useMouse } from "./mouse";
 import type { Find } from "./find";
-import { cellsOn, findIn, highlight, hoverBand, isTextAt, linkAt, linkBand, markMatches, selectedText, wordAt, type Cell } from "./selection";
+import { cellsOn, findIn, highlight, isTextAt, linkAt, lit, litLink, markMatches, selectedText, wordAt, type Cell } from "./selection";
 import { PALETTE } from "./theme";
 import { Welcome, WELCOME_HEIGHT, WELCOME_WIDTH } from "./mirror";
 import { imageAt, pictureRows, usePictureRows } from "./pictures";
@@ -407,25 +407,27 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   // Before the first message, the mirror and how to start, where there's room for them.
   const welcome = state.items.length === 0 && !state.live && view >= WELCOME_HEIGHT && width >= WELCOME_WIDTH + 4;
   // Links, tool calls, commands and the scrollbar answer to a click, and the pointer is a hand over
-  // them; text answers to a drag, which selects, and the pointer is a text beam over it. Elsewhere
-  // it's the terminal's own. What a click would open gets a band, so it's plain what it is.
+  // them; over a picture, which a click enlarges, it's a magnifying glass. What a click would open
+  // lights up at its first row, a step's line or a card's title, its words in gold, so it's plain
+  // what it is. Elsewhere, over text too, the pointer is the terminal's own arrow, as over the rest
+  // of an app; a drag still selects.
   const hovered = useHover(
     viewport,
     (x, y) => {
       const { transcript, top, pad, thumb } = now.current;
       if (inspector?.over || x > width + 1) return null;
       if (x > width) return thumb > 0 ? { key: "scrollbar", shape: "pointer" } : null;
-      // A selection keeps the text beam wherever the drag goes.
-      if (drag.current === "select" && selected.current) return { key: "", shape: "text" };
+      // A drag that selects lights nothing up as it passes.
+      if (drag.current === "select" && selected.current) return null;
       const row = y < pad ? undefined : transcript.rows[top + y - pad];
       if (!row) return null;
       const url = linkAt(row.text, x);
       if (url) return { key: `${row.key}${LINK_KEY}${url}`, shape: "pointer" };
-      // A picture enlarges on a click; it has no band, which would change which image it shows.
-      if (imageAt(row.text, x)) return { key: "", shape: "pointer" };
+      // A picture doesn't light up, which would change which image it shows.
+      if (imageAt(row.text, x)) return { key: "", shape: "zoom-in" };
       // What's open is for reading and selecting, so only its first row is what a click acts on.
       if (row.hot && (!row.open || row.head)) return { key: row.target ?? row.key, shape: "pointer" };
-      return isTextAt(row.text, x, row.inset) ? { key: "", shape: "text" } : null;
+      return null;
     },
     !welcome,
   );
@@ -455,9 +457,9 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
                           : drag.current
                           ? row.text || " "
                           : linkUrl && row.key === linkEntry
-                            ? linkBand(row.text, linkUrl)
-                            : row.hot && (!row.open || row.head) && hovered === (row.target ?? row.key)
-                              ? hoverBand(row.text, row.inset, width)
+                            ? litLink(row.text, linkUrl)
+                            : row.hot && row.head && hovered === (row.target ?? row.key)
+                              ? lit(row.text, row.inset)
                               : row.text || " "}
                     </Text>
                   );
