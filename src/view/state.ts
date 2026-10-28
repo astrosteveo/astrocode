@@ -412,17 +412,25 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
         case "task_started": {
           if (message.skip_transcript || message.ambient) return state;
           const known = state.taskInfo[message.task_id];
+          // A subagent picked up again with SendMessage starts a new run under that call, but its
+          // messages still come under the Agent call that started it, which keys its transcript.
+          const resumedBy = known?.toolUseId && message.tool_use_id !== known.toolUseId ? message.tool_use_id : undefined;
           const task: TaskInfo = {
             id: message.task_id,
             description: message.description,
             type: message.task_type ?? known?.type ?? "",
-            toolUseId: message.tool_use_id,
+            toolUseId: known?.toolUseId ?? message.tool_use_id,
             background: known?.background || message.is_backgrounded === true,
             status: "running",
-            startedAt: known?.startedAt ?? at,
+            startedAt: resumedBy === undefined ? (known?.startedAt ?? at) : at,
             workflowName: message.workflow_name,
           };
-          return { ...state, taskInfo: { ...state.taskInfo, [task.id]: task } };
+          const next = { ...state, taskInfo: { ...state.taskInfo, [task.id]: task } };
+          // Claude's message is the new run's brief, which Claude Code doesn't forward.
+          const index = resumedBy === undefined ? undefined : state.tools[resumedBy];
+          const item = index === undefined ? undefined : state.items[index];
+          const brief = item?.kind === "tool" ? item.call.input.message : undefined;
+          return known?.toolUseId && typeof brief === "string" ? logAgent(next, known.toolUseId, "user", { content: brief }) : next;
         }
         case "task_progress": {
           const next = updateTask(state, message.task_id, (task) => ({
