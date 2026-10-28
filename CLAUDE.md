@@ -24,6 +24,7 @@ Our own version of `claude`: a terminal front end (Ink 8, React 19, Bun) for Cla
 - Keep `permissionMode` explicit in `src/session.ts`. Without it Claude Code starts in the user's own mode (`bypassPermissions` here) and no prompt ever shows. astrocode starts in the mode last picked, else `auto`.
 - "Always allow" applies only `narrowest()` of Claude Code's suggestions, since the full list can include `setMode: acceptEdits`.
 - AskUserQuestion arrives through `canUseTool`, even in bypass mode, and is answered with `updatedInput: { ...input, answers }`, keyed by question text, a multi-select's labels joined with ", ". For that reason the SDK's warning that canUseTool won't run in bypass mode is dropped.
+- With visuals on, AskUserQuestion's previews are HTML (`toolConfig.askUserQuestion.previewFormat`). A `question` event waits in the `Store` until its previews are drawn; a preview that doesn't start with `<` is shown as text.
 - The permission and question prompts ignore Enter, Space, digits and clicks for `GRACE_MS` after they appear. Don't remove that.
 - Stamp every message `origin: { kind: "human" }`, or Claude Code ignores what only a person may ask for (the `ultracode` keyword, a skill named mid-message). Notes from `note()` aren't stamped. Messages and notes go through one chain, `post()`, to keep their order. Each message has its own `uuid`, which rewinding and the queue rely on. Never send `client_composed`: it turns off `@path` expansion.
 - Claude Code sends `system/init` before every input, not once. Per-process state resets on `ready`.

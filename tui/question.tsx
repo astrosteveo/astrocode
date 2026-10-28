@@ -2,19 +2,22 @@
 // gold top edge. In full screen, clicking an option is pressing its number.
 import { Box, Text, useInput, usePaste, type DOMElement } from "ink";
 import { useRef, useState } from "react";
-import type { Answers, QuestionRequest } from "../src/events";
+import type { Answers, ImageAttachment, QuestionRequest } from "../src/events";
 import { ChoiceRow } from "./choice";
+import { drawnPreview, isHtmlPreview } from "./diagrams";
 import { wrapText } from "./markdown";
 import { Panel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
+import { ImageView, pictureSize } from "./pictures";
 import { PALETTE } from "./theme";
 
 /** Keys pressed this soon after a question appears were meant for something else, so Enter, Space, digits and clicks wait. */
 const GRACE_MS = 500;
 
-type Props = { request: QuestionRequest; width: number; onAnswer: (answers: Answers | null) => void };
+/** `rows`: the terminal's height, which a drawn preview shares with the options and the message box. */
+type Props = { request: QuestionRequest; width: number; rows: number; onAnswer: (answers: Answers | null) => void };
 
-export function QuestionPrompt({ request, width, onAnswer }: Props) {
+export function QuestionPrompt({ request, width, rows: screenRows, onAnswer }: Props) {
   const { questions } = request;
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Answers>({});
@@ -105,9 +108,12 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
   // so the options above it don't move as it changes: in full screen this panel is pinned to the
   // bottom, and a taller preview would push another option under a pointer that held still.
   const room = inner - 2;
-  const tallest = Math.max(0, ...question.options.map((option) => previewRows(option.preview, room).length));
+  // A drawn preview gets what the options, the panel's other lines and the message box leave.
+  const most = Math.max(4, screenRows - 2 * (other + 1) - (questions.length > 1 ? 13 : 12));
+  const shapes = question.options.map((option) => previewShape(option.preview, room, most));
+  const tallest = Math.max(0, ...shapes.map((shape) => shape.rows));
   const previewed = hovered !== null && hovered !== other ? hovered : selected;
-  const preview = previewRows(question.options[previewed]?.preview, room);
+  const shape = shapes[previewed];
   return (
     <Panel width={width} accent={PALETTE.gold} note={questions.length > 1 ? `${step + 1} of ${questions.length}` : undefined}>
       {questions.length > 1 ? (
@@ -160,11 +166,21 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
       {tallest > 0 && typing === null ? (
         <Box marginTop={1}>
           <Panel label="preview" width={inner} background={PALETTE.raised}>
-            {Array.from({ length: tallest }, (_, i) => (
-              <Text key={i} color={preview.length ? undefined : PALETTE.dust}>
-                {preview.length ? preview[i] || " " : i === 0 ? "No preview for this one." : " "}
-              </Text>
-            ))}
+            {shape?.kind === "picture" ? (
+              <Box height={tallest} flexDirection="column">
+                <ImageView image={shape.image} width={room} rows={most} />
+              </Box>
+            ) : (
+              Array.from({ length: tallest }, (_, i) => {
+                const lines = shape?.kind === "text" ? shape.lines : [];
+                const empty = shape?.kind === "error" ? `Couldn't draw this preview: ${shape.error}` : "No preview for this one.";
+                return (
+                  <Text key={i} wrap="truncate-end" color={lines.length ? undefined : shape?.kind === "error" ? PALETTE.rose : PALETTE.dust}>
+                    {lines.length ? lines[i] || " " : i === 0 ? empty : " "}
+                  </Text>
+                );
+              })
+            )}
           </Panel>
         </Box>
       ) : null}
@@ -179,8 +195,18 @@ export function QuestionPrompt({ request, width, onAnswer }: Props) {
   );
 }
 
-/** An option's preview as the rows it takes at `room` cells: none when it has no preview. */
-function previewRows(preview: string | undefined, room: number) {
-  if (!preview?.trim()) return [];
-  return wrapText(preview.replace(/\n+$/, ""), room, true).map((row) => row.map((run) => run.text).join(""));
+/** An option's preview: Markdown as the lines it takes at `room` cells, or HTML as its picture, at most `most` rows tall. */
+type Shape = { kind: "text"; lines: string[]; rows: number } | { kind: "picture"; image: ImageAttachment; rows: number } | { kind: "error"; error: string; rows: number };
+
+function previewShape(preview: string | undefined, room: number, most: number): Shape {
+  if (isHtmlPreview(preview)) {
+    const done = drawnPreview(preview);
+    const size = done && "image" in done ? pictureSize(done.image, room, most) : null;
+    if (done && "image" in done && size) return { kind: "picture", image: done.image, rows: size.rows };
+    // Drawn before the question shows, so a preview not drawn by now is one that couldn't be.
+    if (done && "error" in done) return { kind: "error", error: done.error.split("\n")[0] ?? "", rows: 1 };
+  }
+  if (!preview?.trim()) return { kind: "text", lines: [], rows: 0 };
+  const lines = wrapText(preview.replace(/\n+$/, ""), room, true).map((row) => row.map((run) => run.text).join(""));
+  return { kind: "text", lines, rows: lines.length };
 }

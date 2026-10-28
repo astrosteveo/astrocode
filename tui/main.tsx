@@ -63,7 +63,7 @@ export async function startTerminal(options: TerminalOptions) {
     // Claude draws only where the pictures can be seen.
     visuals:
       drawsImages && canvas.available
-        ? { server: () => showServer(canvas, options.cwd), instructions: visualInstructions(CANVAS_COLORS, false), htmlPreviews: false }
+        ? { server: () => showServer(canvas, options.cwd), instructions: visualInstructions(CANVAS_COLORS, true), htmlPreviews: true }
         : undefined,
     emit: store.emit,
     onStderr: () => {},
