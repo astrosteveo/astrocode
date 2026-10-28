@@ -31,6 +31,8 @@ export class Store {
   keepWarm = false;
   /** Whether Claude Code reports what each subagent is doing, as /config set it. */
   agentSummaries = false;
+  /** Whether sessions start with Remote Control on, as /config set it. */
+  remoteControl = false;
   /** The terminal window's focus, title, progress and notifications. */
   window: TerminalWindow | null = null;
   /** What the message box's keys do, read from keybindings.json as astrocode starts. */

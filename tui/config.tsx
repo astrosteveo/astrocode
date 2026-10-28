@@ -29,6 +29,8 @@ export type ConfigValues = {
   usage: UsageMode;
   keepWarm: boolean;
   agentSummaries: boolean;
+  /** Every session starts with Remote Control on. */
+  remoteControl: boolean;
 };
 
 const TODOS: { mode: TodoMode; label: string; note: string }[] = [
@@ -173,6 +175,15 @@ export function ConfigMenu({ models, initial, path, ultracodeAvailable, width, o
       step: () => update({ agentSummaries: !values.agentSummaries }),
     },
     {
+      label: "Remote Control",
+      value: values.remoteControl ? "on" : "off",
+      changed: values.remoteControl !== initial.remoteControl,
+      note: values.remoteControl
+        ? "Every session can be continued from claude.ai or the Claude app; /remote-control shows the link"
+        : "Off until /remote-control turns it on, for one session",
+      step: () => update({ remoteControl: !values.remoteControl }),
+    },
+    {
       label: "Notifications",
       value: NOTIFY[notifyAt]?.label ?? "",
       changed: values.notify !== initial.notify,
@@ -194,6 +205,7 @@ export function ConfigMenu({ models, initial, path, ultracodeAvailable, width, o
     if (values.usage !== initial.usage) changes.usage = values.usage;
     if (values.keepWarm !== initial.keepWarm) changes.keepWarm = values.keepWarm;
     if (values.agentSummaries !== initial.agentSummaries) changes.agentSummaries = values.agentSummaries;
+    if (values.remoteControl !== initial.remoteControl) changes.remoteControl = values.remoteControl;
     onClose(changes);
   };
 

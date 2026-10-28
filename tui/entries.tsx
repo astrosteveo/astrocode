@@ -51,6 +51,7 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
       return (
         <Railed node={scrollback ? hyperlink(PROMPT_LINK, "●") : "●"} color={PALETTE.gold} rail={rail}>
           <Message text={item.text} images={item.images} width={inner.width} rows={view.pictureRows} />
+          {item.remote ? <Text color={PALETTE.dust}>via Remote Control</Text> : null}
         </Railed>
       );
     case "shell":

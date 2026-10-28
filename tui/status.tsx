@@ -4,10 +4,11 @@
 // in the background, your plan's usage windows once they're half used (or always, or never, as
 // /config says), the git branch and the
 // plan, as many as fit, most important first. After the context, how long the prompt cache stays
-// warm, `cache 54m`, with ↻ while astrocode keeps it warm, or `cache cold`. In full
+// warm, `cache 54m`, with ↻ while astrocode keeps it warm, or `cache cold`; then `⇄ remote` while
+// Remote Control is on, teal once connected and rose if it failed. In full
 // screen, clicking the chip changes the mode, clicking the model switches it, clicking the effort
 // sets it, clicking "thinking off" turns it back on, clicking the cache turns keep-warm on or off,
-// and clicking the running count opens what's running: Claude Code's background tasks and your
+// clicking `⇄ remote` opens Remote Control's link and QR code, and clicking the running count opens what's running: Claude Code's background tasks and your
 // `!` commands.
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { Box, Text, type DOMElement } from "ink";
@@ -29,6 +30,13 @@ export const MODE_CHIPS: Record<PermissionMode, { label: string; color: string }
   auto: { label: "auto", color: PALETTE.gold },
   bypassPermissions: { label: "bypass permissions", color: PALETTE.rose },
   dontAsk: { label: "don't ask", color: PALETTE.ember },
+};
+
+/** Remote Control while it's on, by how its connection is doing. */
+const REMOTE = {
+  connecting: { text: "⇄ connecting", color: PALETTE.haze },
+  connected: { text: "⇄ remote", color: PALETTE.teal },
+  failed: { text: "⇄ remote failed", color: PALETTE.rose },
 };
 
 /** Space between readings, which is all that separates them. */
@@ -62,9 +70,10 @@ type Props = {
   onFast?: () => void;
   onTasks?: () => void;
   onCache?: () => void;
+  onRemote?: () => void;
 };
 
-export function StatusBar({ state, mode, git, width, armed, running, toast, keepWarm, usageMode, onMode, onModel, onEffort, onThinking, onFast, onTasks, onCache }: Props) {
+export function StatusBar({ state, mode, git, width, armed, running, toast, keepWarm, usageMode, onMode, onModel, onEffort, onThinking, onFast, onTasks, onCache, onRemote }: Props) {
   const bar = useRef<DOMElement>(null);
   const now = useNow(15_000, state.cache !== undefined);
   const chip = MODE_CHIPS[mode];
@@ -104,6 +113,10 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, keep
       ),
       onClick: onCache,
     });
+  }
+  if (state.remote) {
+    const { text, color } = REMOTE[state.remote.status];
+    segments.push({ text, node: <Text color={color}>{text}</Text>, onClick: onRemote });
   }
   const model = state.model ? (state.models.find((one) => one.value === state.model)?.name ?? modelLabel(state.model)) : undefined;
   if (model) segments.push({ text: model, node: <Text color={PALETTE.star}>{model}</Text>, onClick: onModel });

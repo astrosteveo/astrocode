@@ -10,7 +10,7 @@ import type {
   SDKPartialAssistantMessage,
   SDKResultMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { CommandInfo, ElicitationRequest, ImageAttachment, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, SessionEvent } from "../events";
+import type { CommandInfo, ElicitationRequest, ImageAttachment, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, RemoteControl, SessionEvent } from "../events";
 import { compact, duration } from "./format";
 
 type StreamEvent = SDKPartialAssistantMessage["event"];
@@ -73,7 +73,7 @@ export type Item =
    * `uuid` is the message's id in the transcript, where rewinding goes back to. `images` go by their
    * `[Image #n]`. `at` is when it was sent or written, where known, which times a replayed turn.
    */
-  | { kind: "prompt"; key: string; text: string; uuid?: string; images?: Record<number, ImageAttachment>; at?: number }
+  | { kind: "prompt"; key: string; text: string; uuid?: string; images?: Record<number, ImageAttachment>; at?: number; remote?: boolean }
   | { kind: "text"; key: string; text: string; at?: number }
   | { kind: "thinking"; key: string; text: string; at?: number }
   | { kind: "tool"; key: string; call: ToolCall }
@@ -209,6 +209,8 @@ export type State = {
   explained?: string;
   /** Fast mode, as Claude Code last reported it, and what keeps it off, if anything. */
   fast?: { state: FastModeState; reason?: FastModeDisabledReason };
+  /** Remote Control, while it's on. */
+  remote?: RemoteControl;
   busy: boolean;
   /** Output tokens of this turn's finished messages. */
   turnTokens: number;
@@ -256,6 +258,8 @@ export function reduce(state: State, event: ViewEvent): State {
     case "commands":
       return { ...state, commands: event.commands };
     case "prompt":
+      // Claude Code echoes a message sent over Remote Control as it starts on it, so it never waits here.
+      if (event.remote) return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at, remote: true }), busy: true };
       if (state.busy && event.uuid) {
         return { ...state, queue: [...state.queue, { text: event.text, uuid: event.uuid, images: event.images, at: event.at, later: event.later }] };
       }
@@ -312,6 +316,8 @@ export function reduce(state: State, event: ViewEvent): State {
       return { ...state, context: { percentage: event.percentage, tokens: event.tokens, max: event.max } };
     case "cache-warmed":
       return state.cache ? { ...state, cache: { ...state.cache, at: event.at } } : state;
+    case "remote":
+      return { ...state, remote: event.remote ?? undefined };
     case "notice":
       return add(state, { kind: "notice", tone: event.tone, text: event.text });
     case "history": {
