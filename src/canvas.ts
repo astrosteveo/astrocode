@@ -469,7 +469,8 @@ function vegaConfig(colors: CanvasColors, size: number) {
     background: colors.background,
     padding: PAD,
     font: "monospace",
-    view: { stroke: "transparent" },
+    // Vega-Lite's own sizes are for a web page; a terminal is wide, and a bar 20 pixels across is a sliver in it.
+    view: { stroke: "transparent", continuousWidth: 480, continuousHeight: 260, discreteWidth: { step: 56 } },
     axis,
     legend: { labelColor: colors.muted, titleColor: colors.text, labelFont: "monospace", titleFont: "monospace", labelFontSize: Math.round(size * 0.8), titleFontSize: size },
     title: { color: colors.strong, font: "monospace", fontSize: Math.round(size * 1.1) },
