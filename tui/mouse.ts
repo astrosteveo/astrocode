@@ -238,10 +238,12 @@ export function useHover<Key extends string | number>(
   const [hovered, setHovered] = useState<Key | null>(null);
   const owner = useRef({}).current;
   const update = useEffectEvent(() => {
-    const pointer = mouse?.where();
+    // Without the mouse, as in scrollback, nothing is ever under the pointer.
+    if (!mouse) return;
+    const pointer = mouse.where();
     const cell = isActive && pointer ? relative(element.current, pointer) : null;
     const found = pointer && cell?.inside ? at(cell.x, cell.y, pointer) : null;
-    mouse?.setShape(owner, found?.shape ?? null);
+    mouse.setShape(owner, found?.shape ?? null);
     setHovered(found?.key ?? null);
   });
   useEffect(() => {
