@@ -6,7 +6,7 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { Item } from "../src/view/state";
 import { PALETTE } from "./theme";
-import { picturesOf } from "./tool-row";
+import { hasPictures } from "./figure";
 
 /** The rail's column and the space after it. Content starts after this. */
 export const GUTTER = 2;
@@ -42,7 +42,7 @@ export const LIVE: Rail = { spaced: true, joined: true, through: true };
  */
 function gap(before: Item | undefined, item: Item) {
   if (before?.kind !== "tool" || item.kind !== "tool") return true;
-  return before.call.name === "Bash" || item.call.name === "Bash" || picturesOf(before.call).length > 0;
+  return before.call.name === "Bash" || item.call.name === "Bash" || hasPictures(before.call);
 }
 
 type Props = { node: string; color: string; rail: Rail; children: ReactNode };

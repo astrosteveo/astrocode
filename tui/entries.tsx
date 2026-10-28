@@ -13,11 +13,12 @@ import { cellWidth } from "./markdown";
 import { fit, Markdown } from "./markdown-view";
 import { FullOutput, OutputBody } from "./output";
 import { hyperlink } from "./links";
-import { ImageView, isReady, Pictures } from "./pictures";
+import { ImageView, isReady } from "./pictures";
 import { GUTTER, LIVE, Railed, type Rail } from "./rail";
 import { ShellCard } from "./shell-card";
 import { PALETTE } from "./theme";
-import { DraftRow, picturesOf, toolNode, ToolRow } from "./tool-row";
+import { DraftRow, toolNode, ToolRow } from "./tool-row";
+import { Figure, shownOf } from "./figure";
 import { PROMPT_LINK } from "./window";
 
 /** `pictureRows`: how tall a picture in an entry may be. */
@@ -46,6 +47,7 @@ type ItemProps = {
 export function ItemView({ item, rail, detailed = false, waiting = false, expanded: open, scrollback = false, copyable = false, ...view }: ItemProps) {
   const inner = { ...view, width: view.width - GUTTER };
   const expanded = open ?? opensByDefault(item);
+  const links = scrollback ? "scrollback" : copyable ? "screen" : undefined;
   switch (item.kind) {
     case "prompt":
       return (
@@ -64,7 +66,7 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
       return (
         <Railed node="◆" color={PALETTE.teal} rail={rail}>
           {/* A diagram may take the whole screen, since shrinking it shrinks its words. */}
-          <Markdown text={item.text} width={inner.width} copyable={copyable} diagrams={{ rows: view.pictureRows * 2 }} />
+          <Markdown text={item.text} width={inner.width} copyable={copyable} diagrams={{ rows: view.pictureRows * 2, links }} />
         </Railed>
       );
     case "thinking":
@@ -79,13 +81,13 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
         return (
           <Railed node={glyph} color={color} rail={rail}>
             <ShellCard run={runOfCall(item.call, waiting)} width={inner.width} expanded={expanded} />
-            {detailed || expanded ? <Pictures images={picturesOf(item.call)} width={inner.width} rows={view.pictureRows} /> : null}
+            {detailed || expanded ? <Figure shown={shownOf(item.call)} width={inner.width} rows={view.pictureRows} links={links} /> : null}
           </Railed>
         );
       }
       return (
         <Railed node={glyph} color={color} rail={rail}>
-          <ToolRow call={item.call} waiting={waiting} detailed={detailed && !expanded} fileLink={scrollback} {...inner} />
+          <ToolRow call={item.call} waiting={waiting} detailed={detailed && !expanded} fileLink={scrollback} links={links} {...inner} />
           {expanded ? <OutputBody call={item.call} width={inner.width} pictureRows={view.pictureRows} /> : null}
         </Railed>
       );

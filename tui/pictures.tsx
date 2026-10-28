@@ -8,6 +8,7 @@ import { useRef } from "react";
 import type { ImageAttachment } from "../src/events";
 import type { Item, ViewEvent } from "../src/view/state";
 import { cellSize } from "./cells";
+import { cellWidth } from "./markdown";
 import { diagramImages, diagramsIn, drawDiagram, drawnDiagram, drawnPreview, drawPreview, isHtmlPreview, type Drawn } from "./diagrams";
 
 /** kitty draws images. Under tmux or screen each image would have to be wrapped to pass through, so not there. */
@@ -35,6 +36,8 @@ export type Size = { cols: number; rows: number };
 /** Each image's picture once it's been made, or null when it couldn't be. */
 const pictures = new WeakMap<ImageAttachment, Picture | null>();
 const preparing = new WeakMap<ImageAttachment, Promise<void>>();
+/** Each image by its picture's id, which its placeholder cells carry as their color. */
+const byId = new Map<number, WeakRef<ImageAttachment>>();
 
 /**
  * Gets an image ready to draw. Scrollback draws an entry once, so its images must be ready before
@@ -45,7 +48,10 @@ export function prepare(image: ImageAttachment): Promise<void> {
   let pending = preparing.get(image);
   if (!pending) {
     pending = toPicture(image).then(
-      (picture) => void pictures.set(image, picture),
+      (picture) => {
+        pictures.set(image, picture);
+        byId.set(picture.id, new WeakRef(image));
+      },
       () => void pictures.set(image, null),
     );
     preparing.set(image, pending);
@@ -130,18 +136,53 @@ async function toPicture(image: ImageAttachment): Promise<Picture> {
 /** Whether `image` is ready to draw. */
 export const isReady = (image: ImageAttachment) => !!pictures.get(image);
 
+/**
+ * A copy of `image` to draw at another size, as the lightbox does. kitty keeps one placement per
+ * image, and placing it at a new size would resize it in the transcript too, so the copy is an
+ * image of its own.
+ */
+const copies = new WeakMap<ImageAttachment, ImageAttachment>();
+export function copyOf(image: ImageAttachment) {
+  let copy = copies.get(image);
+  if (!copy) copies.set(image, (copy = { ...image }));
+  return copy;
+}
+
+/** `image` as the PNG sent to the terminal, base64, once it's ready. */
+export const pngOf = (image: ImageAttachment) => pictures.get(image)?.png;
+
+/** The image drawn at cell `col` of a line of full screen's transcript, or undefined for none. */
+export function imageAt(line: string, col: number): ImageAttachment | undefined {
+  let id: number | null = null;
+  let at = 0;
+  for (const part of line.split(/(\x1b\[[0-9;]*m|\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\))/)) {
+    if (part.startsWith("\x1b")) {
+      const rgb = /^\x1b\[38;2;(\d+);(\d+);(\d+)m$/.exec(part);
+      if (rgb) id = (Number(rgb[1]) << 16) | (Number(rgb[2]) << 8) | Number(rgb[3]);
+      else if (/^\x1b\[(0|39)?m$/.test(part)) id = null;
+      continue;
+    }
+    for (const char of part) {
+      const width = cellWidth(char);
+      if (col < at + width) return char === PLACEHOLDER && id !== null ? byId.get(id)?.deref() : undefined;
+      at += width;
+    }
+  }
+  return undefined;
+}
+
 /** How tall a picture may be with `visible` rows of transcript on screen: half, so the other half still shows the conversation. */
 export const pictureRows = (visible: number) => Math.max(2, Math.floor(visible / 2));
 
 /**
  * The size `picture` is drawn at in a box `width` columns wide and `rows` rows tall: as large as
- * fits, keeping its shape, but no larger than the image itself.
+ * fits, keeping its shape, but no larger than the image itself unless it may `grow`.
  */
-function sizeOf(picture: Picture, width: number, rows: number): Size {
+function sizeOf(picture: Picture, width: number, rows: number, grow = false): Size {
   const most = { cols: Math.min(width, DIACRITICS.length), rows: Math.min(rows, DIACRITICS.length) };
   const cell = cellSize();
   const shape = (picture.width * cell.height) / (picture.height * cell.width);
-  let height = Math.max(1, Math.min(most.rows, Math.ceil(picture.height / cell.height)));
+  let height = Math.max(1, grow ? most.rows : Math.min(most.rows, Math.ceil(picture.height / cell.height)));
   let cols = Math.round(height * shape);
   if (cols > most.cols) {
     cols = most.cols;
@@ -261,11 +302,14 @@ export function pictureSize(image: ImageAttachment, width: number, rows: number)
   return picture ? sizeOf(picture, width, rows) : null;
 }
 
-/** An image as its placeholder cells, as large as fits in `width` columns and `rows` rows, once it's ready. */
-export function ImageView({ image, width, rows }: { image: ImageAttachment; width: number; rows: number }) {
+/**
+ * An image as its placeholder cells, as large as fits in `width` columns and `rows` rows, once
+ * it's ready. With `grow`, it's drawn larger than its pixels where there's room, as the lightbox does.
+ */
+export function ImageView({ image, width, rows, grow = false }: { image: ImageAttachment; width: number; rows: number; grow?: boolean }) {
   const picture = pictures.get(image);
   if (!picture) return null;
-  const size = sizeOf(picture, width, rows);
+  const size = sizeOf(picture, width, rows, grow);
   drawnAt.set(picture, size);
   want(picture, size);
   rescan = true;

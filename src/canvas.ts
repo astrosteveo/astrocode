@@ -40,9 +40,6 @@ export const isDiagram = (language: string) => Object.hasOwn(DIAGRAMS, language)
 /** A picture drawn, as PNG, and its size in pixels. */
 export type Drawing = { png: Uint8Array; width: number; height: number };
 
-/** One picture of several drawn side by side, with what it shows. */
-export type Labeled = { label: string; png: Uint8Array };
-
 /** How long Chromium stays up with nothing to draw. */
 const IDLE_MS = 5 * 60_000;
 /** The longest a picture may take. */
@@ -161,37 +158,6 @@ export class Canvas {
         const height = await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight));
         const shot = await page.screenshot({ type: "png", clip: { x: 0, y: 0, width: clamp(width, 200, MAX_WIDTH), height: clamp(height, 1, MAX_HEIGHT) }, captureBeyondViewport: true });
         return drawing(shot);
-      } finally {
-        await page.close().catch(() => {});
-      }
-    });
-  }
-
-  /** Pictures side by side, each under its label, as for a before and after. */
-  compare(pictures: Labeled[]): Promise<Drawing> {
-    const { colors } = this;
-    const size = this.fontSize();
-    const cells = pictures
-      .map(
-        ({ label, png }) =>
-          `<figure><figcaption>${escape(label)}</figcaption><img src="data:image/png;base64,${Buffer.from(png).toString("base64")}"></figure>`,
-      )
-      .join("");
-    const markup = `<!doctype html><style>
-      body { margin: 0; background: ${colors.background}; color: ${colors.strong}; font: ${size}px monospace; }
-      main { display: flex; gap: ${PAD * 2}px; padding: ${PAD}px; align-items: flex-start; width: max-content; }
-      figure { margin: 0; display: flex; flex-direction: column; gap: ${PAD / 2}px; }
-      figcaption { color: ${colors.muted}; }
-      img { display: block; max-width: ${Math.floor(MAX_WIDTH / pictures.length) - PAD * 3}px; border: 1px solid ${colors.line}; }
-    </style><main>${cells}</main>`;
-    return this.withBrowser(async (browser) => {
-      const page = await browser.newPage();
-      try {
-        await isolate(page);
-        await page.setViewport({ width: MAX_WIDTH, height: 600 });
-        await page.setContent(markup, { waitUntil: "load", timeout: DRAW_MS });
-        const main = await page.$("main");
-        return drawing(await main!.screenshot({ type: "png" }));
       } finally {
         await page.close().catch(() => {});
       }
@@ -433,7 +399,6 @@ function within<T>(work: Promise<T>, ms: number): Promise<T> {
 
 const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, Math.round(value)));
 
-const escape = (text: string) => text.replace(/[&<>"]/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot" }[c]};`);
 
 function mermaidTheme(colors: CanvasColors, size: number) {
   const scale = Object.fromEntries(colors.accents.flatMap((color, i) => [[`cScale${i}`, color], [`pie${i + 1}`, color]]));

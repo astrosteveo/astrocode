@@ -1,10 +1,11 @@
 // Full screen: the conversation in a viewport that scrolls, with the message box and status bar
 // pinned under it. The wheel, PgUp and PgDn scroll, and the viewport follows the end until you
-// scroll up. Dragging selects text and copies it; clicking a tool call or a command opens it, and
-// clicking a link opens that. Ctrl+F finds text in it, and Alt+↑ and Alt+↓ jump between your
+// scroll up. Dragging selects text and copies it; clicking a tool call or a command opens it,
+// clicking a link opens that, and clicking a picture enlarges it. Ctrl+F finds text in it, and Alt+↑ and Alt+↓ jump between your
 // messages, with Shift between tool calls and commands.
 import { Box, Text, useBoxMetrics, useInput, useStdout, type DOMElement } from "ink";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { ImageAttachment } from "../src/events";
 import type { State } from "../src/view/state";
 import { plural } from "../src/view/tools";
 import { hit, MULTI_CLICK_MS, relative, useHover, useMouse } from "./mouse";
@@ -12,7 +13,7 @@ import type { Find } from "./find";
 import { cellsOn, findIn, highlight, hoverBand, isTextAt, linkAt, linkBand, markMatches, selectedText, wordAt, type Cell } from "./selection";
 import { PALETTE } from "./theme";
 import { Welcome, WELCOME_HEIGHT, WELCOME_WIDTH } from "./mirror";
-import { pictureRows, usePictureRows } from "./pictures";
+import { imageAt, pictureRows, usePictureRows } from "./pictures";
 import { useTranscript, type Transcript } from "./transcript";
 
 const WHEEL_LINES = 3;
@@ -49,6 +50,8 @@ type Props = {
   onCopy: (text: string) => void;
   /** A click on a link. */
   onOpen: (url: string) => void;
+  /** A click on a picture. */
+  onPicture: (image: ImageAttachment) => void;
   /** What Ctrl+F is finding, while its bar is open. */
   find: Find | null;
   /** How many matches the transcript has for it. */
@@ -57,7 +60,7 @@ type Props = {
   children: ReactNode;
 };
 
-export function Screen({ state, epoch, branch, columns, rows: height, expanded, waiting, reveal, keys, onToggle, onCopy, onOpen, find: search, onMatches, children }: Props) {
+export function Screen({ state, epoch, branch, columns, rows: height, expanded, waiting, reveal, keys, onToggle, onCopy, onOpen, onPicture, find: search, onMatches, children }: Props) {
   // A column for the scrollbar and one to keep it off the text.
   const width = Math.max(10, columns - 2);
   const viewport = useRef<DOMElement>(null);
@@ -282,6 +285,8 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
           if (index === null || !row) return;
           const url = linkAt(row.text, point.col);
           if (url) return later(() => onOpen(url));
+          const image = imageAt(row.text, point.col);
+          if (image) return onPicture(image);
           if (!row.hot) return;
           const y = index - top + pad;
           if (!row.open || row.head) {
@@ -384,6 +389,8 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
       if (!row) return null;
       const url = linkAt(row.text, x);
       if (url) return { key: `${row.key}${LINK_KEY}${url}`, shape: "pointer" };
+      // A picture enlarges on a click; it has no band, which would change which image it shows.
+      if (imageAt(row.text, x)) return { key: "", shape: "pointer" };
       // What's open is for reading and selecting, so only its first row is what a click acts on.
       if (row.hot && (!row.open || row.head)) return { key: row.key, shape: "pointer" };
       return isTextAt(row.text, x, row.inset) ? { key: "", shape: "text" } : null;
