@@ -16,9 +16,10 @@ type TextItem = Extract<Item, { kind: "text" }>;
 
 /**
  * `key` is the step's own, which opens and closes it. `title` is the text it's named by, if any;
- * `members` are the calls, the thinking between them and their progress lines, in order.
+ * `members` are the rest of its items in order: the calls, the thinking before and between them,
+ * and their progress lines. Its items run from where it's found to `end`, not counting `end`.
  */
-export type Step = { key: string; title?: TextItem; members: Item[]; calls: ToolItem[] };
+export type Step = { key: string; title?: TextItem; members: Item[]; calls: ToolItem[]; end: number };
 
 const isCall = (item: Item | undefined): item is ToolItem => item?.kind === "tool" && !APART.has(item.call.name);
 
@@ -42,16 +43,19 @@ export function steps(items: Item[]): Map<number, Step> {
   let i = 0;
   while (i < items.length) {
     const item = items[i]!;
-    const titled = item.kind === "text" && titleWorthy(item.text) && isCall(items[past(items, i + 1)]);
-    const untitled = isCall(items[past(items, i)]) && item.kind !== "text";
+    // Thinking that leads into a step is part of it.
+    const at = past(items, i);
+    const lead = items[at];
+    const titled = lead?.kind === "text" && titleWorthy(lead.text) && isCall(items[past(items, at + 1)]);
+    const untitled = isCall(lead);
     if (!titled && !untitled) {
-      i += 1;
+      i = Math.max(i + 1, at);
       continue;
     }
     const start = i;
-    const members: Item[] = [];
+    const members: Item[] = items.slice(start, at);
     const calls: ToolItem[] = [];
-    if (titled) i += 1;
+    i = titled ? at + 1 : at;
     const ids = new Set<string>();
     for (;;) {
       const next = items[i];
@@ -68,7 +72,7 @@ export function steps(items: Item[]): Map<number, Step> {
         i += 1;
       } else break;
     }
-    found.set(start, { key: `step:${items[start]!.key}`, title: titled ? (item as TextItem) : undefined, members, calls });
+    found.set(start, { key: `step:${item.key}`, title: titled ? (lead as TextItem) : undefined, members, calls, end: i });
   }
   return found;
 }
@@ -255,8 +259,7 @@ export function stepSpan(step: Step) {
 }
 
 /** Whether the step is the last thing in a turn that's still going, so more calls may join it. */
-export function isCurrent(items: Item[], start: number, step: Step, busy: boolean) {
+export function isCurrent(items: Item[], step: Step, busy: boolean) {
   if (!busy) return false;
-  const end = start + (step.title ? 1 : 0) + step.members.length;
-  return items.slice(end).every((item) => item.kind === "thinking" || item.kind === "notice");
+  return items.slice(step.end).every((item) => item.kind === "thinking" || item.kind === "notice");
 }

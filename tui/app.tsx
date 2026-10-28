@@ -501,14 +501,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     const item = index === undefined ? state.items.find((one) => one.kind === "shell" && one.id === id) : state.items[index];
     if (!fullscreen || !item) return store.emit({ kind: "output", id });
     // Open it, whichever way it starts, and the step it's in.
-    const found = [...steps(state.items)].find(([, step]) => step.members.includes(item));
+    const step = [...steps(state.items).values()].find((one) => one.members.includes(item));
     setExpanded((open) => {
       const next = new Set(open);
       if (opensByDefault(item)) next.delete(item.key);
       else next.add(item.key);
-      if (found) {
-        const [start, step] = found;
-        if (stepOpens(state, start, step, waiting)) next.delete(step.key);
+      if (step) {
+        if (stepOpens(state, step, waiting)) next.delete(step.key);
         else next.add(step.key);
       }
       return next;
@@ -1585,8 +1584,7 @@ const NONE: ReadonlySet<string> = new Set();
 function settledSteps(state: State, settled: number) {
   for (const [start, step] of steps(state.items)) {
     if (start >= settled) break;
-    const end = start + (step.title ? 1 : 0) + step.members.length;
-    if (end > settled || isCurrent(state.items, start, step, state.busy)) return start;
+    if (step.end > settled || isCurrent(state.items, step, state.busy)) return start;
   }
   if (!state.busy) return settled;
   let held = settled;
