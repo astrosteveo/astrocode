@@ -6,7 +6,8 @@ Our own version of `claude`: a terminal front end (Ink 8, React 19, Bun) for Cla
 
 - `src/`: the session (`session.ts`), its events (`events.ts`), saved sessions (`history.ts`), Claude Code's command line (`claude.ts`, `plugins.ts`, `edits.ts`), its dialogs' data (`dialogs.ts`), astrocode's settings and stash (`settings.ts`, `stash.ts`), `!` commands (`shell.ts`) and `#` notes (`memory.ts`).
 - `src/view/`: the reducer (`state.ts`) and what it derives: to-dos, folds, runs, terminal text, permission wording.
-- `tui/`: the Ink components. `app.tsx` lays out scrollback (the default) and `screen.tsx` full screen. `keys.ts` is the message box's keymap, `theme.ts` the palette, `transcript.tsx`, `mouse.ts` and `selection.ts` full screen's lines, mouse and copying, `window.ts` the terminal window (title, focus, notifications), `pictures.tsx` kitty images.
+- `tui/`: the Ink components. `app.tsx` lays out scrollback (the default) and `screen.tsx` full screen. `keys.ts` is the message box's keymap, `theme.ts` the palette, `transcript.tsx`, `mouse.ts` and `selection.ts` full screen's lines, mouse and copying, `window.ts` the terminal window (title, focus, notifications), `pictures.tsx` kitty images, `diagrams.ts` Claude's diagram fences as pictures.
+- `src/canvas.ts`: the headless Chromium that draws diagrams, charts, SVG and HTML as PNG.
 
 ## Commands
 
@@ -65,6 +66,7 @@ Our own version of `claude`: a terminal front end (Ink 8, React 19, Bun) for Cla
 - Every entry draws its piece of the rail through `Railed`. Space entries with the rail's gap rows, never margins.
 - OSC 8 links end with BEL, or Ink's wrapping drops them. `astrocode:copy:` links go only in full screen, `file://` links and the prompt mark's link only in scrollback.
 - The mouse is on only in full screen, so scrollback keeps the terminal's wheel.
+- Claude's diagram fences are drawn before their reply enters the `Store` (`whenReady()`), like images, and drawn in `PALETTE` colors without gold. The canvas blocks every request but `data:`, `about:` and `blob:`; keep it that way, since the pages hold what Claude wrote.
 - kitty pictures use Unicode placeholders. Ink garbles underline colors, so no placement id goes in the cells. An image must be ready (`prepare()`) before its label enters scrollback.
 - Ctrl+G runs the editor in a pty of its own, since Bun keeps reading stdin after Ink lets go and steals keys.
 
