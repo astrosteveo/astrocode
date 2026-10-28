@@ -420,7 +420,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     if (!stopArmed) return setStopArmed(true);
     setStopArmed(false);
     store.stopShells();
-    void Promise.all(state.tasks.map((task) => session.stopTask(task.id))).catch(report);
+    const tasks = running.flatMap((one) => (one.status === "running" && one.taskId ? [one.taskId] : []));
+    void Promise.all(tasks.map((id) => session.stopTask(id))).catch(report);
   };
 
   /** /tasks and the status bar: what's running, or the one thing running, opened. */
@@ -433,6 +434,17 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   const stopRunning = (entry: Running) => {
     if (entry.shellId) store.shells.get(entry.shellId)?.abort();
     else if (entry.taskId) session.stopTask(entry.taskId).catch(report);
+  };
+
+  /** Moves a subagent Claude waits on to the background, from its view, as Ctrl+B does for them all. */
+  const backgroundRunning = (entry: Running) => {
+    if (!entry.foreground) return;
+    session
+      .background([entry.foreground])
+      .then((moved) => {
+        if (!moved) notice("info", "That subagent can't go to the background now.");
+      })
+      .catch(report);
   };
 
   /**
@@ -1188,6 +1200,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
             width={width}
             rows={Math.max(4, Math.min(14, rows - 18))}
             onStop={stopRunning}
+            onBackground={backgroundRunning}
             onBack={() => setOverlay({ kind: "tasks" })}
             onClose={close}
           />
