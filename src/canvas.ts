@@ -56,7 +56,7 @@ const BROWSERS = ["chromium", "chromium-browser", "google-chrome-stable", "googl
 
 /** What the functions run inside the page see. astrocode's own code has no DOM. */
 type Element = { innerHTML: string; querySelector(selector: string): Svg | null };
-type Svg = { getAttribute(name: string): string | null; setAttribute(name: string, value: string): void; viewBox?: { baseVal?: { width: number; height: number } } };
+type Svg = { getAttribute(name: string): string | null; setAttribute(name: string, value: string): void; removeAttribute(name: string): void; viewBox?: { baseVal?: { width: number; height: number } } };
 declare const document: { getElementById(id: string): Element | null; documentElement: { scrollHeight: number } };
 declare const window: unknown;
 
@@ -215,7 +215,17 @@ export class Canvas {
           ...font,
         });
         const { svg } = await mermaid.render(`m${Date.now()}`, source);
-        document.getElementById("out")!.innerHTML = svg;
+        const out = document.getElementById("out")!;
+        out.innerHTML = svg;
+        // Mermaid makes a diagram as wide as its container, which here is as wide as the diagram:
+        // a wide one comes out a few hundred pixels across. Its viewBox has its natural size.
+        const drawn = out.querySelector("svg");
+        const box = drawn?.viewBox?.baseVal;
+        if (drawn && box?.width) {
+          drawn.removeAttribute("style");
+          drawn.setAttribute("width", String(box.width));
+          drawn.setAttribute("height", String(box.height));
+        }
       },
       source,
       mermaidTheme(colors, size),
