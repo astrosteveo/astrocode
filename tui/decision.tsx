@@ -21,10 +21,11 @@ const PREVIEW_LINES = 12;
 /** Lines of a plan the prompt shows: more than a command's, since the plan is what's being approved. */
 const PLAN_LINES = 30;
 
-type Props = { request: PermissionRequest; cwd: string; home: string; width: number; onDecide: (choice: Choice) => void };
+/** `pictureRows`: how tall a diagram in a plan may be. */
+type Props = { request: PermissionRequest; cwd: string; home: string; width: number; pictureRows: number; onDecide: (choice: Choice) => void };
 
 /** Choose with the arrow keys and Enter, press a number, or click an option. Esc or Ctrl+C denies. */
-export function DecisionPrompt({ request, cwd, home, width, onDecide }: Props) {
+export function DecisionPrompt({ request, cwd, home, width, pictureRows, onDecide }: Props) {
   const always = alwaysLabel(request.alwaysAllow, home);
   // Approving a plan is leaving plan mode to carry it out; saying no keeps Claude planning.
   const plan = request.toolName === "ExitPlanMode";
@@ -74,7 +75,7 @@ export function DecisionPrompt({ request, cwd, home, width, onDecide }: Props) {
       </Text>
       {note ? <Text color={PALETTE.haze}>{note}</Text> : null}
       <Box flexDirection="column" marginTop={1}>
-        <Details request={request} cwd={cwd} home={home} width={inner} note={note} />
+        <Details request={request} cwd={cwd} home={home} width={inner} note={note} pictureRows={pictureRows} />
       </Box>
       <Box ref={list} flexDirection="column" marginTop={1}>
         {options.map((option, i) => (
@@ -100,7 +101,7 @@ export function DecisionPrompt({ request, cwd, home, width, onDecide }: Props) {
 }
 
 /** What the tool would do. `note` is already shown above, so a description that says the same isn't repeated. */
-function Details({ request, cwd, home, width, note }: Pick<Props, "request" | "cwd" | "home" | "width"> & { note?: string }) {
+function Details({ request, cwd, home, width, pictureRows, note }: Pick<Props, "request" | "cwd" | "home" | "width" | "pictureRows"> & { note?: string }) {
   const text = (key: string) => {
     const value = request.input[key];
     return typeof value === "string" ? printable(value) : "";
@@ -140,7 +141,7 @@ function Details({ request, cwd, home, width, note }: Pick<Props, "request" | "c
       return (
         <>
           {file ? <Text color={PALETTE.haze}>{shortPath(file, cwd, home)}</Text> : null}
-          {text("plan") ? <Markdown text={lines.slice(0, PLAN_LINES).join("\n")} width={width} /> : <Text color={PALETTE.haze}>Claude didn't send the plan with it.</Text>}
+          {text("plan") ? <Markdown text={lines.slice(0, PLAN_LINES).join("\n")} width={width} diagrams={{ rows: pictureRows }} /> : <Text color={PALETTE.haze}>Claude didn't send the plan with it.</Text>}
           {more > 0 ? <Text color={PALETTE.dust}>{`… ${plural(more, "more line")}${file ? ", in the file above" : ""}`}</Text> : null}
         </>
       );
