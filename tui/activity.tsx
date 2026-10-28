@@ -1,7 +1,7 @@
-// The tip of the rail while Claude works: a cell in orbit, what Claude is doing with light passing
-// over the words, the time so far and the tokens written. While a tool runs, it names the call, so
-// you needn't look for it above; while a request is tried again, it says when and why. While it
-// waits on you, the tip turns gold and holds still.
+// The tip of the rail while Claude works: light falling down the rail into a cell in orbit, what
+// Claude is doing with light passing over the words, the time so far and the tokens written. While
+// a tool runs, it names the call, so you needn't look for it above; while a request is tried again,
+// it says when and why. While it waits on you, the tip turns gold and holds still.
 import { Box, Text, useAnimation } from "ink";
 import { compact, duration } from "../src/view/format";
 import type { Retry, State } from "../src/view/state";
@@ -17,6 +17,12 @@ import { mix, PALETTE } from "./theme";
  */
 const ORBIT = ["⣾", "⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽"];
 
+/**
+ * The rail's last row, above the orbit: a bar of light falling down it into the orbit, a step every
+ * other frame, so the rail reads as still running rather than drawn and done.
+ */
+const FALL = ["⠉", "⠒", "⠤", "⣀"];
+
 export function Activity({ state, width }: { state: State; width: number }) {
   const waiting = state.pending.length > 0 || state.questions.length > 0 || state.elicitations.length > 0;
   const active = state.busy || waiting;
@@ -28,7 +34,7 @@ export function Activity({ state, width }: { state: State; width: number }) {
   const label = fit(describe(state), width - GUTTER - cellWidth(stats) - (waiting ? 0 : cellWidth("esc to stop") + 2), false);
   return (
     <Box flexDirection="column">
-      <Text color={PALETTE.dust}>│</Text>
+      {waiting ? <Text color={PALETTE.gold}>│</Text> : <Text color={PALETTE.teal}>{FALL[Math.floor(frame / 2) % FALL.length]}</Text>}
       <Box justifyContent="space-between" width={width}>
         <Text>
           <Text color={waiting ? PALETTE.gold : PALETTE.teal}>{(waiting ? "◆" : (ORBIT[frame % ORBIT.length] ?? "")).padEnd(GUTTER)}</Text>
