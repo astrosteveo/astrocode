@@ -3,7 +3,7 @@
 import { Box, Text } from "ink";
 import { runOfCall } from "../src/view/runs";
 import type { ToolCall } from "../src/view/state";
-import { field, toolLabel, toolTarget } from "../src/view/tools";
+import { field, subagentReport, toolLabel, toolTarget } from "../src/view/tools";
 import { highlightCode } from "./highlight";
 import { linked } from "./links";
 import { printable } from "./markdown";
@@ -77,12 +77,13 @@ function Output({ call, width }: { call: ToolCall; width: number }) {
       break;
     }
     case "WebFetch":
-    case "WebSearch":
-    case "Agent":
-    case "Task": {
+    case "WebSearch": {
       const said = field(call.output, "result");
       return <Markdown text={clip(typeof said === "string" ? said : (call.result ?? ""), MAX_LINES).text || "No output."} width={width} />;
     }
+    case "Agent":
+    case "Task":
+      return <Markdown text={clip(subagentReport(call), MAX_LINES).text || "No output."} width={width} />;
   }
   const result = call.result?.trim() ? call.result : call.output === undefined ? "" : JSON.stringify(call.output, null, 2);
   if (!result) return <Text color={PALETTE.haze}>No output.</Text>;
