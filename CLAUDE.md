@@ -7,7 +7,7 @@ Our own version of `claude`: a terminal front end (Ink 8, React 19, Bun) for Cla
 - `src/`: the session (`session.ts`), its events (`events.ts`), saved sessions (`history.ts`), Claude Code's command line (`claude.ts`, `plugins.ts`, `edits.ts`), its dialogs' data (`dialogs.ts`), astrocode's settings and stash (`settings.ts`, `stash.ts`), `!` commands (`shell.ts`) and `#` notes (`memory.ts`).
 - `src/view/`: the reducer (`state.ts`) and what it derives: to-dos, folds, runs, terminal text, permission wording.
 - `tui/`: the Ink components. `app.tsx` lays out scrollback (the default) and `screen.tsx` full screen. `keys.ts` is the message box's keymap, `theme.ts` the palette, `transcript.tsx`, `mouse.ts` and `selection.ts` full screen's lines, mouse and copying, `window.ts` the terminal window (title, focus, notifications), `pictures.tsx` kitty images, `diagrams.ts` Claude's diagram fences as pictures.
-- `src/canvas.ts`: the headless Chromium that draws diagrams, charts, SVG and HTML as PNG.
+- `src/canvas.ts`: the headless Chromium that draws diagrams, charts, SVG and HTML as PNG. `src/show.ts`: Claude's `show` tool and what Claude is told about drawing.
 
 ## Commands
 
@@ -42,6 +42,7 @@ Our own version of `claude`: a terminal front end (Ink 8, React 19, Bun) for Cla
 - Alt+W sets `workflowKeywordTriggerEnabled: false` before its message goes and clears it once that message is `completed` or `cancelled`.
 - Fast mode is `applyFlagSettings({ fastMode: true, model: "opus" })`, and `{ fastMode: null }` to turn it off. It's in `shared()`.
 - Thinking is off with `setMaxThinkingTokens(0)` (or `thinking: { type: "disabled" }` at start) and on with null. Models with `supportsThinkingOff: false` think regardless, and the interface says so.
+- In kitty with a browser, `shared()` adds the `show` tool's server (made anew per Claude Code), its instructions (`systemPrompt.append`) and the preview format. A keep-warm request must match them.
 - Keep-warm forks the conversation with `persistSession: false` and the session's own options (`shared()`). Any difference in model, effort, thinking, tools or system prompt misses the cache and writes the whole conversation. A warm request that read less than it wrote turns keep-warm off.
 
 ### Messages and turns

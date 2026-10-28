@@ -16,6 +16,7 @@
         "vega": "^6.4.0",
         "vega-lite": "^6.5.0",
         "wrap-ansi": "^10.0.2",
+        "zod": "4.6.7",
       },
       "devDependencies": {
         "@types/bun": "^1.4.3",

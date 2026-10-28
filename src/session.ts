@@ -7,6 +7,7 @@ import {
   type EffortLevel,
   type ElicitationRequest as McpElicitation,
   type ElicitationResult,
+  type McpSdkServerConfigWithInstance,
   type McpServerStatus,
   type Options,
   type PermissionMode,
@@ -37,6 +38,7 @@ import {
   type SessionEvent,
 } from "./events";
 import { AsyncQueue } from "./queue";
+import { SHOW_SERVER, SHOW_TOOL } from "./show";
 import { field } from "./view/tools";
 
 export type SessionOptions = {
@@ -58,10 +60,19 @@ export type SessionOptions = {
   agentSummaries?: boolean;
   /** Start with Remote Control on. */
   remoteControl?: boolean;
+  /** Lets Claude show pictures, where the terminal can draw them. */
+  visuals?: Visuals;
   /** Where Claude Code's own stderr goes. Defaults to this process's stderr. */
   onStderr?: (data: string) => void;
   emit: (event: SessionEvent) => void;
 };
+
+/**
+ * What lets Claude show you pictures: the server with the `show` tool, made anew for each Claude
+ * Code since a server runs in one at a time, and what Claude is told about drawing.
+ * `htmlPreviews`: AskUserQuestion's previews are HTML, which the interface draws.
+ */
+export type Visuals = { server: () => McpSdkServerConfigWithInstance; instructions: string; htmlPreviews: boolean };
 
 /** Where to sign in to an MCP server, and whether Claude Code waits on this machine for the browser to come back. */
 export type McpSignIn = { url?: string; waits: boolean };
@@ -199,9 +210,10 @@ export class AgentSession {
 
   /**
    * What the session's requests are made of, which a keep-warm request must match to read the same
-   * prompt cache: the model, effort, thinking, mode, system prompt and environment.
+   * prompt cache: the model, effort, thinking, mode, system prompt, tools and environment.
    */
   private shared(): Options {
+    const visuals = this.options.visuals;
     return {
       cwd: this.options.cwd,
       model: this.model,
@@ -212,7 +224,15 @@ export class AgentSession {
       // its classifier allows what's safe and asks through canUseTool about the rest.
       permissionMode: this.mode,
       allowDangerouslySkipPermissions: true,
-      systemPrompt: { type: "preset", preset: "claude_code" },
+      systemPrompt: { type: "preset", preset: "claude_code", ...(visuals ? { append: visuals.instructions } : {}) },
+      ...(visuals
+        ? {
+            mcpServers: { [SHOW_SERVER]: visuals.server() },
+            // Showing a picture changes nothing, so it never asks.
+            allowedTools: [SHOW_TOOL],
+            toolConfig: { askUserQuestion: { previewFormat: visuals.htmlPreviews ? "html" : "markdown" } },
+          }
+        : {}),
       env: topLevelEnv(),
       // Fast mode makes its requests differently, so a keep-warm request matches it.
       settings: this.fast ? { fastMode: true } : undefined,

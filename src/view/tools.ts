@@ -1,7 +1,10 @@
 // How each tool call reads in a single row: its name, what it acts on, and how it went.
 import type { ToolCall } from "./state";
 
-const NAMES: Record<string, string> = { AskUserQuestion: "Question", TodoWrite: "To-dos" };
+/** astrocode's own tool for showing you a picture (`src/show.ts`). */
+export const SHOW_TOOL = "mcp__astrocode__show";
+
+const NAMES: Record<string, string> = { AskUserQuestion: "Question", TodoWrite: "To-dos", [SHOW_TOOL]: "Show" };
 
 /** `mcp__server__tool` reads as `tool (server)`. */
 export function toolLabel(name: string) {
@@ -44,6 +47,8 @@ export function toolTarget(call: ToolCall, cwd: string, home: string) {
       return text("description") || firstLine(text("command")) || text("name");
     case "Skill":
       return text("skill");
+    case SHOW_TOOL:
+      return text("title");
     case "TodoWrite":
       return Array.isArray(call.input.todos) ? plural(call.input.todos.length, "to-do") : "";
     case "AskUserQuestion": {
