@@ -1,6 +1,7 @@
 // Full screen: the conversation in a viewport that scrolls, with the message box and status bar
 // pinned under it. The wheel, PgUp and PgDn scroll, and the viewport follows the end until you
-// scroll up. Dragging selects text and copies it; clicking a tool call or a command opens it,
+// scroll up. Dragging selects text and copies it; clicking a step's line inspects its call, which
+// the inspector shows beside the transcript or in its place, clicking a command opens it,
 // clicking a link opens that, and clicking a picture enlarges it. Ctrl+F finds text in it, and Alt+↑ and Alt+↓ jump between your
 // messages, with Shift between tool calls and commands.
 import { Box, Text, useBoxMetrics, useInput, useStdout, type DOMElement } from "ink";
@@ -40,16 +41,20 @@ type Props = {
   columns: number;
   rows: number;
   expanded: ReadonlySet<string>;
-  /** Steps that were open on screen, which stay open while you can see them. */
-  seenOpen: ReadonlySet<string>;
-  /** Steps kept open that have gone out of sight, to close. */
-  onOutOfSight: (keys: string[]) => void;
   waiting: ReadonlySet<string>;
+  /**
+   * The inspector, drawn `width` cells wide beside the transcript, or `over` it, in its place; and
+   * the call it shows, whose line is marked and kept in view.
+   */
+  inspector?: { width: number; over: boolean; call: string; node: (height: number) => ReactNode };
   /** A tool call to scroll to, from the output browser. */
   reveal: { key: string } | null;
   /** Whether PgUp and PgDn scroll; a picker open below uses them for its list. */
   keys: boolean;
-  /** A click on an entry. True when it opened or closed in place, false when it opened something else. */
+  /**
+   * A click on an entry, or on what a line of it stands for, such as a step's line for a call. True
+   * when it opened or closed in place, false when it opened something else.
+   */
   onToggle: (key: string) => boolean;
   onCopy: (text: string) => void;
   /** A click on a link. */
@@ -64,14 +69,16 @@ type Props = {
   children: ReactNode;
 };
 
-export function Screen({ state, epoch, branch, columns, rows: height, expanded, seenOpen, onOutOfSight, waiting, reveal, keys, onToggle, onCopy, onOpen, onPicture, find: search, onMatches, children }: Props) {
-  // A column for the scrollbar and one to keep it off the text.
-  const width = Math.max(10, columns - 2);
+export function Screen({ state, epoch, branch, columns, rows: height, expanded, waiting, inspector, reveal, keys, onToggle, onCopy, onOpen, onPicture, find: search, onMatches, children }: Props) {
+  // A column for the scrollbar and one to keep it off the text, and the inspector's, with a column
+  // between them, when it's beside the transcript.
+  const beside = inspector && !inspector.over ? inspector.width + 1 : 0;
+  const width = Math.max(10, columns - 2 - beside);
   const viewport = useRef<DOMElement>(null);
   const pill = useRef<DOMElement>(null);
   const metrics = useBoxMetrics(viewport);
   const view = Math.max(1, metrics.hasMeasured ? metrics.height : height - 6);
-  const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), branch, expanded, seenOpen, waiting });
+  const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), branch, expanded, waiting, picked: inspector?.call });
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [selection, setSelectionState] = useState<Selection | null>(null);
   /** The selection as of the last event, which may be newer than the last render. */
@@ -121,15 +128,6 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   const scrollable = total > view;
   const thumb = scrollable ? Math.max(1, Math.round((view * view) / total)) : 0;
   const thumbTop = scrollable && maxTop > 0 ? Math.round(((view - thumb) * top) / maxTop) : 0;
-
-  // A step Claude has moved on from closes once none of it is on screen. Following the end, or held
-  // by a row, the viewport keeps what it shows as the rows above or below it go. Not mid-drag,
-  // though, since a selection is held by row.
-  useEffect(() => {
-    if (drag.current) return;
-    const gone = [...transcript.kept].filter(([, [from, to]]) => to <= top || from >= top + view - pad).map(([key]) => key);
-    if (gone.length) onOutOfSight(gone);
-  }, [transcript, top, view, pad]);
 
   /** What handlers see: this render's numbers, moved along by events that haven't rendered yet. */
   const now = useRef({ transcript, top, maxTop, view, thumb, pad, following: anchor === null });
@@ -235,6 +233,8 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
       const at = relative(viewport.current, event);
       if (!at) return;
 
+      // The inspector answers for itself, and covers the transcript when it's in its place.
+      if (inspector && (inspector.over || at.x > width + 1) && event.type !== "release" && !drag.current) return;
       if (event.type === "press") {
         if (!at.inside || event.button !== "left") return;
         event.handled = true;
@@ -303,7 +303,7 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
           if (!row.hot) return;
           const y = index - top + pad;
           if (!row.open || row.head) {
-            if (onToggle(row.key) && !following) setAnchor({ key: row.key, line: row.line, y });
+            if (onToggle(row.target ?? row.key) && !following) setAnchor({ key: row.key, line: row.line, y });
             return;
           }
           // Inside what's open, a click closes it. The entry's first row then takes the place of the
@@ -364,6 +364,24 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     if (reveal) setAnchor({ key: reveal.key, line: 0 });
   }, [reveal]);
 
+  // The call the inspector moves to is scrolled into view beside it, a third of the way down, once.
+  const keep = inspector && !inspector.over ? inspector.call : undefined;
+  const keeping = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    keeping.current = keep;
+  }, [keep]);
+  useEffect(() => {
+    const id = keeping.current;
+    const at = id === undefined ? undefined : state.tools[id];
+    const item = at === undefined ? undefined : state.items[at];
+    const index = item ? transcript.starts.get(item.key) : undefined;
+    if (index === undefined) return;
+    keeping.current = undefined;
+    const { top, view, pad } = now.current;
+    if (index >= top && index < top + view - pad) return;
+    scrollTo(index - Math.floor(view / 3));
+  }, [keep, transcript]);
+
   // The match search is on stays in view, a third of the way down when it has to move.
   const target = matches[current]?.index;
   useEffect(() => {
@@ -395,6 +413,7 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     viewport,
     (x, y) => {
       const { transcript, top, pad, thumb } = now.current;
+      if (inspector?.over || x > width + 1) return null;
       if (x > width) return thumb > 0 ? { key: "scrollbar", shape: "pointer" } : null;
       // A selection keeps the text beam wherever the drag goes.
       if (drag.current === "select" && selected.current) return { key: "", shape: "text" };
@@ -405,7 +424,7 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
       // A picture enlarges on a click; it has no band, which would change which image it shows.
       if (imageAt(row.text, x)) return { key: "", shape: "pointer" };
       // What's open is for reading and selecting, so only its first row is what a click acts on.
-      if (row.hot && (!row.open || row.head)) return { key: row.key, shape: "pointer" };
+      if (row.hot && (!row.open || row.head)) return { key: row.target ?? row.key, shape: "pointer" };
       return isTextAt(row.text, x, row.inset) ? { key: "", shape: "text" } : null;
     },
     !welcome,
@@ -420,39 +439,48 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
         </Box>
       ) : (
         <Box ref={viewport} flexDirection="row" flexGrow={1} flexShrink={1} overflow="hidden">
-          <Box flexDirection="column" width={width + 1} flexShrink={0}>
-            {pad > 0 ? <Box height={pad} /> : null}
-            {rows.slice(top, top + view - pad).map((row, i) => {
-              const range = cells ? cellsOn(row.text, top + i, cells[0], cells[1], row.inset) : null;
-              const found = marks.get(top + i);
-              return (
-                <Text key={i} wrap="truncate-end">
-                  {range
-                    ? highlight(row.text, range[0], range[1])
-                    : found
-                      ? markMatches(row.text, found.ranges, found.current)
-                      : drag.current
-                      ? row.text || " "
-                      : linkUrl && row.key === linkEntry
-                        ? linkBand(row.text, linkUrl)
-                        : row.hot && (!row.open || row.head) && hovered === row.key
-                          ? hoverBand(row.text, row.inset, width)
-                          : row.text || " "}
-                </Text>
-              );
-            })}
-          </Box>
-          <Box flexDirection="column" width={1} flexShrink={0}>
-            {scrollable
-              ? Array.from({ length: view }, (_, i) => (
-                  <Text key={i} color={anchor || drag.current === "scrollbar" ? PALETTE.gold : PALETTE.dust}>
-                    {i >= thumbTop && i < thumbTop + thumb ? "┃" : " "}
-                  </Text>
-                ))
-              : null}
-          </Box>
-          {below > 0 && anchor ? (
-            <Box ref={pill} position="absolute" bottom={0} right={3}>
+          {inspector?.over ? null : (
+            <>
+              <Box flexDirection="column" width={width + 1} flexShrink={0}>
+                {pad > 0 ? <Box height={pad} /> : null}
+                {rows.slice(top, top + view - pad).map((row, i) => {
+                  const range = cells ? cellsOn(row.text, top + i, cells[0], cells[1], row.inset) : null;
+                  const found = marks.get(top + i);
+                  return (
+                    <Text key={i} wrap="truncate-end">
+                      {range
+                        ? highlight(row.text, range[0], range[1])
+                        : found
+                          ? markMatches(row.text, found.ranges, found.current)
+                          : drag.current
+                          ? row.text || " "
+                          : linkUrl && row.key === linkEntry
+                            ? linkBand(row.text, linkUrl)
+                            : row.hot && (!row.open || row.head) && hovered === (row.target ?? row.key)
+                              ? hoverBand(row.text, row.inset, width)
+                              : row.text || " "}
+                    </Text>
+                  );
+                })}
+              </Box>
+              <Box flexDirection="column" width={1} flexShrink={0}>
+                {scrollable
+                  ? Array.from({ length: view }, (_, i) => (
+                      <Text key={i} color={anchor || drag.current === "scrollbar" ? PALETTE.gold : PALETTE.dust}>
+                        {i >= thumbTop && i < thumbTop + thumb ? "┃" : " "}
+                      </Text>
+                    ))
+                  : null}
+              </Box>
+            </>
+          )}
+          {inspector ? (
+            <Box marginLeft={inspector.over ? 0 : 1} width={inspector.width} flexShrink={0}>
+              {inspector.node(view)}
+            </Box>
+          ) : null}
+          {below > 0 && anchor && !inspector?.over ? (
+            <Box ref={pill} position="absolute" bottom={0} right={3 + beside}>
               <Text>
                 <Text color={PALETTE.gold}>▐</Text>
                 <Text backgroundColor={PALETTE.gold} color={PALETTE.ink} bold>

@@ -37,11 +37,6 @@ export class Store {
   window: TerminalWindow | null = null;
   /** What the message box's keys do, read from keybindings.json as astrocode starts. */
   keymap: Keymap = DEFAULT_KEYMAP;
-  /**
-   * Steps that were open on screen, by key. Once Claude moves on from one, it stays open until it's
-   * out of sight, so it doesn't close under you; in scrollback it's written as you saw it.
-   */
-  seenOpen: ReadonlySet<string> = new Set();
   /** Side questions asked with /btw in this conversation, and their answers, for the next one to follow on from. */
   asides: Aside[] = [];
   /** Commands run with `!` that are still going, by id, to stop. They outlive a switch of layouts. */
@@ -91,7 +86,6 @@ export class Store {
     // Whatever was still waiting on its images belongs to the conversation being left.
     this.held = [];
     this.asides = [];
-    this.seenOpen = new Set();
     this.state = { ...initialState(this.cwd, this.home), plan, models, commands, limits, mode, model, effort, thinking, ultracode, ultracodeAvailable, fast };
     this.epoch += 1;
     this.notify();

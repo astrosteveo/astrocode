@@ -2,7 +2,7 @@
 // the terminal's own scrollback (Ink's <Static>), like `claude` does, and only the live part below
 // them is redrawn. In full screen the conversation scrolls in a viewport of its own, with the mouse.
 import type { EffortLevel, PermissionMode, RewindFilesResult } from "@anthropic-ai/claude-agent-sdk";
-import { Box, Static, useApp, useStdout, useWindowSize } from "ink";
+import { Box, Static, useApp, useStdout, useWindowSize, type DOMElement } from "ink";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -35,7 +35,7 @@ import { EFFORT_NOTES, effortsOf, ULTRACODE_NOTE } from "./effort";
 import { editFile, editText } from "./editor";
 import { FindBar, type Find } from "./find";
 import { HooksPanel } from "./hooks";
-import { ItemView, LiveView, opensByDefault, StepView } from "./entries";
+import { ItemView, LiveView, opensByDefault, StepView, targetCall } from "./entries";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
 import { keyFor, keyLabel } from "./keys";
@@ -49,7 +49,8 @@ import { fit } from "./markdown-view";
 import { McpPanel } from "./mcp";
 import { MemoryPanel } from "./memory";
 import { ModelPicker } from "./model-picker";
-import { MouseContext } from "./mouse";
+import { Inspector, type Place } from "./inspector";
+import { hit, MouseContext, useMouse } from "./mouse";
 import { Picker, type PickerItem } from "./picker";
 import { drawsImages, pictureRows, resendPictures } from "./pictures";
 import { PermissionsPanel } from "./permissions";
@@ -61,7 +62,7 @@ import { RemotePanel } from "./remote";
 import { GUTTER } from "./rail";
 import { SandboxPanel } from "./sandbox";
 import { Screen } from "./screen";
-import { arrange, stepOpens, stepStartsOpen, type Entry } from "./arrange";
+import { arrange, type Entry } from "./arrange";
 import { SessionPreview } from "./session-preview";
 import { SkillsPanel } from "./skills";
 import { StatusBar } from "./status";
@@ -141,7 +142,7 @@ const HELP = [
   "Ctrl+V attaches the clipboard's image; a pasted or dropped image file attaches too. Ctrl+G or Ctrl+X Ctrl+E edits the message in $EDITOR.",
   "Ctrl+B moves a command or subagent Claude is waiting on to the background. /tasks lists what runs there and your ! commands: open one to watch it (a subagent shows its transcript, a workflow its phases), and x stops it. Esc stops Claude's turn but not what runs in the background; Ctrl+X Ctrl+K twice stops it all. Ctrl+T shows or hides the to-dos.",
   "Ctrl+Enter or Ctrl+X Ctrl+S sends now, stopping what Claude is doing; Ctrl+X Enter sends it to wait for the end of Claude's turn. Ctrl+Z suspends astrocode until the shell's fg.",
-  "Ctrl+O opens a tool call's whole output. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
+  "Ctrl+O picks a tool call to inspect: its exact command or input, its whole output and what Claude got back, in tabs. In the inspector ← and → move between calls, Tab between tabs, c copies, Esc closes. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
   "/mcp, /permissions, /memory, /skills, /hooks, /sandbox and /status show Claude Code's MCP servers, permission rules, memory, skills, hooks, sandbox and status, and change what can be changed.",
@@ -156,7 +157,7 @@ const FULLSCREEN_HELP = [
   "Full screen: the wheel, PgUp and PgDn scroll; Ctrl+Home and Ctrl+End go to the top and the end.",
   "Ctrl+F finds text in the conversation: Enter or ↑ goes to the match before, ↓ to the one after. Alt+↑ and Alt+↓ jump between your messages, Alt+Shift+↑ and Alt+Shift+↓ between tool calls and commands.",
   "Drag to copy, double-click to copy a word, triple-click to copy a line.",
-  "Click a tool call or a command to open it (a running one shows its live output), a step to open its tool calls, an option to choose it, the mode, the model or the effort to change it.",
+  "Click a line of a step to inspect that call beside the transcript (in its place on a narrow screen), a step's name to open it with Claude's thinking and every line, a command of yours to open it (a running one shows its live output), an option to choose it, the mode, the model or the effort to change it.",
   "Click copy on a code block to copy it, ▶ run on a shell block to run it as a ! command, and a turn's closing line to list the files it changed and the commands it ran.",
   "Click a picture to enlarge it, with ← and → to flip through the others.",
   "Hold Shift to select with the terminal's own selection instead.",
@@ -224,6 +225,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   /** Ctrl+X Ctrl+K pressed once: pressed again soon, it stops everything running. */
   const [stopArmed, setStopArmed] = useState(false);
   const editing = useRef(false);
+  /** What's pinned under the transcript: the message box, the status bar and what opens above them. */
+  const panelBox = useRef<DOMElement>(null);
 
   useEffect(() => {
     if (!exitArmed) return;
@@ -250,10 +253,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     }
   }, [state.mode]);
 
+  /** The tool call the inspector shows, and whether it has the keys, which a click on the message box takes back. */
+  const [inspect, setInspect] = useState<{ id: string; focus: boolean } | null>(null);
+
   useEffect(() => {
     setExpanded(new Set());
     setReveal(null);
-    setSeenOpen(store.seenOpen);
+    setInspect(null);
   }, [store.epoch]);
 
   // An Agent call waits for you while its subagent, or one under it, does.
@@ -262,25 +268,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     ...state.questions.map((request) => request.id),
     ...state.items.flatMap((item) => (item.kind === "tool" && item.call.subagent?.waitingOn ? [item.call.id] : [])),
   ]);
-  const waitingKey = [...waiting].join(" ");
-
-  // A step open on screen is remembered, so it stays open once Claude moves on (`stepStartsOpen()`).
-  const [seenOpen, setSeenOpen] = useState(store.seenOpen);
-  const keepSeen = (next: ReadonlySet<string>) => {
-    store.seenOpen = next;
-    setSeenOpen(next);
-  };
-  useEffect(() => {
-    const opening = [...steps(state.items).values()].filter((step) => stepOpens(state, step, waiting) && !store.seenOpen.has(step.key));
-    if (opening.length) keepSeen(new Set([...store.seenOpen, ...opening.map((step) => step.key)]));
-  }, [state.items, state.busy, waitingKey, store.epoch]);
-  /** Steps kept open that full screen has scrolled out of sight, closed now that closing them can't move what you see. */
-  const outOfSight = (keys: string[]) => {
-    const seen = new Set(store.seenOpen);
-    for (const key of keys) seen.delete(key);
-    keepSeen(seen);
-    setExpanded((open) => (keys.some((key) => open.has(key)) ? new Set([...open].filter((key) => !keys.includes(key))) : open));
-  };
 
   const question = state.questions[0];
   const elicitation = state.elicitations[0];
@@ -535,34 +522,46 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   };
 
   /**
-   * Full screen opens a tool call's or a command's output under its row and scrolls there;
-   * scrollback prints it at the end.
+   * A tool call opens in the inspector, in either layout. A command of yours opens under its card
+   * in full screen and scrolls there; scrollback prints its output at the end.
    */
   const showOutput = (id: string) => {
-    const index = state.tools[id];
-    const item = index === undefined ? state.items.find((one) => one.kind === "shell" && one.id === id) : state.items[index];
+    if (state.tools[id] !== undefined) return inspectCall(id);
+    const item = state.items.find((one) => one.kind === "shell" && one.id === id);
     if (!fullscreen || !item) return store.emit({ kind: "output", id });
-    // Open it, whichever way it starts, and the step it's in.
-    const step = [...steps(state.items).values()].find((one) => one.members.includes(item));
     setExpanded((open) => {
       const next = new Set(open);
       if (opensByDefault(item)) next.delete(item.key);
       else next.add(item.key);
-      if (step) {
-        if (stepStartsOpen(state, step, waiting, store.seenOpen)) next.delete(step.key);
-        else next.add(step.key);
-      }
       return next;
     });
     setReveal({ key: item.key });
   };
 
+  /** Opens a call in the inspector, with the keys. One still running in a task opens that task's view instead. */
+  const inspectCall = (id: string) => {
+    const index = state.tools[id];
+    const item = index === undefined ? undefined : state.items[index];
+    const task = item ? runningKeyOf(item, state) : undefined;
+    if (task) {
+      setOverlay({ kind: "task", key: task });
+      return false;
+    }
+    setInspect({ id, focus: true });
+    return true;
+  };
+
   /**
-   * A click on an entry in full screen opens or closes it in place. Something still running, or
-   * that ran in the background, opens its view instead.
+   * A click on an entry in full screen: a step's line inspects its call, and a call drawn on its
+   * own, such as a picture or a plan, opens in the inspector too. Steps, commands of yours and a
+   * turn's closer open or close in place. Something still running, or that ran in the
+   * background, opens its view instead.
    */
   const toggleTool = (key: string) => {
+    const call = targetCall(key);
+    if (call !== undefined) return inspectCall(call);
     const item = state.items.find((one) => one.key === key);
+    if (item?.kind === "tool") return inspectCall(item.call.id);
     const task = item ? runningKeyOf(item, state) : undefined;
     if (task) {
       setOverlay({ kind: "task", key: task });
@@ -574,6 +573,15 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       return next;
     });
     return true;
+  };
+
+  /** The conversation's tool calls in order, which ← and → in the inspector move through. */
+  const allCalls = state.items.flatMap((item) => (item.kind === "tool" ? [item.call] : []));
+  const moveInspector = (by: -1 | 1) => {
+    if (!inspect) return;
+    const at = allCalls.findIndex((call) => call.id === inspect.id);
+    const next = allCalls[at + by];
+    if (next) setInspect({ id: next.id, focus: true });
   };
 
   const copySelection = (text: string) => {
@@ -1009,7 +1017,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       description: "Set how hard Claude thinks, or turn on ultracode",
       argumentHint: state.ultracodeAvailable ? "[low|medium|high|xhigh|max|ultracode]" : "[low|medium|high|xhigh|max]",
     },
-    { name: "output", description: "Open a tool call's whole output (Ctrl+O)", argumentHint: "" },
+    { name: "output", description: "Inspect a tool call: its exact command or input, its whole output, what Claude got back (Ctrl+O)", argumentHint: "" },
     { name: "play", description: "Run a command from one of Claude's shell code blocks, as with !", argumentHint: "" },
     { name: "pictures", description: "The conversation's pictures as large as they go, to flip through or open", argumentHint: "" },
     { name: "rewind", description: "Go back to an earlier message, its files, or both (Esc Esc)", argumentHint: "" },
@@ -1152,7 +1160,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       case "output":
         return (
           <Picker
-            title="Tool output"
+            title="Inspect a tool call"
             width={width}
             rows={listRows}
             items={toolCalls(state.items, view)}
@@ -1420,6 +1428,38 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     if (message) notice(ok ? "info" : "error", message);
   };
 
+  // The inspector: the call it shows, while that's still in the conversation, and whether it has
+  // the keys, which go to a prompt or a picker that opens meanwhile.
+  const inspectedAt = inspect ? state.tools[inspect.id] : undefined;
+  const inspectedItem = inspectedAt === undefined ? undefined : state.items[inspectedAt];
+  const inspected = inspectedItem?.kind === "tool" ? inspectedItem.call : undefined;
+  const inspectorKeys = Boolean(inspected && inspect?.focus && !question && !elicitation && !request && !overlay);
+  // A click on the message box gives it back the keys, and the inspector stays open.
+  useMouse((event) => {
+    if (event.type === "press" && event.button === "left" && inspectorKeys && hit(panelBox.current, event)) setInspect((open) => open && { ...open, focus: false });
+  });
+  const inspector = (inspectorWidth: number, height: number, over = false) =>
+    inspected ? (
+      <Inspector
+        call={inspected}
+        place={placeOf(state, inspected.id)}
+        waiting={waiting.has(inspected.id)}
+        width={inspectorWidth}
+        height={height}
+        focused={inspectorKeys}
+        over={over}
+        cwd={state.cwd}
+        home={state.home}
+        onClose={() => setInspect(null)}
+        onFocus={() => setInspect((open) => open && { ...open, focus: true })}
+        onMove={moveInspector}
+        onCopy={(text, what) => {
+          copy(text);
+          setToast(`Copied the ${what}, ${plural(text.split("\n").length, "line")}`);
+        }}
+      />
+    ) : null;
+  const overlaid = picker();
   const above = question ? (
     <QuestionPrompt key={question.id} request={question} width={width} rows={rows} onAnswer={(answers) => session.answer(question.id, answers)} />
   ) : elicitation ? (
@@ -1436,12 +1476,15 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     />
   ) : request ? (
     <DecisionPrompt key={request.id} request={request} agent={askedBy(request, state.taskInfo)} {...view} onDecide={(decision) => session.decide(request.id, decision)} />
-  ) : (
-    picker()
-  );
+  ) : overlaid ? (
+    overlaid
+  ) : inspected && !fullscreen ? (
+    // In scrollback the inspector sits above the message box, as tall as leaves the box in view.
+    inspector(width, Math.max(10, rows - 10))
+  ) : null;
   const pinned = showTodos && todos ? <PinnedTodos todos={todos} rows={Math.max(3, Math.min(8, rows - 20))} /> : null;
   const panel = (
-    <>
+    <Box ref={panelBox} flexDirection="column">
       <Activity state={state} width={width} />
       {/* The message box's own top edge sets it apart; what sits above it needs a row. */}
       <Box marginTop={above || pinned || state.queue.length ? 1 : 0} flexDirection="column">
@@ -1449,7 +1492,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         {above}
         <QueuedMessages queue={state.queue} width={width} />
         <Prompt
-          active={!question && !elicitation && !request && !overlay}
+          active={!question && !elicitation && !request && !overlay && !inspectorKeys}
           fullscreen={fullscreen}
           busy={state.busy}
           waitingOn={question || elicitation ? "question" : request ? "permission" : undefined}
@@ -1521,10 +1564,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           onRemote={() => setOverlay({ kind: "remote" })}
         />
       </Box>
-    </>
+    </Box>
   );
 
   if (fullscreen) {
+    // On a wide screen the inspector stands beside the transcript; on a narrow one, in its place.
+    const beside = width >= INSPECTOR_BESIDE_FROM;
+    const inspectorWidth = beside ? Math.min(INSPECTOR_MOST, Math.max(INSPECTOR_LEAST, Math.round(width * INSPECTOR_SHARE))) : width;
     return (
       <Screen
         state={state}
@@ -1533,11 +1579,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
         columns={width}
         rows={rows}
         expanded={expanded}
-        seenOpen={seenOpen}
-        onOutOfSight={outOfSight}
         waiting={waiting}
+        inspector={inspected ? { width: inspectorWidth, over: !beside, call: inspected.id, node: (height) => inspector(inspectorWidth, height, !beside) } : undefined}
         reveal={reveal}
-        keys={!overlay}
+        keys={!overlay && !inspectorKeys}
         onToggle={toggleTool}
         onCopy={copySelection}
         onOpen={openAddress}
@@ -1552,9 +1597,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
 
   const settled = settledSteps(state, settledCount(state.items, waiting));
   // What's written for good is arranged on its own, as of a turn that's over, so it can't change later.
-  const written = arrange({ ...state, items: state.items.slice(0, settled), busy: false }, waiting, NONE, seenOpen);
+  const written = arrange({ ...state, items: state.items.slice(0, settled), busy: false }, waiting, NONE);
   const entries: ({ kind: "banner"; key: string } | Entry)[] = [{ kind: "banner", key: "banner" }, ...written];
-  const unsettled = arrange(state, waiting, NONE, seenOpen).filter((entry) => entry.index >= settled);
+  const unsettled = arrange(state, waiting, NONE).filter((entry) => entry.index >= settled);
   return (
     <>
       <Static key={store.epoch} items={entries}>
@@ -1563,7 +1608,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
             {entry.kind === "item" ? (
               <ItemView item={entry.item} rail={entry.rail} detailed scrollback {...view} />
             ) : entry.kind === "step" ? (
-              <StepView step={entry.row} rail={entry.rail} open={entry.open} width={width} />
+              <StepView step={entry.row} rail={entry.rail} open={entry.open} width={width} pictureRows={view.pictureRows} links="scrollback" cwd={state.cwd} home={state.home} clickable={false} />
             ) : (
               <Banner cwd={state.cwd} home={state.home} branch={branch} width={width} />
             )}
@@ -1573,7 +1618,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       <Box flexDirection="column">
         {unsettled.map((entry) =>
           entry.kind === "step" ? (
-            <StepView key={entry.key} step={entry.row} rail={entry.rail} open={entry.open} width={width} />
+            <StepView key={entry.key} step={entry.row} rail={entry.rail} open={entry.open} width={width} pictureRows={view.pictureRows} cwd={state.cwd} home={state.home} clickable={false} />
           ) : (
             <ItemView
               key={entry.item.key}
@@ -1651,6 +1696,26 @@ function toolCalls(items: Item[], { cwd, home, width }: { cwd: string; home: str
 
 /** How many leading items are finished, so they can go into scrollback for good. */
 const NONE: ReadonlySet<string> = new Set();
+
+/** A screen this wide or wider has room for the inspector beside the transcript. */
+const INSPECTOR_BESIDE_FROM = 140;
+/** The inspector's share of a wide screen, and the fewest and most columns it takes there. */
+const INSPECTOR_SHARE = 0.45;
+const INSPECTOR_LEAST = 64;
+const INSPECTOR_MOST = 110;
+
+/** Where a call is in its turn: its place among the turn's calls, and its step's among the turn's steps. */
+function placeOf(state: State, id: string): Place {
+  const at = state.tools[id] ?? 0;
+  let from = at;
+  while (from > 0 && state.items[from - 1]?.kind !== "prompt") from--;
+  let to = at;
+  while (to < state.items.length && state.items[to]?.kind !== "prompt") to++;
+  const calls = state.items.slice(from, to).flatMap((item) => (item.kind === "tool" ? [item.call.id] : []));
+  const found = [...steps(state.items)].filter(([start]) => start >= from && start < to).map(([, step]) => step);
+  const step = found.findIndex((one) => one.calls.some((item) => item.call.id === id));
+  return { index: calls.indexOf(id) + 1, count: calls.length, step: step === -1 ? undefined : step + 1, steps: found.length };
+}
 
 /**
  * How many items scrollback may write for good, held back so a step goes whole: not one Claude is
