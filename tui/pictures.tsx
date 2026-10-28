@@ -8,7 +8,7 @@ import { useRef } from "react";
 import type { ImageAttachment } from "../src/events";
 import type { Item, ViewEvent } from "../src/view/state";
 import { cellSize } from "./cells";
-import { diagramImages, diagramsIn, drawDiagram, drawnDiagram } from "./diagrams";
+import { diagramImages, diagramsIn, drawDiagram, drawnDiagram, drawnPreview, drawPreview, isHtmlPreview, type Drawn } from "./diagrams";
 
 /** kitty draws images. Under tmux or screen each image would have to be wrapped to pass through, so not there. */
 export const drawsImages = process.env.TERM === "xterm-kitty" && !process.env.TMUX && !process.env.STY;
@@ -62,10 +62,16 @@ export function whenReady(event: ViewEvent): Promise<unknown> | null {
   const waiting: Promise<unknown>[] = imagesIn(event)
     .filter((image) => !pictures.has(image))
     .map(prepare);
+  const ready = (done: Drawn | undefined) => !!done && ("error" in done || pictures.has(done.image));
+  const prepared = (result: Drawn) => ("image" in result ? prepare(result.image) : undefined);
   for (const { language, source } of diagramsOf(event)) {
-    const done = drawnDiagram(language, source);
-    if (done && ("error" in done || pictures.has(done.image))) continue;
-    waiting.push(drawDiagram(language, source).then((result) => ("image" in result ? prepare(result.image) : undefined)));
+    if (!ready(drawnDiagram(language, source))) waiting.push(drawDiagram(language, source).then(prepared));
+  }
+  // A question with HTML previews waits for them, so its options don't jump about as they're drawn.
+  if (event.kind === "question") {
+    for (const preview of event.request.questions.flatMap((question) => question.options.map((option) => option.preview))) {
+      if (isHtmlPreview(preview) && !ready(drawnPreview(preview))) waiting.push(drawPreview(preview).then(prepared));
+    }
   }
   return waiting.length ? Promise.all(waiting) : null;
 }
@@ -243,6 +249,12 @@ export function usePictureRows(rows: readonly string[]) {
     shown.current = now;
     if (now.includes(PLACEHOLDER)) rescan = true;
   }
+}
+
+/** The size `image` is drawn at in a box `width` columns wide and `rows` rows tall, once it's ready. */
+export function pictureSize(image: ImageAttachment, width: number, rows: number): Size | null {
+  const picture = pictures.get(image);
+  return picture ? sizeOf(picture, width, rows) : null;
 }
 
 /** An image as its placeholder cells, as large as fits in `width` columns and `rows` rows, once it's ready. */

@@ -1303,7 +1303,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
   };
 
   const above = question ? (
-    <QuestionPrompt key={question.id} request={question} width={width} onAnswer={(answers) => session.answer(question.id, answers)} />
+    <QuestionPrompt key={question.id} request={question} width={width} rows={rows} onAnswer={(answers) => session.answer(question.id, answers)} />
   ) : elicitation ? (
     <ElicitationPrompt
       key={elicitation.id}

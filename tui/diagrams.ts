@@ -1,9 +1,10 @@
 // Claude's diagrams and charts: a fence in a diagram language (mermaid, dot, d2, vega-lite) drawn
 // as a picture in the transcript, in the palette's colors. The source stays what's saved, so a
-// terminal that can't show pictures, the phone and `claude` itself still have it.
-import { Canvas, isDiagram, type CanvasColors } from "../src/canvas";
+// terminal that can't show pictures, the phone and `claude` itself still have it. The HTML
+// previews of Claude's questions are drawn here too.
+import { Canvas, isDiagram, type CanvasColors, type Drawing } from "../src/canvas";
 import type { ImageAttachment } from "../src/events";
-import { fontPixels } from "./cells";
+import { cellSize, fontPixels } from "./cells";
 import { parse } from "./markdown";
 import { isDark, mix, PALETTE } from "./theme";
 
@@ -23,8 +24,8 @@ export const CANVAS_COLORS: CanvasColors = {
 /** The one browser astrocode draws with, for diagrams here and for Claude's show tool. */
 export const canvas = new Canvas(CANVAS_COLORS, fontPixels);
 
-/** A diagram as drawn: its image, or why it couldn't be. */
-type Drawn = { image: ImageAttachment } | { error: string };
+/** A picture as drawn: its image, or why it couldn't be. */
+export type Drawn = { image: ImageAttachment } | { error: string };
 
 const drawn = new Map<string, Drawn>();
 const drawing = new Map<string, Promise<Drawn>>();
@@ -34,13 +35,15 @@ const keyOf = (language: string, source: string) => `${language}\u0000${source}`
 export const fenceSource = (source: string) => source.replace(/\n$/, "");
 
 /** Draws a diagram, once: later calls get the same drawing. */
-export function drawDiagram(language: string, source: string): Promise<Drawn> {
-  const key = keyOf(language, source);
+export const drawDiagram = (language: string, source: string) => drawOnce(keyOf(language, source), () => canvas.diagram(language, source));
+
+/** Draws what `key` names, once: later calls get the same drawing. */
+function drawOnce(key: string, draw: () => Promise<Drawing>): Promise<Drawn> {
   const done = drawn.get(key);
   if (done) return Promise.resolve(done);
   let pending = drawing.get(key);
   if (!pending) {
-    pending = canvas.diagram(language, source).then(
+    pending = draw().then(
       ({ png }): Drawn => ({ image: { mediaType: "image/png", data: Buffer.from(png).toString("base64") } }),
       (error: unknown): Drawn => ({ error: error instanceof Error ? error.message : String(error) }),
     );
@@ -71,3 +74,26 @@ export function diagramImages(text: string): ImageAttachment[] {
     return done && "image" in done ? [done.image] : [];
   });
 }
+
+/** A question's preview written in HTML, which is drawn, rather than Markdown, which is shown as it is. */
+export const isHtmlPreview = (preview: string | undefined): preview is string => !!preview && /^\s*</.test(preview);
+
+/** The widest a preview is drawn, in CSS pixels; wider, a mockup's words would shrink to fit the panel. */
+const PREVIEW_WIDTH = 960;
+const previewKey = (html: string) => `preview\u0000${html}`;
+
+/**
+ * Draws a question's HTML preview, once, on the preview panel's color and about as wide as the
+ * panel, so its words come out near the terminal's own size.
+ */
+export function drawPreview(html: string) {
+  const width = Math.min(PREVIEW_WIDTH, Math.max(320, Math.round(((process.stdout.columns || 100) - 8) * cellSize().width)));
+  const page = `<!doctype html><meta charset="utf-8"><style>
+    html, body { margin: 0; background: ${PALETTE.raised}; color: ${PALETTE.star}; font: ${fontPixels()}px system-ui, sans-serif; }
+    body > div { padding: 12px; }
+  </style><body><div>${html}</div></body>`;
+  return drawOnce(previewKey(html), () => canvas.html(page, width));
+}
+
+/** A preview's drawing if it's done, else undefined. */
+export const drawnPreview = (html: string) => drawn.get(previewKey(html));
