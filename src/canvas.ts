@@ -2,6 +2,7 @@
 // drawing, started the first time it's needed and closed again after a while unused. It never
 // reaches the network or the disk: a page gets only what's put in it.
 import { instance as vizInstance } from "@viz-js/viz";
+import type { ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
@@ -203,6 +204,8 @@ export class Canvas {
         const font = { fontFamily: "monospace", fontSize: size };
         mermaid.initialize({
           startOnLoad: false,
+          // A diagram that doesn't parse fails with its error, rather than drawing a bomb into the page.
+          suppressErrorRendering: true,
           theme: "base",
           themeVariables: theme,
           themeCSS: css,
@@ -310,7 +313,13 @@ export class Canvas {
         return draw(page);
       }),
     );
-    this.turn = result.catch(() => {});
+    this.turn = result.catch((error: unknown) => {
+      // A drawing that ran out of time may still be going on the page, and would draw over the next one.
+      if (error instanceof TooLong) {
+        void this.page?.then((page) => page.close()).catch(() => {});
+        this.page = null;
+      }
+    });
     return result;
   }
 
@@ -353,6 +362,12 @@ export class Canvas {
 
 let viz_: ReturnType<typeof vizInstance> | undefined;
 
+/** The browsers running, which go when astrocode does. */
+const browsers = new Set<ChildProcess>();
+process.on("exit", () => {
+  for (const child of browsers) child.kill();
+});
+
 async function launch() {
   const executablePath = browserPath();
   if (!executablePath) throw new Error("There's no Chromium to draw with. Install chromium, or set ASTROCODE_BROWSER.");
@@ -370,7 +385,10 @@ async function launch() {
   });
   const child = browser.process();
   child?.unref();
-  process.on("exit", () => child?.kill());
+  if (child) {
+    browsers.add(child);
+    child.once("exit", () => browsers.delete(child));
+  }
   return browser;
 }
 
@@ -391,10 +409,12 @@ function drawing(shot: Uint8Array): Drawing {
   return { png: shot, width: view.getUint32(16), height: view.getUint32(20) };
 }
 
+class TooLong extends Error {}
+
 function within<T>(work: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`It took longer than ${ms / 1000} seconds to draw.`)), ms);
+    timer = setTimeout(() => reject(new TooLong(`It took longer than ${ms / 1000} seconds to draw.`)), ms);
   });
   return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }
