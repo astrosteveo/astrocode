@@ -1,6 +1,7 @@
 // The words on a permission prompt, including exactly what "always allow" does.
 import type { PermissionMode, PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
 import type { PermissionRequest } from "../events";
+import type { TaskInfo } from "./state";
 import { shortPath, toolLabel } from "./tools";
 
 const TITLES: Record<string, string> = {
@@ -15,6 +16,15 @@ const TITLES: Record<string, string> = {
 
 export function permissionTitle(request: PermissionRequest) {
   return request.title ?? TITLES[request.toolName] ?? `Claude wants to use ${toolLabel(request.toolName)}`;
+}
+
+/**
+ * The subagent that asks, by what Claude asked it to do: empty for one Claude Code no longer
+ * tracks, as inside a workflow. Undefined when Claude asks.
+ */
+export function askedBy(request: PermissionRequest, tasks: Record<string, TaskInfo>) {
+  if (request.agentId === undefined) return undefined;
+  return tasks[request.agentId]?.description ?? "";
 }
 
 /** Claude Code's description, unless it only repeats the path or command the prompt already shows. */

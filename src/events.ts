@@ -17,7 +17,8 @@ export type PermissionRequest = {
   alwaysAllow?: PermissionUpdate[];
   /** Claude Code asks that this prompt not default to approving. */
   defaultToNo?: boolean;
-  fromSubagent: boolean;
+  /** The subagent that asks, by its agent id, which is also its task id. Absent when Claude asks. */
+  agentId?: string;
 };
 
 export type Decision = "allow" | "always" | "deny";
