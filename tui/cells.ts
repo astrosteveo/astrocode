@@ -38,6 +38,6 @@ function windowCell() {
 
 /**
  * The terminal's text size in CSS pixels, for words in a picture to match the words around it.
- * A monospace character is about 0.6 of the font size wide.
+ * A cell is about 1.35 times as tall as the font, with the space between lines.
  */
-export const fontPixels = () => Math.max(10, Math.min(40, Math.round(cellSize().width / 0.6)));
+export const fontPixels = () => Math.max(10, Math.min(40, Math.round(cellSize().height / 1.35)));
