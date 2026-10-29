@@ -29,12 +29,13 @@ const ENABLE = "\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h";
 const DISABLE = "\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l";
 
 /**
- * What the pointer looks like over something: a hand where a click acts, a text beam over text a
- * drag selects. Over anything else, such as an empty cell, it's the terminal's default. Set with
- * OSC 22, which kitty, foot, Ghostty and xterm understand and others ignore. It draws nothing, so
- * it can go to the terminal between Ink's frames.
+ * What the pointer looks like over something: a hand where a click acts, a magnifying glass over a
+ * picture a click enlarges, a text beam where you type. Over anything else, such as the
+ * transcript's text, it's the terminal's default. Set with OSC 22, which kitty, foot, Ghostty and
+ * xterm understand and others ignore. It draws nothing, so it can go to the terminal between
+ * Ink's frames.
  */
-export type Shape = "pointer" | "text";
+export type Shape = "pointer" | "zoom-in" | "text";
 const shapeCode = (shape: Shape | "default") => `\x1b]22;${shape}\x1b\\`;
 const REPORT = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
 /** The start of a report cut off at the end of a chunk; the rest is in the next one. */
@@ -103,14 +104,14 @@ export class Mouse {
   }
 
   /**
-   * What `owner` wants the pointer to look like, or null when it's not under the pointer. A hand
-   * wins over a text beam, as a link does over the text around it.
+   * What `owner` wants the pointer to look like, or null when it's not under the pointer. What a
+   * click acts on wins over a text beam, as a link does over the text around it.
    */
   setShape(owner: object, shape: Shape | null) {
     if (shape) this.shapes.set(owner, shape);
     else this.shapes.delete(owner);
     const wanted = [...this.shapes.values()];
-    const next = wanted.includes("pointer") ? "pointer" : wanted.length > 0 ? "text" : "default";
+    const next = wanted.find((one) => one !== "text") ?? (wanted.length > 0 ? "text" : "default");
     if (next === this.shown || !this.read) return;
     this.shown = next;
     this.stdout.write(shapeCode(next));

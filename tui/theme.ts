@@ -90,6 +90,9 @@ export const TINT = {
   removedWords: mix(PALETTE.surface, PALETTE.rose, 0.34),
 };
 
+/** What an activity line's targets are drawn in: a step back from the title, which is the brightest. */
+export const BODY = mix(PALETTE.star, PALETTE.haze, 0.3);
+
 /** A share's color: calm, getting full, nearly out. */
 export function tone(share: number) {
   return share < 0.6 ? PALETTE.teal : share < 0.85 ? PALETTE.ember : PALETTE.rose;

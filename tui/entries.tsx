@@ -16,7 +16,7 @@ import { hyperlink } from "./links";
 import { ImageView, isReady } from "./pictures";
 import { GUTTER, LIVE, Railed, type Rail } from "./rail";
 import { ShellCard } from "./shell-card";
-import { mix, PALETTE } from "./theme";
+import { BODY, PALETTE } from "./theme";
 import { DraftRow, SubagentLines, toolNode, ToolRow } from "./tool-row";
 import { Figure, hasPictures, shownOf, type FigureLinks } from "./figure";
 import { PROMPT_LINK } from "./window";
@@ -140,9 +140,6 @@ export const STEP_NODES = {
   failed: { node: "✗", color: PALETTE.rose },
   stopped: { node: "■", color: PALETTE.ember },
 } as const;
-
-/** What an activity line's targets are drawn in: a step back from the title, which is the brightest. */
-const BODY = mix(PALETTE.star, PALETTE.haze, 0.3);
 
 const TONES: Record<Tone, string> = {
   plain: BODY,
@@ -353,13 +350,18 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
   return pieces;
 }
 
+/** The tones a lit line draws in gold. The ones that say how something went keep their colors. */
+const LIT = new Set<Tone>(["plain", "bright", "quiet", "faint", "code"]);
+
 /**
  * `  Edited    src/retry.ts            +9 −4  ■■■■□  ›`: the verb, what the calls acted on, and what
  * came of them against the right edge. `again`: the line above has the same verb, which this one
- * leaves out. The line the inspector shows is banded, with a gold mark.
+ * leaves out. The line the inspector shows has a gold mark, and its words are lit in gold, as the
+ * pointer lights a line (`lit()`).
  */
 function ActivityLine({ row, width, picked, again, clickable }: { row: ActivityRow; width: number; picked: boolean; again: boolean; clickable: boolean }) {
-  const verbColor = row.status === "waiting" ? PALETTE.gold : row.status === "running" ? PALETTE.teal : PALETTE.dust;
+  const verbColor = row.status === "waiting" ? PALETTE.gold : row.status === "running" ? PALETTE.teal : picked ? PALETTE.gold : PALETTE.dust;
+  const color = (tone: Tone) => (picked && LIT.has(tone) ? PALETTE.gold : TONES[tone]);
   const named = row.verb.length >= VERB ? `${row.verb} ` : row.verb.padEnd(VERB);
   // A verb the line above has is left out, unless how the line is going colors it.
   const verb = again && row.status !== "waiting" && row.status !== "running" ? " ".repeat(cellWidth(named)) : named;
@@ -369,19 +371,19 @@ function ActivityLine({ row, width, picked, again, clickable }: { row: ActivityR
   const room = Math.max(4, width - INDENT - cellWidth(verb) - right - 2);
   const target = fitParts(row.target, room, row.path);
   return (
-    <Box justifyContent="space-between" width={width} backgroundColor={picked ? PALETTE.hover : undefined}>
+    <Box justifyContent="space-between" width={width}>
       <Text wrap="truncate-end">
         <Text color={PALETTE.gold}>{picked ? "▌ " : "  "}</Text>
         <Text color={verbColor}>{verb}</Text>
         {target.map((part, i) => (
-          <Text key={i} color={TONES[part.tone]}>
+          <Text key={i} color={color(part.tone)}>
             {part.text}
           </Text>
         ))}
       </Text>
       <Text>
         {row.result.map((part, i) => (
-          <Text key={i} color={TONES[part.tone]}>
+          <Text key={i} color={color(part.tone)}>
             {part.text}
           </Text>
         ))}

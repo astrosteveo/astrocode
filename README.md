@@ -136,6 +136,8 @@ astrocode's look takes its colors from the Hubble palette, the gold and teal of 
 | Drag the scrollbar | Scrolls |
 | Hold Shift | Uses the terminal's own selection instead |
 
+What a click acts on lights up under the pointer: a step's line, a card's title or a link turns gold, with nothing drawn behind it, and the pointer becomes a hand, or a magnifying glass over a picture. Over text the pointer stays an arrow, though a drag still selects it. The line the inspector shows stays gold, with a gold mark.
+
 Full screen uses the terminal's alternate screen, so the conversation isn't in your scrollback when you leave. `/fullscreen` switches back and writes it there.
 
 ## Settings

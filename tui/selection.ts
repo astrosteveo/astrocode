@@ -1,10 +1,10 @@
 // Selecting text in full screen's transcript, which is lines of styled text. A selection runs from
 // one cell to another like a terminal's, but only over content: it leaves out the rail and its
 // gutter, a panel's padding and edges, the hairline before a quote, and pictures, so copying code
-// brings only the code. What's highlighted is what's copied. It's also where the pointer's shape
-// comes from: what's text, and what's a link.
+// brings only the code. What's highlighted is what's copied. It also finds a row's links, and
+// lights up the words of what the pointer is over.
 import { cellWidth } from "./markdown";
-import { PALETTE, rgb, sgr, TINT } from "./theme";
+import { BODY, PALETTE, rgb, TINT } from "./theme";
 
 /** A cell in the transcript: a row, and a column in cells. */
 export type Cell = { row: number; col: number };
@@ -151,59 +151,92 @@ export function markMatches(line: string, matches: [number, number][], current: 
   );
 }
 
+/** A picture's placeholder cell (`pictures.tsx`), whose color says which image it shows. */
+const PLACEHOLDER = "\u{10EEEE}";
+/** Box drawing: the rail's lines and the like, which aren't words. */
+const LINE_DRAWING = /^[\u2500-\u257F]/;
+/** A foreground as the parameters of its color code, such as `38;2;240;184;90`. */
+const foregroundOf = (hex: string) => `38;2;${rgb(hex).join(";")}`;
+/** The foregrounds the pointer lights: the quiet colors, code and links. The terminal's own text color is lit too. */
+const QUIET = new Set([PALETTE.star, BODY, PALETTE.haze, PALETTE.dust, PALETTE.tealLight, PALETTE.sky].map(foregroundOf));
+const GOLD = foregroundOf(PALETTE.gold);
+
 /**
- * `line` on `background` from cell `from` up to `to`, padded out to `to`, with its own colors kept:
- * the band behind what the pointer is over. The background goes back on after each of the line's
- * own color codes, since a reset among them would end it, and after the band the line's own
- * styles come back, so a panel's background carries on past a link.
+ * The foreground after a color code, as the code's parameters, such as `38;2;240;184;90` or `31`,
+ * or null for the terminal's own, and whether the code set it.
  */
-export function band(line: string, from: number, to: number, background: string) {
-  const on = sgr(background, true);
-  const off = "\x1b[49m";
+function foregroundAfter(code: string, fg: string | null) {
+  const codes = /^\x1b\[([0-9;]*)m$/.exec(code);
+  let sets = false;
+  if (!codes) return { fg, sets };
+  const list = (codes[1] || "0").split(";").map(Number);
+  for (let i = 0; i < list.length; i++) {
+    const code = list[i]!;
+    if (code === 0 || code === 39) {
+      fg = null;
+      sets = true;
+    } else if (code === 38 || code === 48) {
+      const length = list[i + 1] === 2 ? 4 : 2;
+      if (code === 38) {
+        fg = list.slice(i, i + length + 1).join(";");
+        sets = true;
+      }
+      i += length;
+    } else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) {
+      fg = String(code);
+      sets = true;
+    }
+  }
+  return { fg, sets };
+}
+
+/**
+ * A row under the pointer, which a click acts on, with its words lit in gold from cell `from` on.
+ * The terminal's own text and the quiet colors turn gold, and the accents that say how something
+ * went (teal, rose, ember) keep theirs. Nothing behind the words changes, so it reads as part of
+ * the app rather than a selection. Lines such as the rail's stay as they are, and so do a picture's
+ * cells, whose color says which image they show.
+ */
+export function lit(line: string, from: number) {
+  return light(line, [[from, Infinity]]);
+}
+
+/** A link under the pointer, its words lit as `lit` lights a row's. */
+export function litLink(line: string, href: string) {
+  return light(line, linkRuns(line, href));
+}
+
+/** `line` with its words lit over `runs` of cells, each from one cell up to another, as `lit` says. */
+function light(line: string, runs: [number, number][]) {
   let out = "";
   let col = 0;
-  let inside = false;
-  /** The line's styles so far, to pick back up after the band. */
-  let styles = "";
+  /** The line's own foreground so far, and the one the terminal has now: gold over a lit word. */
+  let fg: string | null = null;
+  let shown: string | null = null;
+  const foreground = (color: string | null) => `\x1b[${color ?? "39"}m`;
   for (const part of line.split(CODE)) {
     if (CODE.test(part)) {
-      if (!LINK.test(part)) styles = part === "\x1b[0m" || part === "\x1b[m" ? "" : styles + part;
-      out += part + (inside ? on : "");
+      out += part;
+      if (LINK.test(part)) continue;
+      const after = foregroundAfter(part, fg);
+      fg = after.fg;
+      if (after.sets) shown = fg;
       continue;
     }
     for (const { segment } of graphemes.segment(part)) {
-      if (!inside && col >= from && col < to) {
-        out += on;
-        inside = true;
-      } else if (inside && col >= to) {
-        out += off + styles;
-        inside = false;
+      const inside = runs.some(([from, to]) => col >= from && col < to);
+      const quiet = fg === null || QUIET.has(fg);
+      const wanted = inside && quiet && !segment.startsWith(PLACEHOLDER) && !LINE_DRAWING.test(segment) ? GOLD : fg;
+      // A space shows no color, so it doesn't need one.
+      if (wanted !== shown && segment !== " ") {
+        out += foreground(wanted);
+        shown = wanted;
       }
       out += segment;
       col += cellWidth(segment);
     }
   }
-  if (col < to) {
-    const gap = Math.max(0, from - col);
-    out += " ".repeat(gap) + (inside ? "" : on) + " ".repeat(to - col - gap);
-  }
-  return out + off;
-}
-
-/**
- * A row under the pointer, on a band from `from` to `to`. A row on a panel is raised a step
- * instead, so the panel still shows, and a diff's tinted rows keep their tint.
- */
-export function hoverBand(line: string, from: number, to: number) {
-  const under = backgroundAt(line, from);
-  if (under === PANELS[0]) return band(line, from, to, PALETTE.raised);
-  if (under && PANELS.includes(under)) return line;
-  return band(line, from, to, PALETTE.hover);
-}
-
-/** A link the pointer is over, each run of it on the row banded as `hoverBand` bands a row. */
-export function linkBand(line: string, href: string) {
-  return linkRuns(line, href).reduce((out, [from, to]) => hoverBand(out, from, to), line);
+  return shown === fg ? out : out + foreground(fg);
 }
 
 /**
@@ -239,7 +272,7 @@ export function cellsOn(line: string, row: number, start: Cell, end: Cell, inset
 const WORD_GAP = 2;
 
 /**
- * Whether the cell at `col` is text, where the pointer is a text beam: the row's words and the
+ * Whether the cell at `col` is text, which a double click would copy: the row's words and the
  * spaces between them, where a selection would take them, so not the rail, a panel's padding or
  * edges, or a quote's hairline. Indentation, the cells after the text and a wide gap are empty.
  */
