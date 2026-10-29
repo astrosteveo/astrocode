@@ -33,3 +33,28 @@ test("forgets mods' lines when a new Claude Code starts", () => {
   const state = reduce(reduce(start(), mod("ui_status", { plugin: "a", text: "one" })), { kind: "ready", models: [], commands: [] });
   expect(state.modStatus).toEqual({});
 });
+
+test("knows a command's output row, and puts a mod's drawing on it", () => {
+  let state: State = reduce(start(), { kind: "prompt", text: "/review-gate status" });
+  const reply = {
+    type: "assistant",
+    uuid: "row-1",
+    session_id: "s",
+    parent_tool_use_id: null,
+    message: { id: "m", model: "<synthetic>", role: "assistant", content: [{ type: "text", text: "review-gate: Review round 1" }] },
+  } as unknown as SDKMessage;
+  state = reduce(state, { kind: "sdk", message: reply });
+  expect(state.items.at(-1)).toMatchObject({ kind: "text", command: { name: "review-gate", args: "status", uuid: "row-1" } });
+  const card = { type: "Text", children: ["card"] };
+  state = reduce(state, { kind: "modDrawing", of: { command: "row-1" }, tree: card });
+  expect(state.items.at(-1)).toMatchObject({ kind: "text", drawing: card });
+  state = reduce(state, { kind: "modDrawing", of: { command: "row-1" }, tree: null });
+  expect(state.items.at(-1)).not.toHaveProperty("drawing", card);
+});
+
+test("leaves Claude's own replies without a command", () => {
+  let state: State = reduce(start(), { kind: "prompt", text: "/review-gate status" });
+  const reply = { type: "assistant", uuid: "r", session_id: "s", parent_tool_use_id: null, message: { id: "m", model: "claude-opus-5-5", role: "assistant", content: [{ type: "text", text: "hi" }] } } as unknown as SDKMessage;
+  state = reduce(state, { kind: "sdk", message: reply });
+  expect(state.items.at(-1)).not.toHaveProperty("command");
+});

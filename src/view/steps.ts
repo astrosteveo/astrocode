@@ -6,7 +6,7 @@
 import { SHOW_TOOL, shortPath, toolLabel, toolTarget } from "./tools";
 import type { Item, ToolItem } from "./state";
 
-/** Calls that stay out of steps, drawn whole. */
+/** Calls that stay out of steps, drawn whole, as does a call a mod drew a result for. */
 const APART = new Set([SHOW_TOOL, "ExitPlanMode", "AskUserQuestion"]);
 
 /** The longest text that can be a title: one paragraph, about two lines. */
@@ -21,7 +21,8 @@ type TextItem = Extract<Item, { kind: "text" }>;
  */
 export type Step = { key: string; title?: TextItem; members: Item[]; calls: ToolItem[]; end: number };
 
-const isCall = (item: Item | undefined): item is ToolItem => item?.kind === "tool" && !APART.has(item.call.name);
+/** A call a mod drew a result for stands apart too, so its drawing shows. */
+const isCall = (item: Item | undefined): item is ToolItem => item?.kind === "tool" && !APART.has(item.call.name) && !item.call.drawing;
 
 /** The first item from `from` that isn't thinking. */
 function past(items: Item[], from: number) {

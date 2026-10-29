@@ -1,5 +1,6 @@
 // Folds the session's events into what the terminal shows. A pure reducer: replaying a saved
 // conversation's events draws it the same way it was drawn live.
+import type { ModNode } from "../session";
 import type {
   EffortLevel,
   FastModeDisabledReason,
@@ -20,8 +21,13 @@ type UserMessage = Extract<SDKMessage, { type: "user" }>;
 
 export type ToolStatus = "running" | "done" | "error" | "denied" | "stopped";
 
+/** A slash command whose output a row is: its name without the slash, what followed it, and the row's id. */
+export type CommandRow = { name: string; args: string; uuid: string };
+
 export type ToolCall = {
   id: string;
+  /** What a mod drew for the call's result, in place of astrocode's own. */
+  drawing?: ModNode;
   name: string;
   input: Record<string, unknown>;
   status: ToolStatus;
@@ -106,7 +112,11 @@ export type Item =
    * `[Image #n]`. `at` is when it was sent or written, where known, which times a replayed turn.
    */
   | { kind: "prompt"; key: string; text: string; uuid?: string; images?: Record<number, ImageAttachment>; at?: number; remote?: boolean }
-  | { kind: "text"; key: string; text: string; at?: number }
+  /**
+   * `command` is the slash command whose output this is, with `uuid`, its row's id, which a mod
+   * that draws that command's output knows it by; `drawing` is what the mod drew in its place.
+   */
+  | { kind: "text"; key: string; text: string; at?: number; command?: CommandRow; drawing?: ModNode }
   | { kind: "thinking"; key: string; text: string; at?: number }
   | { kind: "tool"; key: string; call: ToolCall }
   | {
@@ -264,7 +274,9 @@ export type ViewEvent =
   /** A saved conversation, replayed when resuming it. */
   | { kind: "history"; events: SessionEvent[]; title?: string; notice?: string }
   /** Print a tool call's or a `!` command's whole output into the transcript. */
-  | { kind: "output"; id: string };
+  | { kind: "output"; id: string }
+  /** What mods drew for a tool call's result, or for a command's output row by its id; null for nothing. */
+  | { kind: "modDrawing"; of: { tool: string } | { command: string }; tree: ModNode | null };
 
 export function initialState(cwd: string, home: string): State {
   return {
@@ -387,6 +399,8 @@ export function reduce(state: State, event: ViewEvent): State {
       if (count === 0) return add(settled, { kind: "notice", tone: "info", text: "Resumed a session with nothing to show yet." });
       return add(settled, { kind: "notice", tone: "info", text: `Resumed ${event.title ? `“${event.title}”` : "the session"} above.` });
     }
+    case "modDrawing":
+      return withDrawing(state, event.of, event.tree);
     case "output": {
       const index = state.tools[event.id];
       const item = index === undefined ? state.items.find((one) => one.kind === "shell" && one.id === event.id) : state.items[index];
@@ -662,7 +676,8 @@ function applyAssistant(state: State, message: SDKAssistantMessage, at?: number)
   for (const block of content) {
     next = finalizeLive(next, message.message.id, block);
     if (block.type === "text" && block.text.trim()) {
-      next = add(next, { kind: "text", text: block.text, at });
+      const command = message.message.model === "<synthetic>" ? commandRow(next, message.uuid) : undefined;
+      next = add(next, { kind: "text", text: block.text, at, ...(command && { command }) });
     } else if (block.type === "thinking" && block.thinking.trim()) {
       next = add(next, { kind: "thinking", text: block.thinking, at });
     } else if (block.type === "tool_use") {
@@ -1048,6 +1063,29 @@ function updateTool(state: State, id: string, patch: (call: ToolCall) => Partial
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+/**
+ * The slash command a reply Claude Code made up itself is the output of: the message you sent
+ * last, when it's a command. Its row is known by the reply's id.
+ */
+function commandRow(state: State, uuid: string | undefined): CommandRow | undefined {
+  const sent = state.items.findLast((item) => item.kind === "prompt");
+  const named = sent?.kind === "prompt" ? /^\/([\w:.-]+)(?:\s+([\s\S]*))?$/.exec(sent.text.trim()) : null;
+  return named && uuid ? { name: named[1]!, args: named[2]?.trim() ?? "", uuid } : undefined;
+}
+
+/** `state` with a mod's drawing put on the tool call or command output it's for, or taken off. */
+function withDrawing(state: State, of: { tool: string } | { command: string }, tree: ModNode | null): State {
+  const index = "tool" in of ? state.tools[of.tool] : state.items.findIndex((item) => item.kind === "text" && item.command?.uuid === of.command);
+  const item = index === undefined || index < 0 ? undefined : state.items[index];
+  if (!item || (item.kind !== "tool" && item.kind !== "text")) return state;
+  const old = item.kind === "tool" ? item.call.drawing : item.drawing;
+  if (JSON.stringify(old ?? null) === JSON.stringify(tree)) return state;
+  const items = state.items.slice();
+  const drawing = tree ?? undefined;
+  items[index] = item.kind === "tool" ? { ...item, call: { ...item.call, drawing } } : { ...item, drawing };
+  return { ...state, items };
 }
 
 /** Escape sequences and other control characters, which a mod's text is drawn without: it's plain text, never codes. */
