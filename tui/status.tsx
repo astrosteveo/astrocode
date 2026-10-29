@@ -9,7 +9,8 @@
 // screen, clicking the chip changes the mode, clicking the model switches it, clicking the effort
 // sets it, clicking "thinking off" turns it back on, clicking the cache turns keep-warm on or off,
 // clicking `⇄ remote` opens Remote Control's link and QR code, and clicking the running count opens what's running: Claude Code's background tasks and your
-// `!` commands.
+// `!` commands. A mod's toast takes the readings' place for a moment, as the app's own do, and
+// the lines mods pin show above the bar, one to a mod.
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { Box, Text, type DOMElement } from "ink";
 import { useRef, type ReactNode } from "react";
@@ -20,6 +21,7 @@ import type { UsageMode } from "../src/settings";
 import type { GitInfo } from "./git";
 import { keywordsIn, paintKeywords } from "./keywords";
 import { cellWidth } from "./markdown";
+import { fit } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
 import { PALETTE, tone } from "./theme";
 
@@ -59,6 +61,8 @@ type Props = {
   running: number;
   /** A word on something just done, such as copying, in place of the readings for a moment. */
   toast?: string | null;
+  /** A mod's toast, shown the same way under the mod's name when the app has none of its own. */
+  modToast?: { plugin: string; text: string } | null;
   /** Whether keep-warm is on. */
   keepWarm: boolean;
   /** When the plan's usage windows show: once half used, always, or never. */
@@ -73,7 +77,7 @@ type Props = {
   onRemote?: () => void;
 };
 
-export function StatusBar({ state, mode, git, width, armed, running, toast, keepWarm, usageMode, onMode, onModel, onEffort, onThinking, onFast, onTasks, onCache, onRemote }: Props) {
+export function StatusBar({ state, mode, git, width, armed, running, toast, modToast, keepWarm, usageMode, onMode, onModel, onEffort, onThinking, onFast, onTasks, onCache, onRemote }: Props) {
   const bar = useRef<DOMElement>(null);
   const now = useNow(15_000, state.cache !== undefined);
   const chip = MODE_CHIPS[mode];
@@ -148,9 +152,10 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, keep
   }
   if (state.plan) segments.push({ text: state.plan, node: <Text color={PALETTE.dust}>{state.plan}</Text> });
 
-  const shown: Segment[] = toast ? [{ text: `✓ ${toast}`, node: <Text color={PALETTE.teal}>{`✓ ${toast}`}</Text> }] : [];
-  let used = toast ? cellWidth(`✓ ${toast}`) : 0;
-  for (const segment of toast ? [] : segments) {
+  const flash = toast ? { text: `✓ ${toast}`, node: <Text color={PALETTE.teal}>{`✓ ${toast}`}</Text> } : modToast ? modFlash(modToast, room) : null;
+  const shown: Segment[] = flash ? [flash] : [];
+  let used = flash ? cellWidth(flash.text) : 0;
+  for (const segment of flash ? [] : segments) {
     const cost = cellWidth(segment.text) + (shown.length ? GAP.length : 0);
     if (used + cost > room) break;
     shown.push(segment);
@@ -234,4 +239,34 @@ function usage(name: string, window: UsageWindow): Segment {
       </Text>
     ),
   };
+}
+
+/** A mod's toast as the bar's one reading: the mod's name, quiet, then its words, cut to the room there is. */
+function modFlash({ plugin, text }: { plugin: string; text: string }, room: number): Segment {
+  const words = fit(text.split("\n")[0]!, Math.max(0, room - cellWidth(plugin) - 1), false);
+  return {
+    text: `${plugin} ${words}`,
+    node: (
+      <Text>
+        <Text color={PALETTE.dust}>{plugin} </Text>
+        <Text color={PALETTE.star}>{words}</Text>
+      </Text>
+    ),
+  };
+}
+
+/** The lines mods pin under the message box (`$.ui.status`), one to a mod: its name, then its first line. */
+export function ModStatus({ lines, width }: { lines: Record<string, string>; width: number }) {
+  const mods = Object.entries(lines);
+  if (mods.length === 0) return null;
+  return (
+    <Box flexDirection="column" paddingX={1}>
+      {mods.map(([plugin, text]) => (
+        <Text key={plugin} wrap="truncate-end">
+          <Text color={PALETTE.dust}>{plugin} </Text>
+          <Text color={PALETTE.haze}>{fit(text.split("\n")[0]!, Math.max(0, width - 2 - cellWidth(plugin) - 1), false)}</Text>
+        </Text>
+      ))}
+    </Box>
+  );
 }
