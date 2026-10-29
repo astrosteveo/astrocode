@@ -18,8 +18,15 @@ import { imageAt, pictureRows, usePictureRows } from "./pictures";
 import { useTranscript, type Transcript } from "./transcript";
 
 const WHEEL_LINES = 3;
-/** How often a drag held at the viewport's edge scrolls it another line. */
-const EDGE_SCROLL_MS = 50;
+/**
+ * A drag held at the viewport's edge scrolls it this many lines a second at first, and faster the
+ * longer it's held, up to the top speed after the ramp. It's checked each frame, so the lines come
+ * at even intervals.
+ */
+const EDGE_LINES_START = 20;
+const EDGE_LINES_TOP = 60;
+const EDGE_RAMP_MS = 1500;
+const EDGE_TICK_MS = 1000 / 60;
 /** How long after the window stops resizing the whole screen is drawn again. */
 const REPAINT_MS = 150;
 /** Between an entry's key and an address in the key of a link under the pointer. */
@@ -86,7 +93,8 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   const drag = useRef<"select" | "scrollbar" | null>(null);
   /** Where the button went down to select, until a drag leaves that cell and starts the selection. */
   const pressed = useRef<Point | null>(null);
-  const edge = useRef<{ timer: ReturnType<typeof setInterval>; step: number; x: number } | null>(null);
+  /** A drag held at an edge: its direction, its column, when it started, and the lines it has built up toward the next. */
+  const edge = useRef<{ timer: ReturnType<typeof setInterval>; step: number; x: number; since: number; last: number; owed: number } | null>(null);
   /**
    * What a click on a link or inside an opened entry does, held until it's plain the click isn't
    * the first of a double or triple click, which copy a word or a line instead.
@@ -182,11 +190,21 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     }
     stopEdge();
     const timer = setInterval(() => {
-      if (!edge.current) return;
-      scrollBy(step);
-      extendTo(pointAt(edge.current.x, step < 0 ? 0 : now.current.view - 1));
-    }, EDGE_SCROLL_MS);
-    edge.current = { timer, step, x };
+      const held = edge.current;
+      if (!held) return;
+      const time = performance.now();
+      const ramp = Math.min(1, (time - held.since) / EDGE_RAMP_MS);
+      const rate = EDGE_LINES_START + (EDGE_LINES_TOP - EDGE_LINES_START) * ramp;
+      held.owed += (rate * (time - held.last)) / 1000;
+      held.last = time;
+      const lines = Math.floor(held.owed);
+      if (lines < 1) return;
+      held.owed -= lines;
+      scrollBy(step * lines);
+      extendTo(pointAt(held.x, step < 0 ? 0 : now.current.view - 1));
+    }, EDGE_TICK_MS);
+    const time = performance.now();
+    edge.current = { timer, step, x, since: time, last: time, owed: 0 };
   };
 
   const cancelPending = () => {
