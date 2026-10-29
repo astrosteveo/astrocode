@@ -53,6 +53,10 @@ if (effort !== undefined && !isEffort(effort)) {
   process.exit(2);
 }
 
+// React's development build checks and logs every render, which makes each frame several times
+// slower. It's picked when React first loads, so this comes before the interface does.
+process.env.NODE_ENV ??= "production";
+
 // The palette is made from the terminal's own colors, so they're asked for before the interface,
 // and the palette with it, loads.
 const { askColors } = await import("../tui/colors");
