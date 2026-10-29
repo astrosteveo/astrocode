@@ -163,6 +163,7 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   const extendTo = (point: Point | null) => {
     if (!point) return;
     const current = selected.current;
+    if (current && samePoint(current.to, point)) return;
     if (current) return setSelection({ ...current, to: point });
     const from = pressed.current;
     if (from && !samePoint(from, point)) setSelection({ from, to: point });
