@@ -8,7 +8,7 @@
     "astrocode": "src/cli.ts"
   },
   "scripts": {
-    "start": "bun src/cli.ts",
+    "start": "bun --define 'process.env.NODE_ENV:\"production\"' src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
