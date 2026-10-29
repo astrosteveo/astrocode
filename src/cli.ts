@@ -1,5 +1,8 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S bun --define 'process.env.NODE_ENV:"production"'
 // astrocode: Claude Code's engine with our own terminal front end.
+// React's development build checks and logs every render, which makes each frame several times
+// slower. The define picks React's production build and Bun's matching JSX as the code is compiled,
+// without setting NODE_ENV, so the commands Claude runs don't inherit it.
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { EFFORTS, isEffort } from "./events";
@@ -52,10 +55,6 @@ if (effort !== undefined && !isEffort(effort)) {
   console.error(`Effort must be one of ${EFFORTS.join(", ")}.\n\n${USAGE}`);
   process.exit(2);
 }
-
-// React's development build checks and logs every render, which makes each frame several times
-// slower. It's picked when React first loads, so this comes before the interface does.
-process.env.NODE_ENV ??= "production";
 
 // The palette is made from the terminal's own colors, so they're asked for before the interface,
 // and the palette with it, loads.
