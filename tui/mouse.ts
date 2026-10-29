@@ -30,12 +30,12 @@ const DISABLE = "\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l";
 
 /**
  * What the pointer looks like over something: a hand where a click acts, a magnifying glass over a
- * picture a click enlarges, a text beam where you type. Over anything else, such as the
- * transcript's text, it's the terminal's default. Set with OSC 22, which kitty, foot, Ghostty and
- * xterm understand and others ignore. It draws nothing, so it can go to the terminal between
+ * picture a click enlarges or puts back, a text beam where you type. Over anything else, such as
+ * the transcript's text, it's the terminal's default. Set with OSC 22, which kitty, foot, Ghostty
+ * and xterm understand and others ignore. It draws nothing, so it can go to the terminal between
  * Ink's frames.
  */
-export type Shape = "pointer" | "zoom-in" | "text";
+export type Shape = "pointer" | "zoom-in" | "zoom-out" | "text";
 const shapeCode = (shape: Shape | "default") => `\x1b]22;${shape}\x1b\\`;
 const REPORT = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
 /** The start of a report cut off at the end of a chunk; the rest is in the next one. */

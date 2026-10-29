@@ -129,14 +129,14 @@ astrocode's look takes its colors from the Hubble palette, the gold and teal of 
 | Click a call on its own, such as a picture's or a question's row | Inspects it, as a line in a step does |
 | Click a tab, `‹` or `›`, or `esc close` in the inspector | Shows that tab, the call before or after, or closes it. The wheel scrolls it |
 | Click `▶ run` on a shell code block | Runs it as `/play` does. `copy` beside it copies it |
-| Click a picture | Enlarges it, as `/pictures` does; ← and → flip to the pictures before and after it |
+| Click a picture | Enlarges it, as `/pictures` does; ← and → flip to the pictures before and after it. A click on the enlarged picture, or on `esc close` under it, puts it back |
 | Click an option | Chooses it, in permission prompts, Claude's questions, pickers, `/plugins`, and the `/` and `@` menus |
 | Click the mode, the model or the effort | Changes the permission mode, or opens the model or effort picker |
 | Click in the message box | Puts the cursor there |
 | Drag the scrollbar | Scrolls |
 | Hold Shift | Uses the terminal's own selection instead |
 
-What a click acts on lights up under the pointer: a step's line, a card's title or a link turns gold, with nothing drawn behind it, and the pointer becomes a hand, or a magnifying glass over a picture. Over text the pointer stays an arrow, though a drag still selects it. The line the inspector shows stays gold, with a gold mark.
+What a click acts on lights up under the pointer: a step's line, a card's title or a link turns gold, with nothing drawn behind it, and the pointer becomes a hand, or a magnifying glass over a picture, which a click enlarges or puts back. Over text the pointer stays an arrow, though a drag still selects it. The line the inspector shows stays gold, with a gold mark.
 
 Full screen uses the terminal's alternate screen, so the conversation isn't in your scrollback when you leave. `/fullscreen` switches back and writes it there.
 
