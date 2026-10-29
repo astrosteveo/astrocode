@@ -1,0 +1,143 @@
+diff --git a/build/output.js b/build/output.js
+index 10a94568e2e9fc005dd383babf36456cb31ef572..eb34c98405a0e1218522e9eb6b5352b40c5ccc40 100644
+--- a/build/output.js
++++ b/build/output.js
+@@ -27,10 +27,63 @@ const intersectClips = (outer, inner) => {
+         y2: intersectBound(outer.y2, inner.y2, Math.min),
+     };
+ };
++// Kept from frame to frame, so rows that haven't changed aren't tokenized and joined again.
++const CACHE_LIMIT = 4000;
++const blankChar = Object.freeze({ type: 'char', value: ' ', fullWidth: false, styles: [] });
+ class OutputCaches {
+     widths = new Map();
+     blockWidths = new Map();
+     styledChars = new Map();
++    textLines = new Map();
++    slices = new Map();
++    rows = new Map();
++    cellIds = new WeakMap();
++    nextCellId = 0;
++    trim() {
++        if (this.styledChars.size + this.textLines.size + this.slices.size + this.rows.size > CACHE_LIMIT) {
++            this.widths.clear();
++            this.blockWidths.clear();
++            this.styledChars.clear();
++            this.textLines.clear();
++            this.slices.clear();
++            this.rows.clear();
++        }
++    }
++    // Cells are shared between frames, so a row of the same cells is the same string, wherever it is on screen.
++    getRowText(cells) {
++        let key = '';
++        for (const cell of cells) {
++            let id = this.cellIds.get(cell);
++            if (id === undefined) {
++                id = this.nextCellId++;
++                this.cellIds.set(cell, id);
++            }
++            key += `${id},`;
++        }
++        let cached = this.rows.get(key);
++        if (cached === undefined) {
++            cached = styledCharsToString(cells).trimEnd();
++            this.rows.set(key, cached);
++        }
++        return cached;
++    }
++    getTextLines(text) {
++        let cached = this.textLines.get(text);
++        if (cached === undefined) {
++            const characterLines = [[]];
++            for (const character of this.getStyledChars(text)) {
++                if (character.value === '\n') {
++                    characterLines.push([]);
++                }
++                else {
++                    characterLines.at(-1).push(character);
++                }
++            }
++            cached = characterLines.map(line => styledCharsToString(line));
++            this.textLines.set(text, cached);
++        }
++        return cached;
++    }
+     getStyledChars(line) {
+         let cached = this.styledChars.get(line);
+         if (cached === undefined) {
+@@ -61,9 +114,10 @@ class OutputCaches {
+         return cached;
+     }
+ }
++const sharedCaches = new OutputCaches();
+ export default class Output {
+     operations = [];
+-    caches = new OutputCaches();
++    caches = sharedCaches;
+     width;
+     height;
+     constructor(options) {
+@@ -75,16 +129,7 @@ export default class Output {
+         const { text, transformers } = operation;
+         let { x, y } = operation;
+         // Preserve styles across explicit newlines before clipping individual rows.
+-        const characterLines = [[]];
+-        for (const character of this.caches.getStyledChars(text)) {
+-            if (character.value === '\n') {
+-                characterLines.push([]);
+-            }
+-            else {
+-                characterLines.at(-1).push(character);
+-            }
+-        }
+-        let lines = characterLines.map(line => styledCharsToString(line));
++        let lines = this.caches.getTextLines(text);
+         if (clip) {
+             // Two nested clips can intersect to nothing. Nothing is visible, so bail out before slicing.
+             if (isClipEmpty(clip)) {
+@@ -205,6 +250,16 @@ export default class Output {
+         if (from >= to) {
+             return '';
+         }
++        const key = `${from}\u0000${to}\u0000${line}`;
++        const known = this.caches.slices.get(key);
++        if (known !== undefined) {
++            return known;
++        }
++        const sliced = this.sliceLineToColumnsUncached(line, from, to);
++        this.caches.slices.set(key, sliced);
++        return sliced;
++    }
++    sliceLineToColumnsUncached(line, from, to) {
+         const result = [];
+         let column = 0;
+         for (const character of this.caches.getStyledChars(line)) {
+@@ -233,12 +288,7 @@ export default class Output {
+         for (let y = 0; y < this.height; y++) {
+             const row = [];
+             for (let x = 0; x < this.width; x++) {
+-                row.push({
+-                    type: 'char',
+-                    value: ' ',
+-                    fullWidth: false,
+-                    styles: [],
+-                });
++                row.push(blankChar);
+             }
+             output.push(row);
+         }
+@@ -255,11 +305,12 @@ export default class Output {
+                 this.applyWriteOperation(output, operation, clips.at(-1));
+             }
+         }
++        this.caches.trim();
+         const generatedOutput = output
+             .map(line => {
+             // See https://github.com/vadimdemedes/ink/pull/564#issuecomment-1637022742
+             const lineWithoutEmptyItems = line.filter(item => item !== undefined);
+-            return styledCharsToString(lineWithoutEmptyItems).trimEnd();
++            return this.caches.getRowText(lineWithoutEmptyItems);
+         })
+             .join('\n');
+         return {
