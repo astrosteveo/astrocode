@@ -11,6 +11,7 @@ import { plural, shortPath } from "../src/view/tools";
 import type { Item, Live } from "../src/view/state";
 import { cellWidth } from "./markdown";
 import { fit, Markdown } from "./markdown-view";
+import { ModTree } from "./mod-tree";
 import { FullOutput, OutputBody } from "./output";
 import { hyperlink } from "./links";
 import { ImageView, isReady } from "./pictures";
@@ -65,8 +66,13 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
     case "text":
       return (
         <Railed node="◆" color={PALETTE.teal} rail={rail}>
-          {/* A diagram may take the whole screen, since shrinking it shrinks its words. */}
-          <Markdown text={item.text} width={inner.width} copyable={copyable} diagrams={{ rows: view.pictureRows * 2, links }} />
+          {/* A command's output a mod drew is drawn as it drew it. The transcript's rows are text, so its buttons don't press. */}
+          {item.drawing ? (
+            <ModTree node={item.drawing} width={inner.width} onPress={() => {}} />
+          ) : (
+            // A diagram may take the whole screen, since shrinking it shrinks its words.
+            <Markdown text={item.text} width={inner.width} copyable={copyable} diagrams={{ rows: view.pictureRows * 2, links }} />
+          )}
         </Railed>
       );
     case "thinking":
@@ -88,7 +94,14 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
       return (
         <Railed node={glyph} color={color} rail={rail}>
           <ToolRow call={item.call} waiting={waiting} detailed={detailed && !expanded} fileLink={scrollback} links={links} {...inner} />
-          {expanded ? <OutputBody call={item.call} width={inner.width} pictureRows={view.pictureRows} /> : null}
+          {expanded ? (
+            <OutputBody call={item.call} width={inner.width} pictureRows={view.pictureRows} />
+          ) : item.call.drawing ? (
+            // What a mod drew for the result, such as a review's findings, under the call's row.
+            <Box marginTop={1}>
+              <ModTree node={item.call.drawing} width={inner.width} onPress={() => {}} />
+            </Box>
+          ) : null}
         </Railed>
       );
     }

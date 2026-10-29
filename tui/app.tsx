@@ -66,6 +66,7 @@ import { arrange, type Entry } from "./arrange";
 import { SessionPreview } from "./session-preview";
 import { SkillsPanel } from "./skills";
 import { ModBand } from "./mod-band";
+import { useModCards } from "./mod-cards";
 import { ModStatus, StatusBar } from "./status";
 import type { Store } from "./store";
 import { RUNNING_STATUS, TaskView } from "./tasks";
@@ -174,6 +175,7 @@ type Props = {
 
 export function App({ store, session, branch, fullscreen, onToggleFullscreen }: Props) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  useModCards(session, state, store.emit);
   const { exit, suspendTerminal } = useApp();
   const mouse = useContext(MouseContext);
   const { write } = useStdout();
