@@ -1,10 +1,11 @@
 // A step's tool calls as an activity log: one line for each thing Claude did, in the order it did
 // them, saying what it did (Searched, Read, Edited, Ran), what it acted on, and what came of it.
-// Reads in a row are one line, and so are edits to one file in a row. A call that failed says why
-// on a line of its own.
+// A command says what Claude said it does. Reads in a row are one line, and so are edits to one
+// file in a row. A call that failed says why on a line of its own.
 import { timed, took } from "./format";
 import { failureLine, onlyLine, runOfCall, runSize, testCounts, type Run } from "./runs";
 import type { ToolCall, ToolStatus } from "./state";
+import { inPastTense } from "./tense";
 import { field, plural, shortPath, SHOW_TOOL, subagentCallCount, toolLabel, toolSummary, toolTarget } from "./tools";
 
 /**
@@ -158,10 +159,17 @@ function describe(row: ActivityRow, cwd: string, home: string) {
     }
     case "Bash": {
       const run = runOfCall(call, false);
-      const command = run.command.replace(/\n+$/, "");
-      row.target = [{ text: "$ ", tone: "faint" }, { text: toolTarget(call, cwd, home), tone: "plain" }];
-      // A script's first line says little; Claude's description of it says more.
-      if (command.includes("\n") && run.headline && run.headline !== command.split("\n")[0]) row.target = [{ text: run.headline, tone: "plain" }, { text: "  script", tone: "faint" }];
+      // What Claude said the command does tells more at a glance than the command, which the
+      // inspector shows. In the past tense, as the other lines are, it's `Ran the test suite` and
+      // `Committed the retry change`; one that doesn't start with a verb follows `Ran` as it is.
+      const said = text("description").split("\n")[0]!.trim();
+      const told = said ? inPastTense(said) : null;
+      if (told) {
+        const [verb = "", ...rest] = told.split(" ");
+        row.verb = verb;
+        row.target = [{ text: rest.join(" "), tone: "plain" }];
+      } else if (said) row.target = [{ text: said, tone: "plain" }];
+      else row.target = [{ text: "$ ", tone: "faint" }, { text: toolTarget(call, cwd, home), tone: "plain" }];
       row.result = runResult(run);
       if (run.status === "error") row.failure = failureLine(run);
       return;
