@@ -3,7 +3,7 @@
 // gutter, a panel's padding and edges, the hairline before a quote, and pictures, so copying code
 // brings only the code. What's highlighted is what's copied. It also finds a row's links, and
 // lights up the words of what the pointer is over.
-import { cellWidth } from "./markdown";
+import { cellsOf, cellWidth } from "./markdown";
 import { BODY, PALETTE, rgb, TINT } from "./theme";
 
 /** A cell in the transcript: a row, and a column in cells. */
@@ -58,7 +58,7 @@ function backgroundAt(line: string, col: number) {
     }
     for (const { segment } of graphemes.segment(part)) {
       if (at >= col) return background;
-      at += cellWidth(segment);
+      at += cellsOf(segment);
     }
   }
   return background;
@@ -71,14 +71,37 @@ export function sliceCells(text: string, from: number, to: number) {
   for (const { segment } of graphemes.segment(text)) {
     if (col >= to) break;
     if (col >= from) out += segment;
-    col += cellWidth(segment);
+    col += cellsOf(segment);
   }
   return out;
 }
 
+/**
+ * What `work` gives for a key, worked out once. A drag draws the same rows with the same ranges
+ * frame after frame, so each is painted and measured once. It starts over past `size` keys.
+ */
+function cached<T>(size: number, work: (key: string) => T) {
+  const known = new Map<string, T>();
+  return (key: string) => {
+    if (known.has(key)) return known.get(key)!;
+    const value = work(key);
+    if (known.size >= size) known.clear();
+    known.set(key, value);
+    return value;
+  };
+}
+
+/** Between the parts of a key: a row's text never holds it. */
+const PART = "\u0000";
+
+const highlighted = cached(1000, (key) => {
+  const [from, to, line] = key.split(PART);
+  return paint(line!, [{ from: Number(from), to: Number(to), style: SELECTED }]);
+});
+
 /** `line` with the cells from `from` up to `to` drawn as selected, plain, and its own styles after. */
 export function highlight(line: string, from: number, to: number) {
-  return paint(line, [{ from, to, style: SELECTED }]);
+  return highlighted(`${from}${PART}${to}${PART}${line}`);
 }
 
 /** A run of cells drawn in a style of its own, over the line's: a selection, or a search's match. */
@@ -115,7 +138,7 @@ function paint(line: string, runs: Paint[]) {
         next++;
       }
       out += segment;
-      col += cellWidth(segment);
+      col += cellsOf(segment);
     }
   }
   return current ? out + RESET : out;
@@ -233,7 +256,7 @@ function light(line: string, runs: [number, number][]) {
         shown = wanted;
       }
       out += segment;
-      col += cellWidth(segment);
+      col += cellsOf(segment);
     }
   }
   return shown === fg ? out : out + foreground(fg);
@@ -241,17 +264,26 @@ function light(line: string, runs: [number, number][]) {
 
 /**
  * Where a row's content starts, past `inset` cells of rail, a panel's padding and a quote's
- * hairline, and whether the row is a panel's edge. Null for a picture's row, which has none.
+ * hairline, where its text ends, and whether the row is a panel's edge. Null for a picture's row,
+ * which has none.
  */
 function margin(line: string, inset: number) {
-  const body = sliceCells(plain(line), inset, Infinity);
-  if (PICTURE.test(body)) return null;
-  if (PANEL_EDGE.test(body)) return { from: inset, edge: true };
-  // A panel's first cell is padding.
-  if (PANELS.includes(backgroundAt(line, inset) ?? "")) return { from: inset + 1, edge: false };
-  if (HAIRLINE.test(body)) return { from: inset + 2, edge: false };
-  return { from: inset, edge: false };
+  return margins(`${inset}${PART}${line}`);
 }
+
+const margins = cached(1000, (key) => {
+  const [count, line] = key.split(PART) as [string, string];
+  const inset = Number(count);
+  const body = sliceCells(plain(line), inset, Infinity);
+  // Where the row's text ends, since the spaces after it aren't selected.
+  const end = cellWidth(plain(line).trimEnd());
+  if (PICTURE.test(body)) return null;
+  if (PANEL_EDGE.test(body)) return { from: inset, edge: true, end };
+  // A panel's first cell is padding.
+  if (PANELS.includes(backgroundAt(line, inset) ?? "")) return { from: inset + 1, edge: false, end };
+  if (HAIRLINE.test(body)) return { from: inset + 2, edge: false, end };
+  return { from: inset, edge: false, end };
+});
 
 /**
  * The cells of a row that a selection from `start` to `end` covers, or null for none. `end` is
@@ -264,7 +296,7 @@ export function cellsOn(line: string, row: number, start: Cell, end: Cell, inset
   const content = margin(line, inset);
   if (!content || (content.edge && start.row !== end.row)) return null;
   const from = Math.max(content.from, row === start.row ? start.col : 0);
-  const to = Math.min(row === end.row ? end.col + 1 : Infinity, cellWidth(plain(line).trimEnd()));
+  const to = Math.min(row === end.row ? end.col + 1 : Infinity, content.end);
   return from < to ? [from, to] : null;
 }
 
@@ -284,7 +316,7 @@ export function isTextAt(line: string, col: number, inset = 0) {
   const cells: { at: number; width: number; blank: boolean }[] = [];
   let at = 0;
   for (const { segment } of graphemes.segment(plain(line))) {
-    const width = cellWidth(segment);
+    const width = cellsOf(segment);
     if (at >= content.from) cells.push({ at, width, blank: blank.test(segment) });
     at += width;
   }
@@ -301,8 +333,9 @@ export function isTextAt(line: string, col: number, inset = 0) {
   return left !== undefined && right !== undefined && right.at - (left.at + left.width) <= WORD_GAP;
 }
 
-/** A line's cells in order, each with the address of the link it's part of, or null. */
-function* linkCells(line: string) {
+/** A line's cells in order, each with the address of the link it's part of, or null. Asked again on every move of the pointer. */
+const linkCells = cached(1000, (line) => {
+  const cells: { at: number; width: number; href: string | null }[] = [];
   let href: string | null = null;
   let at = 0;
   for (const part of line.split(CODE)) {
@@ -310,12 +343,13 @@ function* linkCells(line: string) {
     if (link) href = link[1] || null;
     if (CODE.test(part)) continue;
     for (const { segment } of graphemes.segment(part)) {
-      const width = cellWidth(segment);
-      yield { at, width, href };
+      const width = cellsOf(segment);
+      cells.push({ at, width, href });
       at += width;
     }
   }
-}
+  return cells;
+});
 
 /** The address of the link the cell at `col` is part of, or null. */
 export function linkAt(line: string, col: number) {
@@ -359,7 +393,7 @@ export function wordAt(line: string, col: number): [number, number] {
   let at = 0;
   for (const { segment } of graphemes.segment(plain(line))) {
     cells.push({ text: segment, at });
-    at += cellWidth(segment);
+    at += cellsOf(segment);
   }
   const index = cells.findIndex((cell, i) => cell.at <= col && (cells[i + 1]?.at ?? Infinity) > col);
   if (index === -1) return [col, col];
@@ -371,5 +405,5 @@ export function wordAt(line: string, col: number): [number, number] {
   while (last < cells.length - 1 && isWord(last + 1)) last++;
   // The full stop or comma after a word ends the sentence, not the word.
   while (last > first && /[.,:?]/.test(cells[last]?.text ?? "")) last--;
-  return [cells[first]!.at, cells[last]!.at + cellWidth(cells[last]!.text) - 1];
+  return [cells[first]!.at, cells[last]!.at + cellsOf(cells[last]!.text) - 1];
 }
