@@ -179,7 +179,7 @@ const graphemes = (text: string): string[] => {
 }
 
 /** The cells one grapheme takes: two for a wide glyph, an emoji or a flag, one for other visible text, none for marks alone. */
-const cellsOf = (grapheme: string) => {
+export const cellsOf = (grapheme: string) => {
   let visible = false
   let wide = false
   for (const char of grapheme) {
@@ -196,8 +196,12 @@ const cellsOf = (grapheme: string) => {
   return visible ? (wide ? 2 : 1) : 0
 }
 
+/** Printable ASCII, a cell to each character, which needs no splitting into graphemes. */
+const ASCII = /^[\x20-\x7e]*$/
+
 /** Terminal cells a string takes on screen: what a column must hold, which a code point count does not give for wide glyphs. */
-export const cellWidth = (text: string) => graphemes(text).reduce((sum, grapheme) => sum + cellsOf(grapheme), 0)
+export const cellWidth = (text: string) =>
+  ASCII.test(text) ? text.length : graphemes(text).reduce((sum, grapheme) => sum + cellsOf(grapheme), 0)
 
 /** How many leading graphemes fit in `room` cells: always one, so a wide glyph in a one-cell room still advances. */
 const headCount = (parts: string[], room: number) => {

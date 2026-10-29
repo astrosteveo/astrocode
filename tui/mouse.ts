@@ -140,7 +140,10 @@ export class Mouse {
       if (event) events.push(event);
       return "";
     });
-    if (events.length > 0) queueMicrotask(() => events.forEach((event) => this.dispatch(event)));
+    // Of a run of movement that came in together, only where it ended matters: the pointer has
+    // moved on from the rest, and drawing each would put the screen behind the pointer.
+    const kept = events.filter((event, i) => !(isMotion(event) && isMotion(events[i + 1]) && events[i + 1]!.button === event.button));
+    if (kept.length > 0) queueMicrotask(() => kept.forEach((event) => this.dispatch(event)));
     return rest;
   }
 
@@ -176,6 +179,8 @@ export class Mouse {
     for (const listener of this.listeners.filter((one) => one.fallback)) listener.handle(event);
   }
 }
+
+const isMotion = (event: MouseEvent | undefined) => event?.type === "move" || event?.type === "drag";
 
 /** The mouse in full screen; null in the terminal's own scrollback, where the mouse stays the terminal's. */
 export const MouseContext = createContext<Mouse | null>(null);

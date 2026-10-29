@@ -153,6 +153,8 @@ export const pngOf = (image: ImageAttachment) => pictures.get(image)?.png;
 
 /** The image drawn at cell `col` of a line of full screen's transcript, or undefined for none. */
 export function imageAt(line: string, col: number): ImageAttachment | undefined {
+  // Asked on every move of the pointer, and most rows hold no picture.
+  if (!line.includes(PLACEHOLDER)) return undefined;
   let id: number | null = null;
   let at = 0;
   for (const part of line.split(/(\x1b\[[0-9;]*m|\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\))/)) {

@@ -15,6 +15,9 @@ import { afterFrame, drawsImages, forgetSent } from "./pictures";
 import { Store } from "./store";
 import { markPrompts, TerminalWindow } from "./window";
 
+/** How often a second the screen may be drawn again. */
+const MAX_FPS = 120;
+
 export type TerminalOptions = { cwd: string; model?: string; effort?: EffortLevel; resume?: string; continue?: boolean; fullscreen?: boolean };
 
 export async function startTerminal(options: TerminalOptions) {
@@ -120,6 +123,8 @@ export async function startTerminal(options: TerminalOptions) {
         exitOnCtrlC: false,
         kittyKeyboard: { mode: "auto" },
         incrementalRendering: true,
+        // At Ink's 30, a drag's selection trails the pointer. Frames still come only when something changes.
+        maxFps: MAX_FPS,
         alternateScreen: fullscreen,
         onRender: afterFrame,
       },
