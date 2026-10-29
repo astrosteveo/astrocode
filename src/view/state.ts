@@ -248,6 +248,10 @@ export type State = {
   fast?: { state: FastModeState; reason?: FastModeDisabledReason };
   /** Remote Control, while it's on. */
   remote?: RemoteControl;
+  /** Each mod's line pinned under the message box (`$.ui.status`), by the plugin's name. */
+  modStatus: Record<string, string>;
+  /** A mod's latest toast (`$.ui.toast`), shown for `ms`. `count` tells the same words again apart. */
+  modToast?: { plugin: string; text: string; ms: number; count: number };
   busy: boolean;
   /** Output tokens of this turn's finished messages. */
   turnTokens: number;
@@ -282,6 +286,7 @@ export function initialState(cwd: string, home: string): State {
     elicitations: [],
     ultracode: false,
     compacting: false,
+    modStatus: {},
     busy: false,
     turnTokens: 0,
     seq: 0,
@@ -292,7 +297,7 @@ export function reduce(state: State, event: ViewEvent): State {
   switch (event.kind) {
     case "ready":
       // A new Claude Code process, with nothing in the background yet.
-      return { ...state, plan: event.plan, models: event.models, commands: event.commands, tasks: [], taskInfo: {}, agentLogs: {} };
+      return { ...state, plan: event.plan, models: event.models, commands: event.commands, tasks: [], taskInfo: {}, agentLogs: {}, modStatus: {}, modToast: undefined };
     case "commands":
       return { ...state, commands: event.commands };
     case "prompt":
@@ -393,6 +398,10 @@ export function reduce(state: State, event: ViewEvent): State {
 function applySdk(state: State, message: SDKMessage, images: Record<string, ImageAttachment[]> = {}, at?: number): State {
   // Not in the SDK's types: where each message you sent is in Claude Code's queue.
   if (field(message, "type") === "command_lifecycle") return applyLifecycle(state, field(message, "command_uuid"), field(message, "state"));
+  if (message.type === "system") {
+    const pushed = applyModText(state, message);
+    if (pushed) return pushed;
+  }
   switch (message.type) {
     case "system":
       switch (message.subtype) {
@@ -1039,6 +1048,33 @@ function updateTool(state: State, id: string, patch: (call: ToolCall) => Partial
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+/** Escape sequences and other control characters, which a mod's text is drawn without: it's plain text, never codes. */
+const ESCAPES = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g;
+const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
+
+/**
+ * What mods show in words, which Claude Code sends a host that draws its own interface. Not in the
+ * SDK's types. A line logged (`$.ui.log`) goes in the transcript as a notice under the mod's name; a
+ * toast (`$.ui.toast`) shows for a moment; a status (`$.ui.status`) stays pinned until the mod
+ * replaces or clears it. Null for any other message.
+ */
+function applyModText(state: State, message: unknown): State | null {
+  const subtype = field(message, "subtype");
+  if (subtype !== "ui_log" && subtype !== "ui_toast" && subtype !== "ui_status") return null;
+  const plugin = field(message, "plugin");
+  const raw = field(message, "text");
+  if (typeof plugin !== "string") return state;
+  const text = typeof raw === "string" ? raw.replace(ESCAPES, "").replace(/\r\n?/g, "\n").replace(CONTROL, "").trim() : null;
+  if (subtype === "ui_status") {
+    const { [plugin]: _, ...others } = state.modStatus;
+    return { ...state, modStatus: text ? { ...others, [plugin]: text } : others };
+  }
+  if (!text) return state;
+  if (subtype === "ui_log") return add(state, { kind: "notice", tone: "info", text: `${plugin}: ${text}` });
+  const ms = field(message, "timeout_ms");
+  return { ...state, modToast: { plugin, text, ms: typeof ms === "number" && ms > 0 ? ms : 4000, count: (state.modToast?.count ?? 0) + 1 } };
 }
 
 function field(value: unknown, key: string): unknown {

@@ -65,7 +65,7 @@ import { Screen } from "./screen";
 import { arrange, type Entry } from "./arrange";
 import { SessionPreview } from "./session-preview";
 import { SkillsPanel } from "./skills";
-import { StatusBar } from "./status";
+import { ModStatus, StatusBar } from "./status";
 import type { Store } from "./store";
 import { RUNNING_STATUS, TaskView } from "./tasks";
 import { PinnedTodos, STATUS } from "./tool-row";
@@ -245,6 +245,16 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
     const timer = setTimeout(() => setToast(null), TOAST_MS);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  // A mod's toast shows for as long as the mod asked, and a newer one takes its place.
+  const [modToast, setModToast] = useState<{ plugin: string; text: string } | null>(null);
+  useEffect(() => {
+    const latest = state.modToast;
+    if (!latest) return setModToast(null);
+    setModToast({ plugin: latest.plugin, text: latest.text });
+    const timer = setTimeout(() => setModToast(null), latest.ms);
+    return () => clearTimeout(timer);
+  }, [state.modToast?.count]);
 
   useEffect(() => {
     if (wanted.current === state.mode) {
@@ -1538,6 +1548,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
             );
           }}
         />
+        <ModStatus lines={state.modStatus} width={width} />
         <StatusBar
           state={state}
           mode={modeWanted ?? state.mode}
@@ -1552,6 +1563,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           }
           running={runningNow}
           toast={toast}
+          modToast={modToast}
           keepWarm={keepWarm}
           usageMode={usageMode}
           onCache={toggleKeepWarm}
