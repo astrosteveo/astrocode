@@ -65,6 +65,7 @@ import { Screen } from "./screen";
 import { arrange, type Entry } from "./arrange";
 import { SessionPreview } from "./session-preview";
 import { SkillsPanel } from "./skills";
+import { ModBand } from "./mod-band";
 import { ModStatus, StatusBar } from "./status";
 import type { Store } from "./store";
 import { RUNNING_STATUS, TaskView } from "./tasks";
@@ -1499,7 +1500,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
       {/* The message box's own top edge sets it apart; what sits above it needs a row. */}
       <Box marginTop={above || pinned || state.queue.length ? 1 : 0} flexDirection="column">
         {pinned}
-        {above}
+        {above ?? <ModBand session={session} width={width} rows={rows} working={state.busy} />}
         <QueuedMessages queue={state.queue} width={width} />
         <Prompt
           active={!question && !elicitation && !request && !overlay && !inspectorKeys}
