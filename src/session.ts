@@ -96,6 +96,26 @@ export type Warmed = { read: number; written: number };
 type Run = { query: Query; inbox: AsyncQueue<SDKUserMessage>; closing: boolean };
 
 /**
+ * What mods draw, as Claude Code hands a host that draws them itself: plain data. A string is text;
+ * an element has its type (`Box`, `Text`, `Button`...), props and children, and `press` names the
+ * handler a press of it runs in its mod. `engine` stands for what Claude Code would draw itself.
+ */
+export type ModNode = string | ModElement;
+export type ModElement = { type: string; props?: Record<string, unknown>; children?: ModNode[]; press?: ModPress; ref?: number };
+export type ModPress = { plugin: string; handle: number };
+
+/**
+ * The surface astrocode draws mods' parts as. Claude Code's terminal draws them itself, so a host
+ * draws them as a remote surface; of those, the desktop's elements are the ones the band above the
+ * message box is drawn for. Its `Client` element, a mod's own script, isn't drawn.
+ */
+const MOD_SURFACE = "desktop";
+const MOD_CLIENT = "astrocode";
+
+/** Claude Code's control requests for remote surfaces, which the SDK sends but doesn't offer. */
+type Requests = { request(body: Record<string, unknown>): Promise<{ response?: unknown }> };
+
+/**
  * How a message goes: `later` waits for Claude's turn to end instead of joining it between tool
  * rounds; `ignoreUltracode` keeps its `ultracode` from starting a workflow.
  */
@@ -112,6 +132,8 @@ type Waiting<T> = { run: Run; value: T; resolve: (result: PermissionResult) => v
  */
 export class AgentSession {
   private run: Run | null = null;
+  /** What wants to know when mods' drawings may have changed. */
+  private modWatchers = new Set<() => void>();
   private permissions = new Map<string, Waiting<PermissionRequest>>();
   private questions = new Map<string, Waiting<Record<string, unknown>>>();
   private elicitations = new Map<string, { run: Run; resolve: (result: ElicitationResult) => void }>();
@@ -631,6 +653,53 @@ export class AgentSession {
     this.options.emit({ kind: "commands", commands: reloaded.commands.map(commandInfo) });
   }
 
+  /**
+   * What mods draw at `component`, one of Claude Code's render sites, for the instance `instance`
+   * with `props`; null when no mod draws there, or nothing runs to ask.
+   */
+  async drawMod(component: string, instance: string, props: Record<string, unknown>): Promise<ModNode | null> {
+    const run = this.run;
+    if (!run || run.closing) return null;
+    const answer = await (run.query as unknown as Requests).request({
+      subtype: "ui_render",
+      surface: MOD_SURFACE,
+      client_id: MOD_CLIENT,
+      component,
+      instance_id: instance,
+      props,
+    });
+    const tree = field(answer.response ?? answer, "tree");
+    return isModElement(tree) && tree.type !== "engine" ? tree : null;
+  }
+
+  /** Runs what a press of a mod's button does. True when its mod still had it. */
+  async pressMod(press: ModPress, key?: string): Promise<boolean> {
+    const run = this.run;
+    if (!run || run.closing) return false;
+    const answer = await (run.query as unknown as Requests).request({ subtype: "ui_press", surface: MOD_SURFACE, plugin: press.plugin, handle: press.handle, key });
+    return field(answer.response ?? answer, "handled") !== false;
+  }
+
+  /** Calls `changed` whenever what mods draw may have changed: a mod asked, or Claude Code started again. */
+  watchMods(changed: () => void) {
+    this.modWatchers.add(changed);
+    return () => {
+      this.modWatchers.delete(changed);
+    };
+  }
+
+  private modsChanged() {
+    for (const changed of this.modWatchers) changed();
+  }
+
+  /** Joins the session as a surface, so mods know something draws them. */
+  private attachSurface(run: Run) {
+    (run.query as unknown as Requests)
+      .request({ subtype: "ui_attach", surface: MOD_SURFACE, client_id: MOD_CLIENT })
+      .then(() => this.modsChanged())
+      .catch(() => {});
+  }
+
   /** The MCP servers Claude Code knows, how each is doing, and the tools each serves. */
   async mcpServers(): Promise<McpServerStatus[]> {
     return this.running().query.mcpServerStatus();
@@ -853,6 +922,8 @@ export class AgentSession {
         if (message.type === "system" && message.subtype === "status" && message.permissionMode) this.noteMode(message.permissionMode);
         if (this.echoed(message)) continue;
         if (message.type === "system" && field(message, "subtype") === "bridge_state") this.bridged(message);
+        // Not in the SDK's types: a mod asked to be drawn again, or one loaded.
+        if (message.type === "system" && field(message, "subtype") === "ui_invalidate") this.modsChanged();
         this.options.emit(sdkEvent(message, Date.now()));
         // Skills found as Claude works in a folder bring commands of their own.
         if (message.type === "system" && message.subtype === "commands_changed") this.options.emit({ kind: "commands", commands: message.commands.map(commandInfo) });
@@ -906,6 +977,7 @@ export class AgentSession {
         })),
         commands: init.commands.map(commandInfo),
       });
+      this.attachSurface(run);
       // Where auto mode isn't available, as on some models, Claude Code starts by asking instead.
       // `current_permission_mode` isn't in the SDK's types. A mode picked meanwhile stands.
       const started = MODES.find((one) => one === field(init, "current_permission_mode"));
@@ -1165,4 +1237,9 @@ function narrowest(suggestions: PermissionUpdate[] | undefined) {
 
 function messageOf(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** An element of a mod's drawing, as far as its shape goes: what draws it checks the rest. */
+function isModElement(value: unknown): value is ModElement {
+  return typeof value === "object" && value !== null && typeof field(value, "type") === "string";
 }
