@@ -145,6 +145,7 @@ const HELP = [
   "Ctrl+B moves a command or subagent Claude is waiting on to the background. /tasks lists what runs there and your ! commands: open one to watch it (a subagent shows its transcript, a workflow its phases), and x stops it. Esc stops Claude's turn but not what runs in the background; Ctrl+X Ctrl+K twice stops it all. Ctrl+T shows or hides the to-dos.",
   "Ctrl+Enter or Ctrl+X Ctrl+S sends now, stopping what Claude is doing; Ctrl+X Enter sends it to wait for the end of Claude's turn. Ctrl+Z suspends astrocode until the shell's fg.",
   "Ctrl+O picks a tool call to inspect: its exact command or input, its whole output and what Claude got back, in tabs. In the inspector ← and → move between calls, Tab between tabs, c copies, Esc closes. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
+  "← in an empty box opens the agents view: Claude Code's background sessions, as `claude agents` lists them. Type a task there to start one, Enter opens one, Esc comes back here.",
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
   "/mcp, /permissions, /memory, /skills, /hooks, /sandbox and /status show Claude Code's MCP servers, permission rules, memory, skills, hooks, sandbox and status, and change what can be changed.",
@@ -171,9 +172,11 @@ type Props = {
   branch?: string;
   fullscreen: boolean;
   onToggleFullscreen: () => void;
+  /** ← in an empty message box: the agents view, with this conversation kept open behind it. */
+  onAgents: () => void;
 };
 
-export function App({ store, session, branch, fullscreen, onToggleFullscreen }: Props) {
+export function App({ store, session, branch, fullscreen, onToggleFullscreen, onAgents }: Props) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   useModCards(session, state, store.emit);
   const { exit, suspendTerminal } = useApp();
@@ -1535,6 +1538,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen }: 
           onFastMode={toggleFast}
           onStopTasks={stopAllTasks}
           onFind={fullscreen ? () => setOverlay({ kind: "find" }) : undefined}
+          onAgents={onAgents}
           workflows={state.ultracodeAvailable !== false}
           stash={stash}
           onStash={(text) => {

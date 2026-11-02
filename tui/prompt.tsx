@@ -78,6 +78,8 @@ type Props = {
   onStopTasks: () => void;
   /** Ctrl+F: find in full screen's transcript. Not in scrollback, where the terminal has its own. */
   onFind?: () => void;
+  /** ← in an empty box: the agents view, as in Claude Code. */
+  onAgents?: () => void;
   /** A message put aside with Ctrl+S. It stays until Ctrl+S brings it back, whatever is sent meanwhile. */
   stash: string | null;
   onStash: (text: string | null) => void;
@@ -535,6 +537,7 @@ export function Prompt(props: Props) {
       if (key.meta && input === "b") return set(text, wordStart(text, cursor));
       if (key.meta && input === "f") return set(text, wordEnd(text, cursor));
       if (key.meta && input === "d") return cut(cursor, wordEnd(text, cursor));
+      if (key.leftArrow && !text && !key.ctrl && !key.meta && props.onAgents) return props.onAgents();
       if (key.leftArrow) return set(text, key.ctrl || key.meta ? wordStart(text, cursor) : previous(text, cursor));
       if (key.rightArrow) return set(text, key.ctrl || key.meta ? wordEnd(text, cursor) : next(text, cursor));
       // Ctrl+Home and Ctrl+End scroll full screen to the top and the end.

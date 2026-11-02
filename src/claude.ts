@@ -1,5 +1,6 @@
 // Claude Code's own command line, for what the Agent SDK can't do: `claude plugin …` and the
-// `edit-…` subcommands Claude Code's dialogs write settings with. It runs the binary the SDK runs.
+// `edit-…` subcommands Claude Code's dialogs write settings with run the binary the SDK runs;
+// background sessions are managed with the `claude` you installed.
 import { dirname, join } from "node:path";
 import { topLevelEnv } from "./session";
 
@@ -7,8 +8,25 @@ import { topLevelEnv } from "./session";
  * Runs `claude <args>` in `cwd`, with `input` on its stdin. Its output is piped, never inherited:
  * nothing may write to the terminal behind Ink's back.
  */
-export async function claude(cwd: string, args: string[], input?: string) {
-  const child = Bun.spawn([claudeBinary(), ...args], {
+export function claude(cwd: string, args: string[], input?: string) {
+  return run(claudeBinary(), cwd, args, input);
+}
+
+/**
+ * Runs the `claude` on your PATH, for background sessions: their service is the Claude Code you
+ * installed, which can be newer than the one the SDK ships, so it's the one to ask about them.
+ */
+export function installedClaude(cwd: string, args: string[]) {
+  return run(installedBinary(), cwd, args);
+}
+
+/** The `claude` on your PATH, or the SDK's when there's none. */
+export function installedBinary() {
+  return Bun.which("claude") ?? claudeBinary();
+}
+
+async function run(binary: string, cwd: string, args: string[], input?: string) {
+  const child = Bun.spawn([binary, ...args], {
     cwd,
     env: topLevelEnv(),
     stdin: input === undefined ? "ignore" : new TextEncoder().encode(input),

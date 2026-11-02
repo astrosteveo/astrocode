@@ -8,8 +8,11 @@ import { parseArgs } from "node:util";
 import { EFFORTS, isEffort } from "./events";
 
 const USAGE = `Usage: astrocode [options] [project-dir]
+       astrocode agents [project-dir]
 
 Runs Claude in project-dir (default: the current folder), signed in as Claude Code is.
+\`astrocode agents\` opens on Claude Code's background sessions, as \`claude agents\` lists
+them; a session you start there starts in project-dir.
 
 Options:
   -c, --continue       Continue the most recent session here
@@ -61,8 +64,11 @@ if (effort !== undefined && !isEffort(effort)) {
 const { askColors } = await import("../tui/colors");
 await askColors(process.stdin, process.stdout);
 const { startTerminal } = await import("../tui/main");
+// `astrocode agents`, as `claude agents`; a folder named agents is `./agents`.
+const agents = positionals[0] === "agents";
 await startTerminal({
-  cwd: resolve(positionals[0] ?? process.cwd()),
+  agents,
+  cwd: resolve((agents ? positionals[1] : positionals[0]) ?? process.cwd()),
   model: values.model ?? (process.env.ASTROCODE_MODEL || undefined),
   effort,
   resume: values.resume,

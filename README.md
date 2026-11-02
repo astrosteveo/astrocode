@@ -20,6 +20,7 @@ astrocode -r <id>         # resume a session; astrocode prints the id when you e
 astrocode -m opus         # pick the model
 astrocode -e high         # pick the effort
 astrocode -f              # full screen, with the mouse
+astrocode agents          # Claude Code's background sessions, as `claude agents` lists them
 ```
 
 Sessions are saved where Claude Code saves its own, so `claude --resume <id>` opens an astrocode session too, and `/resume` in astrocode lists sessions from both.
@@ -42,6 +43,7 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | Ctrl+Enter, or Ctrl+X Ctrl+S | Send now: stop what Claude is doing and send this instead of queueing it. Ctrl+Enter needs a terminal with the kitty keyboard protocol |
 | Ctrl+X Enter | While Claude works, send this to wait for the end of the turn, rather than joining it between tool calls as Enter does |
 | ↑ ↓ | Earlier messages, or move between lines |
+| ← in an empty box | The agents view: Claude Code's background sessions. Esc comes back |
 | Ctrl+R | Search what you've sent: type to find, Ctrl+R for older matches, Enter keeps it, Esc cancels |
 | Ctrl+_ | Undo, a word at a time |
 | Ctrl+K, Ctrl+U, Ctrl+W, Alt+D, Ctrl+Y | Cut to the end of the line, to its start, the word before, the word after; put back what was cut |
@@ -86,6 +88,24 @@ Every other `/command` goes to Claude Code, and the menu lists them all: its bui
 - **Marketplaces.** Enter shows a marketplace's plugins, updates its list, or removes it. Type `owner/repo`, a URL or a folder to add one.
 
 The Agent SDK can't install or remove plugins, so each change runs Claude Code's own `claude plugin` command, and then the session reloads its plugins: new commands appear in the `/` menu straight away, with no restart.
+
+## Agents
+
+The agents view lists Claude Code's background sessions, the ones `claude agents` lists and `claude --bg` starts, across all your projects. ← in an empty message box opens it, and so does `astrocode agents`. Each project is a group, with the folder you're in first. Each row has a session's state (Working, Needs input, Done, Failed or Stopped), what it says it's doing or what it got done, its pull requests, and when it last changed. The conversation open in astrocode heads its project's group, and says whether Claude is still working in it.
+
+| Key | What it does |
+| :-- | :-- |
+| Type, then Enter | Start a background session on that task, in this folder, with the model, effort and permission mode a new conversation here would have |
+| ↑ ↓ | Choose a session |
+| Enter | Open it. A finished or stopped session moves into astrocode: its Claude Code in the background stops, and astrocode picks the conversation up with its history on screen. A session that's working or waiting on you opens with `claude attach`, in Claude Code's own screen, since taking it over would cut it off; leave it as Claude Code says (Ctrl+Z comes straight back) |
+| Space | What it was asked, what it says now, its result, its pull requests and its folder |
+| Ctrl+X | Stop it, then press again within two seconds to delete it |
+| Esc | Back to the conversation open in astrocode, or quit when there's none |
+| Ctrl+C twice | Quit |
+
+Opening another session, or quitting from the view, moves the conversation open in astrocode to Claude Code's background service with `claude --bg --resume`, so it carries on in `claude agents` as it would in Claude Code. It goes as it was there if it had run in the background before, and with astrocode's model, effort and mode if it hadn't. That waits until Claude is done in it: its Claude Code stops here, and whatever it was doing would stop too.
+
+astrocode reads the list with `claude agents --json`, and runs the `claude` on your `PATH` for everything in the view, since that's the Claude Code the background service runs. Each row's summary, result and pull requests come from Claude Code's `~/.claude/jobs/<id>/state.json`, which its docs say isn't a stable interface; without them, a row still shows its state.
 
 ## Files
 
@@ -167,6 +187,7 @@ Keep it for your own use. Anthropic's [terms for Claude Code](https://code.claud
 - `src/events.ts` defines what the session tells the interface.
 - `src/history.ts` lists saved sessions and loads a saved conversation.
 - `src/plugins.ts` lists and changes plugins and marketplaces through `claude plugin`, with the Claude Code binary the SDK ships.
+- `src/agents.ts` lists Claude Code's background sessions and starts, stops, deletes and hands conversations to them, through the `claude` on your `PATH`. `tui/agents.tsx` is the agents view, and `tui/main.tsx` switches between it and a conversation, starting a new one when you open a session from another folder.
 - `src/canvas.ts` draws diagrams, charts, SVG and HTML as pictures, with a headless Chromium that reaches neither the network nor the disk.
 - `src/view/` holds the reducer that turns events into what's on screen (live and replayed alike), plus tool summaries, permission wording and formatting. `src/view/steps.ts` gathers tool calls into steps, and `src/view/activity.ts` turns a step's calls into its activity lines.
 - `tui/` is the Ink front end. `tui/theme.ts` holds the palette, `tui/rail.tsx` the rail, and `tui/markdown-view.tsx` the panels and Markdown drawing; `tui/markdown.ts` is the Markdown parser. `tui/plugins.tsx` is `/plugins`, and `tui/files.ts` finds files for `@`. `tui/screen.tsx` is full screen: `tui/transcript.tsx` draws the conversation as lines, each line of a step knowing which call it stands for, `tui/mouse.ts` reads the mouse, and `tui/selection.ts` and `tui/clipboard.ts` copy. `tui/entries.tsx` draws steps and the other entries, and `tui/inspector.tsx` is the inspector.
