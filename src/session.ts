@@ -117,9 +117,10 @@ type Requests = { request(body: Record<string, unknown>): Promise<{ response?: u
 
 /**
  * How a message goes: `later` waits for Claude's turn to end instead of joining it between tool
- * rounds; `ignoreUltracode` keeps its `ultracode` from starting a workflow.
+ * rounds; `now` goes once Claude Code has queued it, with what's queued ahead of it, as
+ * `sendQueuedNow` sends them; `ignoreUltracode` keeps its `ultracode` from starting a workflow.
  */
-export type Sending = { later?: boolean; ignoreUltracode?: boolean };
+export type Sending = { later?: boolean; now?: boolean; ignoreUltracode?: boolean };
 
 type Waiting<T> = { run: Run; value: T; resolve: (result: PermissionResult) => void };
 
@@ -159,6 +160,8 @@ export class AgentSession {
    * meanwhile has its `ultracode` ignored too.
    */
   private ignoring = new Set<string>();
+  /** Messages sent now, by uuid, until Claude Code says it has queued them: then what's queued goes. */
+  private pressing = new Set<string>();
   /** The keyword trigger is off in Claude Code's flag settings. */
   private triggerOff = false;
   private agentSummaries: boolean;
@@ -318,6 +321,7 @@ export class AgentSession {
     this.resumeAt = undefined;
     const uuid = randomUUID();
     this.sent.add(uuid);
+    if (how.now) this.pressing.add(uuid);
     const mentions = mentionsIn(text, images);
     this.options.emit({ kind: "prompt", text, uuid, images: Object.fromEntries(mentions.map(({ n, image }) => [n, image])), at: Date.now(), later: how.later });
     const run = this.run;
@@ -488,6 +492,16 @@ export class AgentSession {
 
   async interrupt() {
     await this.run?.query.interrupt();
+  }
+
+  /**
+   * Sends the messages waiting in Claude Code's queue now, as Ctrl+Enter does in Claude Code. What
+   * Claude runs that can move to the background moves there, and Claude reads them in this turn;
+   * otherwise Claude Code stops the turn and sends them next.
+   */
+  async sendQueuedNow() {
+    // `send_now` isn't in the SDK's types: it's the interrupt Claude Code's headless mode takes for Ctrl+Enter.
+    await (this.run?.query as unknown as Requests | undefined)?.request({ subtype: "interrupt", send_now: true });
   }
 
   async setMode(mode: PermissionMode) {
@@ -942,9 +956,17 @@ export class AgentSession {
     }
   }
 
-  /** A message sent with its `ultracode` ignored, done with once its turn is over or it's taken back. */
+  /**
+   * A message sent now goes, with what's queued ahead of it, once Claude Code has queued it; one it
+   * starts on straight away has nothing to wait for. A message sent with its `ultracode` ignored is
+   * done with once its turn is over or it's taken back.
+   */
   private taken(run: Run, uuid: unknown, state: unknown) {
-    if (typeof uuid !== "string" || !this.ignoring.has(uuid)) return;
+    if (typeof uuid !== "string") return;
+    if (this.pressing.delete(uuid) && state === "queued" && !run.closing) {
+      this.sendQueuedNow().catch((error: unknown) => this.options.emit({ kind: "notice", tone: "error", text: `The queued messages couldn't go now: ${messageOf(error)}` }));
+    }
+    if (!this.ignoring.has(uuid)) return;
     if (state === "completed" || state === "cancelled") {
       this.ignoring.delete(uuid);
       this.restoreKeyword(run);

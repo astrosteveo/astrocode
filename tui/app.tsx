@@ -144,7 +144,7 @@ const HELP = [
   "! runs a command in your shell. Its output streams in as it runs, you can keep talking meanwhile, and Claude sees it once it ends. /play runs one from Claude's shell code blocks the same way. # adds a note to a CLAUDE.md.",
   "Ctrl+V attaches the clipboard's image; a pasted or dropped image file attaches too. Ctrl+G or Ctrl+X Ctrl+E edits the message in $EDITOR.",
   "Ctrl+B moves a command or subagent Claude is waiting on to the background. /tasks lists what runs there and your ! commands: open one to watch it (a subagent shows its transcript, a workflow its phases), and x stops it. Esc stops Claude's turn but not what runs in the background; Ctrl+X Ctrl+K twice stops it all. Ctrl+T shows or hides the to-dos.",
-  "Ctrl+Enter or Ctrl+X Ctrl+S sends now, stopping what Claude is doing; Ctrl+X Enter sends it to wait for the end of Claude's turn. Ctrl+Z suspends astrocode until the shell's fg.",
+  "Ctrl+Enter or Ctrl+X Ctrl+S sends what you've queued now, with what's typed behind it: Claude reads it in this turn, with what it runs moved to the background, or else stops and takes it next; Ctrl+X Enter sends it to wait for the end of Claude's turn. Ctrl+Z suspends astrocode until the shell's fg.",
   "Ctrl+O picks a tool call to inspect: its exact command or input, its whole output and what Claude got back, in tabs. In the inspector ← and → move between calls, Tab between tabs, c copies, Esc closes. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
   "Alt+L follows Claude: a panel shows each tool call as Claude makes it, beside the transcript on a wide full screen and above the message box otherwise. Looking back at a call holds it there; Esc or Alt+L follows Claude again.",
   "← in an empty box opens the agents view, as `claude agents` does: astrocode's conversations, which carry on while you're away from them, and Claude Code's background sessions. Type a task there and press Enter to start another conversation alongside this one, Ctrl+Enter to start it and open it; Enter on a row opens one, Esc comes back here.",
@@ -885,11 +885,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       default:
         break;
     }
-    // Sent now, Claude stops what it's doing and takes this instead of finishing first.
-    // It waits for the stopped turn to close, so the turn's last words don't land after it.
-    const sending: Sending = { ignoreUltracode: how.ignoreUltracode, later: how.later && state.busy ? true : undefined };
-    if (now && state.busy) return void session.interrupt().then(idle).then(() => send(text, sending), report);
-    send(text, sending);
+    send(text, { ignoreUltracode: how.ignoreUltracode, later: how.later && state.busy ? true : undefined, now: now && state.busy ? true : undefined });
+  };
+
+  /** Ctrl+Enter in an empty box: the messages queued while Claude works go now. */
+  const sendQueuedNow = () => {
+    if (state.busy && state.queue.length) void session.sendQueuedNow().catch(report);
   };
 
   const openOutputStyles = () => {
@@ -945,21 +946,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     const lines = reply.text.split("\n").length;
     setToast(`Copied ${back === 1 ? "Claude's last reply" : `the reply ${back} back`}, ${plural(lines, "line")}`);
   };
-
-  /** Resolves once Claude isn't working, or after a few seconds if Claude Code never says so. */
-  const idle = () =>
-    new Promise<void>((resolve) => {
-      if (!store.getSnapshot().busy) return resolve();
-      const done = () => {
-        off();
-        clearTimeout(timer);
-        resolve();
-      };
-      const off = store.subscribe(() => {
-        if (!store.getSnapshot().busy) done();
-      });
-      const timer = setTimeout(done, 5000);
-    });
 
   /** Ctrl+Z, as in a shell: astrocode stops, and the shell's `fg` brings it back. */
   const suspend = () => {
@@ -1599,6 +1585,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           history={store.sent}
           commands={[...commands, ...state.commands.filter((command) => !commands.some((own) => own.name === command.name))]}
           onSubmit={submit}
+          onSendQueuedNow={sendQueuedNow}
           onInterrupt={interrupt}
           onCycleMode={cycleMode}
           onCtrlC={onCtrlC}

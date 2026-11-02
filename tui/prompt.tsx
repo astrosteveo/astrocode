@@ -37,10 +37,12 @@ type Props = {
   history: string[];
   commands: CommandInfo[];
   /**
-   * `now`: Ctrl+Enter or Ctrl+X Ctrl+S, which stops what Claude is doing to send it straight away.
+   * `now`: Ctrl+Enter or Ctrl+X Ctrl+S, which sends what's queued straight away, with this behind it.
    * `later`: Ctrl+X Enter, which waits for Claude's turn to end. `ignoreUltracode`: Alt+W was pressed.
    */
   onSubmit: (text: string, how?: { now?: boolean; later?: boolean; ignoreUltracode?: boolean }) => void;
+  /** Ctrl+Enter or Ctrl+X Ctrl+S in an empty box: what's queued goes straight away. */
+  onSendQueuedNow: () => void;
   onInterrupt: () => void;
   onCycleMode: () => void;
   /** Ctrl+C on an empty box: the app stops Claude or gets ready to exit. */
@@ -410,7 +412,7 @@ export function Prompt(props: Props) {
         if (text.slice(0, cursor).endsWith("\\")) return set(`${text.slice(0, cursor - 1)}\n${text.slice(cursor)}`, cursor);
         return text.trim() ? submit(text) : undefined;
       case "chat:sendNow":
-        return text.trim() ? submit(text, { now: true }) : undefined;
+        return text.trim() ? submit(text, { now: true }) : props.onSendQueuedNow();
       case "chat:queueSubmit":
         return text.trim() ? submit(text, { later: true }) : undefined;
       case "chat:fastMode":

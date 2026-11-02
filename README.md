@@ -41,7 +41,7 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | Alt+L | Follow Claude on or off: a panel that shows each tool call as Claude makes it (see below). After you've looked back at a call, it follows Claude again |
 | Alt+W | With `ultracode` in the message, keep it from starting a workflow this time; the word still goes as you typed it |
 | Ctrl+S | Put the message aside. It stays stashed, whatever you send meanwhile and even after you quit, until Ctrl+S brings it back; with a message in the box, the two trade places |
-| Ctrl+Enter, or Ctrl+X Ctrl+S | Send now: stop what Claude is doing and send this instead of queueing it. Ctrl+Enter needs a terminal with the kitty keyboard protocol |
+| Ctrl+Enter, or Ctrl+X Ctrl+S | Send now: the messages you queued while Claude works go straight away, with this one behind them, and with an empty box too. What Claude runs that can move to the background moves there and Claude reads them in this turn; otherwise Claude stops and takes them next. Ctrl+Enter needs a terminal with the kitty keyboard protocol |
 | Ctrl+X Enter | While Claude works, send this to wait for the end of the turn, rather than joining it between tool calls as Enter does |
 | ↑ ↓ | Earlier messages, or move between lines |
 | ← in an empty box | The agents view: Claude Code's background sessions. Esc comes back |
