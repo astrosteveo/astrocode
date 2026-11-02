@@ -7,17 +7,22 @@ import { PassThrough } from "node:stream";
 import { installedBinary } from "../src/claude";
 import { AgentsView } from "./agents";
 
-// A stand-in `claude` on PATH: `agents --json` lists one background session in another project,
+// A stand-in `claude` on PATH: `agents --json` lists two background sessions in another project and one in a third,
 // and `--bg` says where it was started instead of starting one.
 const root = mkdtempSync(join(tmpdir(), "astrocode-agents-"));
 const here = join(root, "here");
 const other = join(root, "other");
+const third = join(root, "third");
 const dispatched = join(root, "dispatched");
 const saved = { PATH: process.env.PATH, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR };
 
 beforeAll(() => {
-  for (const folder of [here, other, join(root, "bin")]) mkdirSync(folder);
-  const list = JSON.stringify([{ id: "0a1b2c3d", cwd: other, kind: "background", startedAt: 1, state: "done", name: "older" }]);
+  for (const folder of [here, other, third, join(root, "bin")]) mkdirSync(folder);
+  const list = JSON.stringify([
+    { id: "0a1b2c3d", cwd: other, kind: "background", startedAt: 1, state: "done", name: "older" },
+    { id: "1a1b2c3d", cwd: other, kind: "background", startedAt: 2, state: "done", name: "newer" },
+    { id: "2a1b2c3d", cwd: third, kind: "background", startedAt: 3, state: "done", name: "elsewhere" },
+  ]);
   const claude = join(root, "bin", "claude");
   writeFileSync(
     claude,
@@ -87,4 +92,30 @@ test("Enter alone starts it in astrocode too, not in Claude Code's background se
   app.unmount();
   expect(started).toEqual([{ task: "fix the build", cwd: other }]);
   expect(existsSync(dispatched)).toBe(false);
+});
+
+test("with a task typed, ↓ moves to the next project, past the rest of this one's sessions", async () => {
+  const { press, started, app } = view();
+  await settle(500);
+  press("fix the build");
+  await settle();
+  press("\x1b[B");
+  await settle();
+  press("\r");
+  await settle(500);
+  app.unmount();
+  expect(started).toEqual([{ task: "fix the build", cwd: third }]);
+});
+
+test("with the box empty, ↓ moves to the next session in the same project", async () => {
+  const { press, started, app } = view();
+  await settle(500);
+  press("\x1b[B");
+  await settle();
+  press("fix the build");
+  await settle();
+  press("\r");
+  await settle(500);
+  app.unmount();
+  expect(started).toEqual([{ task: "fix the build", cwd: other }]);
 });

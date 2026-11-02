@@ -1,8 +1,8 @@
 // The agents view: Claude Code's background sessions, as `claude agents` lists them, opened with ←
 // in an empty message box or with `astrocode agents`. The session open in astrocode heads its
 // project's group. Type a task and press Enter, or Ctrl+Enter, to start it in astrocode, in the
-// chosen row's project; Enter on a row opens it, ↑↓ choose, Space shows more, Ctrl+X stops and
-// then deletes, Esc goes back.
+// chosen row's project; Enter on a row opens it, ↑↓ choose a session, or a project while a task is
+// typed, Space shows more, Ctrl+X stops and then deletes, Esc goes back.
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { attaches, groupAgents, leftForAgentView, listAgents, prLabel, projectOf, removeAgent, STATE_LABELS, stopAgent, summary, type Agent, type AgentState, type SessionSettings } from "../src/agents";
@@ -73,6 +73,26 @@ export function startFolder(line: Line | undefined, cwd: string) {
 }
 
 const keyOf = (line: Line) => (line.kind === "here" ? "here" : line.kind === "agent" ? line.agent.id : undefined);
+
+/**
+ * The row ↑ or ↓ chooses from `current`: the session before or after it, or by project, the first
+ * row of the project before or after its own. Neither goes past the ends.
+ */
+export function moveTo(lines: Line[], current: string | undefined, step: -1 | 1, byProject: boolean) {
+  const groups: string[][] = [];
+  for (const line of lines) {
+    if (line.kind === "folder") groups.push([]);
+    const key = keyOf(line);
+    if (key) groups.at(-1)?.push(key);
+  }
+  const within = (at: number, length: number) => Math.max(0, Math.min(length - 1, at));
+  if (!byProject) {
+    const keys = groups.flat();
+    return keys[within(keys.indexOf(current ?? "") + step, keys.length)];
+  }
+  const at = groups.findIndex((group) => group.includes(current ?? ""));
+  return groups[within(at + step, groups.length)]?.[0];
+}
 
 type Props = {
   /** The session open in astrocode, if there is one: Esc goes back to it. */
@@ -233,10 +253,8 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
       setArmed({ action: "exit" });
       return say("Ctrl+C again to quit.");
     }
-    if (key.upArrow || key.downArrow) {
-      const next = keys[Math.max(0, Math.min(keys.length - 1, index + (key.upArrow ? -1 : 1)))];
-      return setSelected(next);
-    }
+    // With a task typed, the choice that matters is the project it starts in.
+    if (key.upArrow || key.downArrow) return setSelected(moveTo(lines, current, key.upArrow ? -1 : 1, Boolean(text)));
     if (key.return && text.trim()) return start(text.trim());
     if (key.return) return open();
     if (key.ctrl && input === "x") return stopOrDelete();
@@ -273,7 +291,7 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
 
   const enter = !focused || focused.kind === "folder" || focused.kind === "gap" ? "" : focused.kind === "here" ? "enter back to it" : attaches(focused.agent) ? "enter attach" : "enter open here";
   const stop = focused?.kind === "agent" ? (focused.agent.alive ? "ctrl+x stop" : "ctrl+x delete") : "";
-  const hints = text ? ["enter start and open", "esc clear"] : [enter, "space peek", stop, here ? "esc back" : "esc quit"].filter(Boolean);
+  const hints = text ? ["enter start and open", "↑↓ project", "esc clear"] : [enter, "space peek", stop, here ? "esc back" : "esc quit"].filter(Boolean);
 
   return (
     <Box flexDirection="column" width={width} paddingX={1}>

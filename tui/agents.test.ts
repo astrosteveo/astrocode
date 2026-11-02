@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Agent } from "../src/agents";
 import { initialState } from "../src/view/state";
-import { hereState, listLines, startFolder } from "./agents";
+import { hereState, listLines, moveTo, startFolder } from "./agents";
 
 const agent = (id: string, folder: string, createdAt = 0): Agent => ({
   id,
@@ -66,4 +66,18 @@ test("in the project astrocode runs in, a new session starts in its own folder, 
   expect(startFolder(lines.find((line) => line.kind === "here"), worktree)).toBe(worktree);
   expect(startFolder(lines.find((line) => line.kind === "agent"), worktree)).toBe(worktree);
   expect(startFolder(undefined, "/p/here/src")).toBe("/p/here/src");
+});
+
+test("↑↓ move a session at a time, or a project at a time to its first row, and stop at the ends", () => {
+  const lines = listLines([agent("a1", "/p/a"), agent("a2", "/p/a"), agent("b1", "/p/b"), agent("c1", "/p/c")], { cwd: "/p/a", folder: "/p/a" }, "/p/a");
+  expect(moveTo(lines, "here", 1, false)).toBe("a1");
+  expect(moveTo(lines, "a2", 1, false)).toBe("b1");
+  expect(moveTo(lines, "here", -1, false)).toBe("here");
+  expect(moveTo(lines, "here", 1, true)).toBe("b1");
+  expect(moveTo(lines, "a2", 1, true)).toBe("b1");
+  expect(moveTo(lines, "b1", 1, true)).toBe("c1");
+  expect(moveTo(lines, "c1", 1, true)).toBe("c1");
+  expect(moveTo(lines, "c1", -1, true)).toBe("b1");
+  expect(moveTo(lines, "b1", -1, true)).toBe("here");
+  expect(moveTo([], undefined, 1, true)).toBeUndefined();
 });
