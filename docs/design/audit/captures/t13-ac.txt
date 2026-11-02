@@ -1,0 +1,40 @@
+│ • Attempts test: it asserts  tries  is 3 and the delays are  [10, 20] .
+│ • Deadline test: it asserts exactly 3 calls, where the old test only checked for at most 3.
+│
+│  getText  in  src/http.ts  doesn't pass a clock, so it still uses real time. I didn't run it against a real URL.
+│
+╰── 1m 39s   2.8k tokens   4 commands
+
+● Add a jitter option to retry. First ask me (with your question tool) whether jitter should be "full" or "equal",
+│ with a short preview of each formula. Then make the change with the Edit tool rather than shell scripts, add tests,
+│ and run them.
+│
+⬢ Question  Which jitter strategy should retry use?                                                           answered
+│ Which jitter strategy should retry use?  Full (Recommended)
+✓ Read retry.ts, edit retry.ts and retry.ts and retry.ts and retry.test.ts, Bash bun test 2>&1 | tail -10, ed…  1m 26s
+│   Read      src/retry.ts                                                                                 54 lines  ›
+│   Edited    src/retry.ts                                                                   +6 −1 · 3 edits  ■■■■■  ›
+│             src/retry.test.ts                                                                          +24  ■■■■■  › ┃
+│   Ran       $ bun test 2>&1 | tail -10                                                           ✓ 6 passed · 51s  › ┃
+│   Edited    README.md                                                                                +1 −1  ■■■■■  › ┃
+│   Ran       $ git add src/retry.ts src/retry.test.ts README.md && git commit -qm "feat: add ful…  ✓ 2 lines · 22s  › ┃
+│                                                                                                                      ┃
+◆  retry  now takes  jitter: true , and all 6 tests pass. With jitter on, each sleep is a random time between 0 and    ┃
+│ the backoff delay (the full-jitter option you picked). I committed it as af6fae3 on  fix/retry-attempts-and-clock ,  ┃
+│ on top of the earlier fix. There is still no remote, so nothing is pushed.                                           ┃
+│                                                                                                                      ┃
+│ •  src/retry.ts : a  jitter?: boolean  option, and a  random?: () => number  option so tests can fix the random      ┃
+│   value.  random  defaults to  Math.random .                                                                         ┃
+│ • Tests:                                                                                                             ┃
+│   • With a fixed random sequence, backoff delays of 100, 300 and 900 become sleeps of  [50, 0, 810] .                ┃
+│   • With the real  Math.random , every sleep falls between 0 and its backoff delay.                                  ┃
+│ •  README.md : the option list now includes  jitter .                                                                ┃
+│                                                                                                                      ┃
+│ Your editor flags  Cannot find module 'bun:test'  in  retry.test.ts . That import was in the original test file, and ┃
+│ the tests run fine under  bun test . The project doesn't have Bun's type definitions installed.                      ┃
+│                                                                                                                      ┃
+╰── 2m 6s   2.4k tokens   3 files changed · 2 commands                                                                 ┃
+▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+ ❯
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+ ▐accept edits▌  shift+tab     context ────────── 3%   cache 59m   Sonnet 5.5   7d 24%   ⎇ fix/retry-attempts-and-clock

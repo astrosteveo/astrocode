@@ -1,0 +1,40 @@
+      65 +  const clock = fakeClock();
+      66 +  await retry(async () => {
+      67 +    if (clock.sleeps.length < 3) throw new Error("again");
+      68 +    return true;
+      69 +  }, { attempts: 5, delayMs: 100, jitter: true, clock });
+      70 +  clock.sleeps.forEach((ms, i) => {
+      71 +    expect(ms).toBeGreaterThanOrEqual(0);
+      72 +    expect(ms).toBeLessThan(100 * 2 ** i);
+      73 +  });
+      74 +});
+      75 +
+      76  test("stops at the deadline", async () => {
+      77    let calls = 0;
+      78    const clock = fakeClock();
+
+∴ This error is just an environmental issue with missing bun types, not something I introduced—it's pre-existing, so
+  I'll proceed with the commit.
+
+  Thought for 5s, ran 2 shell commands
+  ⎿  Found 1 new diagnostic issue in 1 file (ctrl+o to expand)
+
+● retry now takes jitter: true, which uses full jitter. Each sleep is random() * delay, where delay is the backoff delay
+  (100, 300, 900…). All 6 tests pass, and the change is committed on fix/retry-attempts-clock as 2149760.
+
+  - random option: I added an optional random?: () => number (default Math.random) so tests can fix the values. It's a
+    second new option beyond the one you asked for, and the jitter tests need it.
+  - New tests: one checks exact sleeps with fixed random values ([50, 0, 891] for delays 100, 300, 900). The other
+    checks that default jitter stays within [0, delay).
+  - Editor diagnostic: it reports Cannot find module 'bun:test' in src/retry.test.ts. That's a missing Bun type package.
+    The tests run fine under bun test. I didn't add the types.
+  - Not pushed: there is still no GitHub remote.
+
+✻ Cogitated for 25s · done 3:41 PM
+
+──────────────────────────────────────────────────────────────────────────────────────────────── astrocode UX redesign ─
+❯ merge it
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Sonnet 5.5 · cc · fix/retry-attempts-clock
+  ctx ░░░░░░░░ 4% full in 6h48m · 7d █░░░┃░░░ 24% (-30%) → 44% · $0.27 ▅▄▄▄█▆▅▄ ($3.09/h)
+  ⏵⏵ accept edits on (shift+tab to cycle)

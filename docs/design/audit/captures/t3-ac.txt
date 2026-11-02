@@ -1,0 +1,40 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ⬢ ⬢ ⬢
+ ⬢ ⬢ ⬢ ⬢
+⬢ ⬢ · ⬢ ⬢    astrocode
+ ⬢ ⬢ ⬢ ⬢     /tmp/ac-ux-8259/ac  ⎇ main
+  ⬢ ⬢ ⬢
+
+● The tests in src/retry.test.ts fail. Fix retry so it tries exactly  attempts  times, and give it an injectable clock
+│ (now + sleep) so the tests run without real sleeping. Update the tests to use a fake clock, then run them.
+│
+● Bash git status --short && git branch --show-current && ls && cat src/retry.ts src/retry.test.ts package.json…  0.2s
+│   Ran       $ git status --short && git branch --show-current && ls && cat src/retry.ts src/…  ✓ 105 lines · 0.2s  ›
+⠤
+⡿ Working   18s   122 tokens                                                                                 esc to stop
+▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+ ❯  Claude is working. Type to queue a message
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+ ▐ask first▌  shift+tab                 context ────────── 2%   cache 59m   Sonnet 5.5   7d 24%   ⎇ main   Claude Ultra

@@ -1,0 +1,40 @@
+ │   expect(error).toBeInstanceOf(RetryError);
+ │   expect(error.tries).toBe(3);
+ │   expect(calls).toBe(3);
+ │   expect(clock.sleeps).toEqual([10, 20]); // no sleep after the last try
+ │ });
+ │
+ │ test("backs off by the factor", async () => {
+ │   const clock = fakeClock();
+ │   let calls = 0;
+ │   await retry(async () => {
+ │     if (++calls < 4) throw new Error("again");
+ │     return true;
+ │   }, { attempts: 5, delayMs: 100, factor: 3, clock });
+ │   expect(clock.sleeps).toEqual([100, 300, 900]);
+ │ });
+ │
+ │ test("stops at the deadline", async () => {
+ │   let calls = 0;
+ │   const clock = fakeClock();
+ │   await expect(
+ │     retry(async () => {
+ │       calls++;
+ │       throw new Error("slow");
+ │     }, { attempts: 10, delayMs: 200, deadlineMs: 500, clock }),
+ │   ).rejects.toThrow("deadline passed");
+ │   // Fails at t=0, 200, 400, 600; the last is past the 500ms deadline.
+ │   expect(calls).toBe(4);
+ │ });
+ │ EOF
+ │ bun test 2>&1 | tail -15; git diff --stat
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Contains brace with quote character (expansion obfuscation)
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and switch to auto mode · auto mode handles these prompts for you
+   3. No
+
+ Esc to cancel · Tab to amend
+──────────────────────────────────────────────────────────────────────────────────────────────── astrocode UX redesign ─
