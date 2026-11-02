@@ -163,4 +163,4 @@ The additions are drawn in teal in the mockups.
 - **From B:** at 160 columns and up, an opened call or diff stands beside the column, as the inspector does now. "Watching edits land" becomes something you turn on for the line over the box.
 - **From C:** `claude`'s permission wording and choices, and its folding of a finished turn's calls into one line.
 
-Pick one, or a mix, and phase 3 specs it.
+You picked A; the [spec](../README.md) specifies it.
