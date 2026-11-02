@@ -2,17 +2,20 @@
 // place on a narrow one or in scrollback. Its header says what the call did and how it went; its
 // tabs hold the exact command or input, the exact output, and the result as Claude got it, whole.
 // ← and → move between the conversation's calls, Tab between the tabs, ↑↓ PgUp PgDn Home End
-// scroll, c copies what the tab shows, and Esc closes it. A click on it gives it the keys.
+// scroll, c copies what the tab shows, and Esc closes it. A click on it gives it the keys. Follow
+// Claude shows it too, without the keys, on whichever call Claude is making (`follow.tsx`).
 import { Box, renderToString, Text, useInput, type DOMElement } from "ink";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import wrapAnsi from "wrap-ansi";
 import { activityRows, readLines } from "../src/view/activity";
+import type { AgentLine } from "../src/view/agents";
 import { timed, took } from "../src/view/format";
 import { runOfCall } from "../src/view/runs";
 import type { ToolCall } from "../src/view/state";
 import { field, plural, subagentReport, toolLabel } from "../src/view/tools";
 import { Diff, editLines } from "./diff";
 import { highlightCode } from "./highlight";
+import { followKey, strokeOf, type Keymap } from "./keys";
 import { printable, printableColored } from "./markdown";
 import { fit, Markdown, onPanel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
@@ -39,9 +42,18 @@ type Props = {
   onFocus: () => void;
   onMove: (by: -1 | 1) => void;
   onCopy: (text: string, what: string) => void;
+  /** A subagent's transcript, as Claude Code forwards it, for an Agent call. */
+  log?: AgentLine[];
+  /** Follow Claude shows it, on the call Claude is making. */
+  following?: boolean;
+  /** The wheel over it while following, which holds it on this call. */
+  onHold?: () => void;
+  /** The key that turns following on and off, and what it does, for when the inspector has the keys. */
+  keymap?: Keymap;
+  onFollow?: () => void;
 };
 
-type TabId = "output" | "command" | "sent" | "input" | "diff" | "content" | "results" | "response" | "report" | "prompt" | "todos" | "answers" | "plan" | "result";
+type TabId = "output" | "command" | "sent" | "input" | "diff" | "content" | "results" | "response" | "report" | "transcript" | "prompt" | "todos" | "answers" | "plan" | "result";
 
 const LABELS: Record<TabId, string> = {
   output: "Output",
@@ -53,6 +65,7 @@ const LABELS: Record<TabId, string> = {
   results: "Results",
   response: "Response",
   report: "Report",
+  transcript: "Transcript",
   prompt: "Prompt",
   todos: "To-dos",
   answers: "Answers",
@@ -66,8 +79,8 @@ const WHEEL_LINES = 3;
 /** The most lines of a long result drawn; past that, the tab says how many more there were. */
 const MOST_LINES = 5000;
 
-/** The call's tabs, the one it opens on first. */
-function tabsOf(call: ToolCall): TabId[] {
+/** The call's tabs, the one it opens on first. A subagent with a transcript opens on it while it works. */
+export function tabsOf(call: ToolCall, log?: AgentLine[]): TabId[] {
   switch (call.name) {
     case "Bash":
       return ["output", "command", "sent", "input"];
@@ -86,7 +99,8 @@ function tabsOf(call: ToolCall): TabId[] {
       return ["response", "input"];
     case "Agent":
     case "Task":
-      return ["report", "prompt", "input"];
+      if (!log?.length) return ["report", "prompt", "input"];
+      return call.status === "running" ? ["transcript", "report", "prompt", "input"] : ["report", "transcript", "prompt", "input"];
     case "TodoWrite":
       return ["todos", "input"];
     case "AskUserQuestion":
@@ -98,20 +112,34 @@ function tabsOf(call: ToolCall): TabId[] {
   }
 }
 
-export function Inspector({ call, place, waiting, width, height, focused, over = false, cwd, home, onClose, onFocus, onMove, onCopy }: Props) {
-  const tabs = tabsOf(call);
+/**
+ * The tab a call opens on. Following Claude, a command waiting for your OK opens on the command
+ * itself, since it has no output yet.
+ */
+export function firstTab(call: ToolCall, log: AgentLine[] | undefined, following: boolean, waiting: boolean) {
+  const tabs = tabsOf(call, log);
+  return following && waiting && tabs.includes("command") ? "command" : tabs[0]!;
+}
+
+/** Whether a tab opens on its end: a transcript, which grows, and a command's output while following. */
+export function tailsBody(tab: TabId, following: boolean) {
+  return tab === "transcript" || (following && tab === "output");
+}
+
+export function Inspector({ call, place, waiting, width, height, focused, over = false, cwd, home, onClose, onFocus, onMove, onCopy, log, following = false, onHold, keymap, onFollow }: Props) {
+  const tabs = tabsOf(call, log);
   const [picked, setPicked] = useState<{ id: string; tab: TabId } | null>(null);
-  const tab = picked?.id === call.id && tabs.includes(picked.tab) ? picked.tab : tabs[0]!;
+  const tab = picked?.id === call.id && tabs.includes(picked.tab) ? picked.tab : firstTab(call, log, following, waiting);
   const inner = width - 2;
   // The body's text, less the column of its scrollbar.
   const room = inner - 1;
-  const body = useBody(call, tab, room);
+  const body = useBody(call, tab, room, log);
   const view = Math.max(1, height - CHROME);
   const total = body?.lines.length ?? 0;
   const maxTop = Math.max(0, total - view);
   const [scroll, setScroll] = useState({ key: "", top: 0 });
   const key = `${call.id}|${tab}`;
-  const top = scroll.key === key ? Math.min(scroll.top, maxTop) : 0;
+  const top = scroll.key === key ? Math.min(scroll.top, maxTop) : tailsBody(tab, following) ? maxTop : 0;
   const scrollTo = (next: number) => setScroll({ key, top: Math.max(0, Math.min(maxTop, Math.round(next))) });
 
   const box = useRef<DOMElement>(null);
@@ -130,6 +158,7 @@ export function Inspector({ call, place, waiting, width, height, focused, over =
     (input, key) => {
       if (key.eventType === "release") return;
       if (key.escape || (key.ctrl && input === "c")) return onClose();
+      if (onFollow && keymap?.get(strokeOf(input, key) ?? "") === "chat:followClaude") return onFollow();
       if (key.leftArrow) return onMove(-1);
       if (key.rightArrow) return onMove(1);
       if (key.tab) return step(key.shift ? -1 : 1);
@@ -150,7 +179,10 @@ export function Inspector({ call, place, waiting, width, height, focused, over =
     const at = hit(box.current, event);
     if (!at) return;
     event.handled = true;
-    if (event.type === "wheel") return scrollTo(top + event.wheel * WHEEL_LINES);
+    if (event.type === "wheel") {
+      if (following) onHold?.();
+      return scrollTo(top + event.wheel * WHEEL_LINES);
+    }
     if (event.type !== "press" || event.button !== "left") return;
     if (!focused) onFocus();
     const tabAt = tabRefs.current.findIndex((one) => hit(one, event));
@@ -182,7 +214,8 @@ export function Inspector({ call, place, waiting, width, height, focused, over =
 
   return (
     <Box ref={box} flexDirection="column" width={width} height={height} flexShrink={0}>
-      <Text color={focused ? PALETTE.gold : PALETTE.surface}>{(focused ? "▁" : "▄").repeat(width)}</Text>
+      {/* Gold where it has your keys; teal while it follows Claude. */}
+      <Text color={focused ? PALETTE.gold : following ? PALETTE.teal : PALETTE.surface}>{(focused || following ? "▁" : "▄").repeat(width)}</Text>
       <Box flexDirection="column" backgroundColor={PALETTE.surface} paddingX={1} width={width} height={height - 1}>
         <Box justifyContent="space-between" width={inner}>
           <Text bold color={PALETTE.star} wrap="truncate-end">
@@ -200,6 +233,7 @@ export function Inspector({ call, place, waiting, width, height, focused, over =
         </Box>
         <Box justifyContent="space-between" width={inner}>
           <Text wrap="truncate-end">
+            {following ? <Text color={waiting ? PALETTE.gold : PALETTE.teal}>{waiting ? "◆ waiting for you  " : "◉ following  "}</Text> : null}
             <Text color={PALETTE.teal}>{toolLabel(call.name)}</Text>
             {about ? <Text color={PALETTE.dust}>{`  ·  ${about}`}</Text> : null}
           </Text>
@@ -270,6 +304,10 @@ export function Inspector({ call, place, waiting, width, height, focused, over =
             <Text wrap="truncate-end">
               <Keys pairs={[["←→", "calls"], ["tab", "view"], ["↑↓", "scroll"], ["c", "copy"]]} />
             </Text>
+          ) : following ? (
+            <Text wrap="truncate-end">
+              <Keys pairs={[[keymap ? followKey(keymap) : "alt+l", "stop following"], ["click", "look back"]]} />
+            </Text>
           ) : (
             <Text color={PALETTE.dust} wrap="truncate-end">
               Click here for the keys
@@ -277,8 +315,8 @@ export function Inspector({ call, place, waiting, width, height, focused, over =
           )}
           <Box ref={close}>
             <Text>
-              <Text color={hovered === "close" ? PALETTE.star : PALETTE.haze}>esc</Text>
-              <Text color={hovered === "close" ? PALETTE.star : PALETTE.dust}>{over ? " back to the transcript" : " close"}</Text>
+              <Text color={hovered === "close" ? PALETTE.star : PALETTE.haze}>{following ? "" : "esc"}</Text>
+              <Text color={hovered === "close" ? PALETTE.star : PALETTE.dust}>{following ? "stop" : over ? " back to the transcript" : " close"}</Text>
             </Text>
           </Box>
         </Box>
@@ -305,7 +343,7 @@ function Keys({ pairs }: { pairs: [string, string][] }) {
  * What the header calls the call: Claude's description of a command or subagent, else its activity
  * line, whose path keeps its end when it's cut to fit.
  */
-function titleOf(call: ToolCall, cwd: string, home: string): { verb?: string; text: string; path: boolean } {
+export function titleOf(call: ToolCall, cwd: string, home: string): { verb?: string; text: string; path: boolean } {
   const description = typeof call.input.description === "string" ? call.input.description.trim() : "";
   if ((call.name === "Bash" || call.name === "Agent" || call.name === "Task") && description) return { text: description, path: false };
   const row = activityRows([call], new Set(), cwd, home)[0];
@@ -313,7 +351,7 @@ function titleOf(call: ToolCall, cwd: string, home: string): { verb?: string; te
 }
 
 /** How the call went, for the pill in the header. */
-function statusOf(call: ToolCall, waiting: boolean): { text: string; color: string } {
+export function statusOf(call: ToolCall, waiting: boolean): { text: string; color: string } {
   if (waiting) return { text: "waiting for you", color: PALETTE.gold };
   const bash = call.name === "Bash" ? runOfCall(call, false) : null;
   if (call.background === "running") return { text: "◌ in the background", color: PALETTE.teal };
@@ -341,14 +379,15 @@ const bodies = new WeakMap<ToolCall, Map<string, Body>>();
 
 /**
  * The tab's lines, drawn just after React commits, since Ink can't render to a string in the middle
- * of rendering, and kept until the call changes. Undefined until then.
+ * of rendering, and kept until the call changes. Undefined until then. A subagent's transcript
+ * grows while the call stays the same, so it's drawn each time instead.
  */
-function useBody(call: ToolCall, tab: TabId, width: number) {
+export function useBody(call: ToolCall, tab: TabId, width: number, log?: AgentLine[]) {
   const key = `${tab}|${width}`;
   const known = bodies.get(call)?.get(key);
   const [, redraw] = useState(0);
   useEffect(() => {
-    if (known) return;
+    if (known || tab === "transcript") return;
     let alive = true;
     queueMicrotask(() => {
       if (!alive) return;
@@ -361,7 +400,16 @@ function useBody(call: ToolCall, tab: TabId, width: number) {
       alive = false;
     };
   }, [call, key, known]);
-  return known;
+  return tab === "transcript" ? transcriptOf(log ?? [], width) : known;
+}
+
+/** A subagent's transcript: its brief in gold, its words, and its tool calls in teal. */
+function transcriptOf(log: AgentLine[], width: number): Body {
+  const color = { prompt: PALETTE.gold, text: PALETTE.star, tool: PALETTE.teal } as const;
+  return {
+    lines: log.length ? log.flatMap((line) => wrapped(`${sgr(color[line.kind])}${printable(line.text)}\x1b[39m`, width)) : [say("Nothing written yet.")],
+    copy: log.map((line) => line.text).join("\n"),
+  };
 }
 
 function bodyOf(call: ToolCall, tab: TabId, width: number): Body {
@@ -409,6 +457,9 @@ function bodyOf(call: ToolCall, tab: TabId, width: number): Body {
       const report = subagentReport(call);
       return { lines: markdownLines(report || (call.status === "running" ? "It's still working. Its report comes when it ends." : "It reported nothing."), width), copy: report };
     }
+    case "transcript":
+      // Drawn by `useBody` from the transcript, which the call doesn't hold.
+      return { lines: [], copy: "" };
     case "prompt":
       return { lines: markdownLines(text("prompt") || "No prompt.", width), copy: text("prompt") };
     case "plan":
@@ -444,7 +495,11 @@ function outputOf(call: ToolCall, width: number): Body {
   const head = `${sgr(PALETTE.dust)}$ \x1b[39m${onPanel(highlightShell(first))}${run.command.trim().includes("\n") ? `${sgr(PALETTE.dust)} …\x1b[39m` : ""}`;
   const lines = [...wrapped(head, width), ""];
   if (run.background === "running") return { lines: [...lines, say("It runs in the background. /tasks shows its output as it goes.")], copy: "" };
-  if (run.status === "running") return { lines: [...lines, say("It's still running. Its output comes when it ends.")], copy: "" };
+  if (run.status === "running") {
+    // Claude Code says how long a command has run, but not what it has printed so far.
+    const ran = call.elapsed ? ` (${took(call.elapsed * 1000)} so far)` : "";
+    return { lines: [...lines, say(`It's still running${ran}. Its output comes when it ends.`)], copy: "" };
+  }
   const out = run.stdout.replace(/\n+$/, "");
   const err = run.stderr.replace(/\n+$/, "");
   if (!out.trim() && !err.trim()) return { lines: [...lines, say(run.status === "denied" ? "It didn't run." : "It printed nothing.")], copy: "" };

@@ -33,6 +33,8 @@ export class Store {
   agentSummaries = false;
   /** Whether sessions start with Remote Control on, as /config set it. */
   remoteControl = false;
+  /** Whether a panel follows the tool call Claude is making, as Alt+L or /config set it. */
+  follow = false;
   /** The terminal window's focus, title, progress and notifications. */
   window: TerminalWindow | null = null;
   /** What the message box's keys do, read from keybindings.json as astrocode starts. */

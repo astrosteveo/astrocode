@@ -51,9 +51,10 @@ type Props = {
   waiting: ReadonlySet<string>;
   /**
    * The inspector, drawn `width` cells wide beside the transcript, or `over` it, in its place; and
-   * the call it shows, whose line is marked and kept in view.
+   * the call it shows, whose line is marked and kept in view. Following Claude, it names no call:
+   * the transcript keeps its own place, which may be scrolled up.
    */
-  inspector?: { width: number; over: boolean; call: string; node: (height: number) => ReactNode };
+  inspector?: { width: number; over: boolean; call?: string; node: (height: number) => ReactNode };
   /** A tool call to scroll to, from the output browser. */
   reveal: { key: string } | null;
   /** Whether PgUp and PgDn scroll; a picker open below uses them for its list. */

@@ -49,6 +49,7 @@ import { fit } from "./markdown-view";
 import { McpPanel } from "./mcp";
 import { MemoryPanel } from "./memory";
 import { ModelPicker } from "./model-picker";
+import { FollowDock, FollowEmpty, followedCall, useDwell } from "./follow";
 import { Inspector, type Place } from "./inspector";
 import { hit, MouseContext, useMouse } from "./mouse";
 import { Picker, type PickerItem } from "./picker";
@@ -145,6 +146,7 @@ const HELP = [
   "Ctrl+B moves a command or subagent Claude is waiting on to the background. /tasks lists what runs there and your ! commands: open one to watch it (a subagent shows its transcript, a workflow its phases), and x stops it. Esc stops Claude's turn but not what runs in the background; Ctrl+X Ctrl+K twice stops it all. Ctrl+T shows or hides the to-dos.",
   "Ctrl+Enter or Ctrl+X Ctrl+S sends now, stopping what Claude is doing; Ctrl+X Enter sends it to wait for the end of Claude's turn. Ctrl+Z suspends astrocode until the shell's fg.",
   "Ctrl+O picks a tool call to inspect: its exact command or input, its whole output and what Claude got back, in tabs. In the inspector ← and → move between calls, Tab between tabs, c copies, Esc closes. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
+  "Alt+L follows Claude: a panel shows each tool call as Claude makes it, beside the transcript on a wide full screen and above the message box otherwise. Looking back at a call holds it there; Esc or Alt+L follows Claude again.",
   "← in an empty box opens the agents view, as `claude agents` does: astrocode's conversations, which carry on while you're away from them, and Claude Code's background sessions. Type a task there and press Enter to start another conversation alongside this one, Ctrl+Enter to start it and open it; Enter on a row opens one, Esc comes back here.",
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
@@ -223,6 +225,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const setKeepWarm = (on: boolean) => {
     store.keepWarm = on;
     setKeepWarmState(on);
+  };
+  /** Whether a panel follows the tool call Claude is making, as Alt+L or /config set it. */
+  const [follow, setFollowState] = useState(store.follow);
+  const setFollow = (on: boolean) => {
+    store.follow = on;
+    setFollowState(on);
   };
   const title = useSessionTitle(session.knownId, state.cwd, turns, store.epoch);
   useAttention({ state, window: store.window, notify: notifyMode, title, git });
@@ -351,7 +359,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         report(error);
       }
     };
-    const { model, effort, ultracode, thinking, mode, todos, notify, usage, keepWarm: warm, agentSummaries, remoteControl, fullscreen: layout } = changes;
+    const { model, effort, ultracode, thinking, mode, todos, notify, usage, keepWarm: warm, agentSummaries, remoteControl, follow: followOn, fullscreen: layout } = changes;
     if (model) await attempt(() => session.setModel(model), () => (kept.model = model));
     if (effort) await attempt(() => session.setEffort(effort), () => (kept.effort = effort));
     // After the effort, since a level of its own turns ultracode off. For this session only.
@@ -381,6 +389,11 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     if (warm !== undefined) {
       setKeepWarm(warm);
       kept.keepWarm = warm;
+    }
+    if (followOn !== undefined) {
+      setFollow(followOn);
+      if (followOn) setInspect(null);
+      kept.follow = followOn;
     }
     if (agentSummaries !== undefined) {
       store.agentSummaries = agentSummaries;
@@ -593,11 +606,28 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
 
   /** The conversation's tool calls in order, which ← and → in the inspector move through. */
   const allCalls = state.items.flatMap((item) => (item.kind === "tool" ? [item.call] : []));
-  const moveInspector = (by: -1 | 1) => {
-    if (!inspect) return;
-    const at = allCalls.findIndex((call) => call.id === inspect.id);
-    const next = allCalls[at + by];
+  /** ← or → in the inspector, from the call it shows to the one before or after, with the keys. */
+  const moveFrom = (id: string, by: -1 | 1) => {
+    const next = allCalls[allCalls.findIndex((call) => call.id === id) + by];
     if (next) setInspect({ id: next.id, focus: true });
+  };
+  const moveInspector = (by: -1 | 1) => {
+    if (inspect) moveFrom(inspect.id, by);
+  };
+
+  /**
+   * Alt+L: follow Claude, or stop. Looking at a call yourself holds following on it, and Alt+L then
+   * follows Claude again, as closing the inspector does. Remembered for next time.
+   */
+  const toggleFollow = () => {
+    if (follow && inspect) {
+      setInspect(null);
+      return setToast("Following Claude again");
+    }
+    setFollow(!follow);
+    keep({ follow: !follow });
+    if (!follow) setInspect(null);
+    setToast(follow ? "Stopped following Claude" : "Following Claude");
   };
 
   const copySelection = (text: string) => {
@@ -807,6 +837,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
               keepWarm,
               agentSummaries: store.agentSummaries,
               remoteControl: store.remoteControl,
+              follow,
             },
           });
         }
@@ -1454,27 +1485,67 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   useMouse((event) => {
     if (event.type === "press" && event.button === "left" && inspectorKeys && hit(panelBox.current, event)) setInspect((open) => open && { ...open, focus: false });
   });
-  const inspector = (inspectorWidth: number, height: number, over = false) =>
-    inspected ? (
+  // Follow Claude: the call Claude is on, a moment behind a burst of them, while you aren't looking
+  // at one yourself, which holds it until the inspector closes.
+  const followTarget = follow ? followedCall(state, waiting) : undefined;
+  const followedId = useDwell(followTarget, followTarget !== undefined && waiting.has(followTarget));
+  const followedAt = followedId === undefined ? undefined : state.tools[followedId];
+  const followedItem = followedAt === undefined ? undefined : state.items[followedAt];
+  const followed = followedItem?.kind === "tool" ? followedItem.call : undefined;
+  const following = follow && !inspected;
+  const copied = (text: string, what: string) => {
+    copy(text);
+    setToast(`Copied the ${what}, ${plural(text.split("\n").length, "line")}`);
+  };
+  const inspector = (inspectorWidth: number, height: number, over = false) => {
+    if (inspected) {
+      return (
+        <Inspector
+          call={inspected}
+          place={placeOf(state, inspected.id)}
+          waiting={waiting.has(inspected.id)}
+          width={inspectorWidth}
+          height={height}
+          focused={inspectorKeys}
+          over={over}
+          cwd={state.cwd}
+          home={state.home}
+          log={state.agentLogs[inspected.id]}
+          keymap={store.keymap}
+          onFollow={toggleFollow}
+          onClose={() => setInspect(null)}
+          onFocus={() => setInspect((open) => open && { ...open, focus: true })}
+          onMove={moveInspector}
+          onCopy={copied}
+        />
+      );
+    }
+    if (!following) return null;
+    if (!followed) return <FollowEmpty width={inspectorWidth} height={height} />;
+    return (
       <Inspector
-        call={inspected}
-        place={placeOf(state, inspected.id)}
-        waiting={waiting.has(inspected.id)}
+        call={followed}
+        place={placeOf(state, followed.id)}
+        waiting={waiting.has(followed.id)}
         width={inspectorWidth}
         height={height}
-        focused={inspectorKeys}
+        focused={false}
         over={over}
         cwd={state.cwd}
         home={state.home}
-        onClose={() => setInspect(null)}
-        onFocus={() => setInspect((open) => open && { ...open, focus: true })}
-        onMove={moveInspector}
-        onCopy={(text, what) => {
-          copy(text);
-          setToast(`Copied the ${what}, ${plural(text.split("\n").length, "line")}`);
-        }}
+        log={state.agentLogs[followed.id]}
+        following
+        keymap={store.keymap}
+        onClose={toggleFollow}
+        onFocus={() => setInspect({ id: followed.id, focus: true })}
+        onHold={() => setInspect({ id: followed.id, focus: false })}
+        onMove={(by) => moveFrom(followed.id, by)}
+        onCopy={copied}
       />
-    ) : null;
+    );
+  };
+  // On a wide full screen the inspector, and Follow Claude, stand beside the transcript.
+  const beside = fullscreen && width >= INSPECTOR_BESIDE_FROM;
   const overlaid = picker();
   const above = question ? (
     <QuestionPrompt key={question.id} request={question} width={width} rows={rows} onAnswer={(answers) => session.answer(question.id, answers)} />
@@ -1497,6 +1568,17 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   ) : inspected && !fullscreen ? (
     // In scrollback the inspector sits above the message box, as tall as leaves the box in view.
     inspector(width, Math.max(10, rows - 10))
+  ) : following && !beside ? (
+    <FollowDock
+      call={followed}
+      waiting={followed ? waiting.has(followed.id) : false}
+      log={followed ? state.agentLogs[followed.id] : undefined}
+      width={width}
+      rows={Math.max(3, Math.min(8, rows - 18))}
+      cwd={state.cwd}
+      home={state.home}
+      onOpen={inspectCall}
+    />
   ) : null;
   const pinned = showTodos && todos ? <PinnedTodos todos={todos} rows={Math.max(3, Math.min(8, rows - 20))} /> : null;
   const panel = (
@@ -1538,6 +1620,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onFastMode={toggleFast}
           onStopTasks={stopAllTasks}
           onFind={fullscreen ? () => setOverlay({ kind: "find" }) : undefined}
+          onFollow={toggleFollow}
           onAgents={onAgents}
           workflows={state.ultracodeAvailable !== false}
           stash={stash}
@@ -1573,6 +1656,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           modToast={modToast}
           keepWarm={keepWarm}
           usageMode={usageMode}
+          follow={follow ? (inspected ? "paused" : "on") : undefined}
+          onFollow={toggleFollow}
           onCache={toggleKeepWarm}
           onMode={cycleMode}
           onModel={() => setOverlay({ kind: "model" })}
@@ -1587,8 +1672,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   );
 
   if (fullscreen) {
-    // On a wide screen the inspector stands beside the transcript; on a narrow one, in its place.
-    const beside = width >= INSPECTOR_BESIDE_FROM;
+    // On a narrow screen the inspector takes the transcript's place, and Follow Claude docks above the message box.
     const inspectorWidth = beside ? Math.min(INSPECTOR_MOST, Math.max(INSPECTOR_LEAST, Math.round(width * INSPECTOR_SHARE))) : width;
     return (
       <Screen
@@ -1599,7 +1683,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         rows={rows}
         expanded={expanded}
         waiting={waiting}
-        inspector={inspected ? { width: inspectorWidth, over: !beside, call: inspected.id, node: (height) => inspector(inspectorWidth, height, !beside) } : undefined}
+        inspector={
+          inspected
+            ? { width: inspectorWidth, over: !beside, call: inspected.id, node: (height) => inspector(inspectorWidth, height, !beside) }
+            : following && beside
+              ? { width: inspectorWidth, over: false, node: (height) => inspector(inspectorWidth, height) }
+              : undefined
+        }
         reveal={reveal}
         keys={!overlay && !inspectorKeys}
         onToggle={toggleTool}

@@ -32,11 +32,15 @@ export const ACTIONS = {
   "chat:imagePaste": "paste image",
   "chat:clearInput": "clear",
   "task:background": "background",
+  "chat:followClaude": "follow Claude",
 } as const;
 
 export type Action = keyof typeof ACTIONS;
 
-/** Claude Code's default bindings for the actions astrocode has, in its Global and Chat contexts. */
+/**
+ * Claude Code's default bindings for the actions astrocode has, in its Global and Chat contexts,
+ * and the one for astrocode's own `chat:followClaude`.
+ */
 const DEFAULTS: Record<string, Action> = {
   "ctrl+c": "app:interrupt",
   "ctrl+d": "app:exit",
@@ -65,6 +69,7 @@ const DEFAULTS: Record<string, Action> = {
   "ctrl+v": "chat:imagePaste",
   "ctrl+b": "task:background",
   "ctrl+x ctrl+b": "task:background",
+  "meta+l": "chat:followClaude",
 };
 
 /** The contexts of keybindings.json that reach the message box. */
@@ -190,6 +195,11 @@ export function strokeOf(input: string, key: Key) {
 export function keyFor(keymap: Keymap, action: Action) {
   for (const [chord, bound] of keymap) if (bound === action) return chord;
   return null;
+}
+
+/** The key that turns Follow Claude on and off, as the lowercase hints write keys: `alt+l`. */
+export function followKey(keymap: Keymap) {
+  return (keyFor(keymap, "chat:followClaude") ?? "meta+l").replace(/\bmeta\b/g, "alt");
 }
 
 /** A binding as it's written in prose: `ctrl+x ctrl+k` reads as Ctrl+X Ctrl+K. */

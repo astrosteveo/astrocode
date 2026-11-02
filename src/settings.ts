@@ -1,7 +1,7 @@
 // What astrocode remembers between sessions: the model, effort, thinking and permission mode you
 // last picked, whether it runs full screen, when the to-do list shows, how it tells you it needs you,
-// whether it keeps the prompt cache warm while you're away, whether subagents report progress, and
-// whether sessions start with Remote Control on.
+// whether it keeps the prompt cache warm while you're away, whether subagents report progress,
+// whether sessions start with Remote Control on, and whether a panel follows what Claude is doing.
 // They live in astrocode's own file, not Claude Code's settings, so `claude` keeps its own.
 import type { EffortLevel, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -32,6 +32,8 @@ export type Remembered = {
   agentSummaries?: boolean;
   /** Every session starts reachable from claude.ai/code and the Claude app. */
   remoteControl?: boolean;
+  /** A panel follows the tool call Claude is making. */
+  follow?: boolean;
 };
 
 /** `$XDG_CONFIG_HOME/astrocode/settings.json`, which is `~/.config/astrocode/settings.json` unless set. */
@@ -41,7 +43,7 @@ export function settingsPath() {
 
 /** What was remembered, leaving out anything missing or not understood. */
 export async function loadSettings(): Promise<Remembered> {
-  const { model, effort, thinking, mode, fullscreen, todos, notify, usage, keepWarm, agentSummaries, remoteControl } = await readSaved();
+  const { model, effort, thinking, mode, fullscreen, todos, notify, usage, keepWarm, agentSummaries, remoteControl, follow } = await readSaved();
   return lasting({
     model: typeof model === "string" && model ? model : undefined,
     effort: typeof effort === "string" && isEffort(effort) ? effort : undefined,
@@ -54,6 +56,7 @@ export async function loadSettings(): Promise<Remembered> {
     keepWarm: typeof keepWarm === "boolean" ? keepWarm : undefined,
     agentSummaries: typeof agentSummaries === "boolean" ? agentSummaries : undefined,
     remoteControl: typeof remoteControl === "boolean" ? remoteControl : undefined,
+    follow: typeof follow === "boolean" ? follow : undefined,
   });
 }
 
@@ -83,8 +86,8 @@ export function saved() {
 }
 
 /** Plan mode and max effort are for one session only, as in Claude Code, so they aren't remembered. */
-function lasting({ model, effort, thinking, mode, fullscreen, todos, notify, usage, keepWarm, agentSummaries, remoteControl }: Remembered): Remembered {
-  return { model, effort: effort === "max" ? undefined : effort, thinking, mode: mode === "plan" ? undefined : mode, fullscreen, todos, notify, usage, keepWarm, agentSummaries, remoteControl };
+function lasting({ model, effort, thinking, mode, fullscreen, todos, notify, usage, keepWarm, agentSummaries, remoteControl, follow }: Remembered): Remembered {
+  return { model, effort: effort === "max" ? undefined : effort, thinking, mode: mode === "plan" ? undefined : mode, fullscreen, todos, notify, usage, keepWarm, agentSummaries, remoteControl, follow };
 }
 
 async function readSaved(): Promise<Record<string, unknown>> {

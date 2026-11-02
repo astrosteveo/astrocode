@@ -78,6 +78,8 @@ type Props = {
   onStopTasks: () => void;
   /** Ctrl+F: find in full screen's transcript. Not in scrollback, where the terminal has its own. */
   onFind?: () => void;
+  /** Follow Claude on or off. */
+  onFollow?: () => void;
   /** ← in an empty box: the agents view, as in Claude Code. */
   onAgents?: () => void;
   /** A message put aside with Ctrl+S. It stays until Ctrl+S brings it back, whatever is sent meanwhile. */
@@ -429,6 +431,8 @@ export function Prompt(props: Props) {
         return set("", 0);
       case "task:background":
         return props.onBackground();
+      case "chat:followClaude":
+        return props.onFollow?.();
       case "chat:workflowKeywordToggle":
         if (!/\bultracode\b/i.test(text)) return;
         ignoreUltracode.current = !ignoreUltracode.current;
