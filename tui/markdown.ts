@@ -26,9 +26,15 @@ export type Block =
 /** A run of text in one style. `href` is the web address a link's text and its URL go to. */
 export type Span = {
   text: string
-  style: 'plain' | 'code' | 'bold' | 'italic' | 'strike' | 'link' | 'url' | 'command' | 'image'
+  style: 'plain' | 'code' | 'bold' | 'italic' | 'strike' | 'link' | 'url' | 'image'
   href?: string
 }
+
+/** Cells drawn around a row's piece of inline code: one of its background on each side (`markdown-view.tsx`), so it reads as a chip. */
+const CODE_PADDING = 2
+
+/** Cells a run takes on screen. */
+const runWidth = (run: Span) => cellWidth(run.text) + (run.style === 'code' ? CODE_PADDING : 0)
 
 const FENCE = /^( {0,3})(`{3,}|~{3,})\s*([^\s`]*)/
 /** A fence under a list item, which can be indented further, as under `10. `. */
@@ -287,7 +293,7 @@ export const spans = (text: string): Span[] => {
 }
 
 /** Cells the text takes once its inline markers are drawn as styles. */
-export const width = (text: string) => spans(text).reduce((sum, run) => sum + cellWidth(run.text), 0)
+export const width = (text: string) => spans(text).reduce((sum, run) => sum + runWidth(run), 0)
 
 /** A table row's cells: split on pipes outside code spans, `\|` kept as a pipe. A backtick with no closing one is a plain character. */
 const rowCells = (line: string) => {
@@ -487,18 +493,27 @@ export const wrapSpans = (runs: Span[], room: number): Span[][] => {
   let used = 0
   let hasWords = false
 
-  const add = (text: string, { style, href }: Span) => {
+  /** Whether text in `run`'s style goes on with the row's last run rather than starting one. */
+  const continues = ({ style, href }: Span) => {
+    const last = rows[rows.length - 1]!.at(-1)
+
+    return last !== undefined && last.style === style && last.href === href
+  }
+
+  /** The padding `run`'s text would add to the row: that of a piece of inline code it starts. */
+  const paddingFor = (run: Span) => (run.style === 'code' && !continues(run) ? CODE_PADDING : 0)
+
+  const add = (text: string, run: Span) => {
     if (text === '') {
       return
     }
-    const row = rows[rows.length - 1]!
-    const last = row[row.length - 1]
-    if (last !== undefined && last.style === style && last.href === href) {
-      last.text += text
+    const { style, href } = run
+    used += cellWidth(text) + paddingFor(run)
+    if (continues(run)) {
+      rows[rows.length - 1]!.at(-1)!.text += text
     } else {
-      row.push(href === undefined ? { text, style } : { text, style, href })
+      rows[rows.length - 1]!.push(href === undefined ? { text, style } : { text, style, href })
     }
-    used += cellWidth(text)
   }
 
   const breakRow = () => {
@@ -526,7 +541,7 @@ export const wrapSpans = (runs: Span[], room: number): Span[][] => {
           if (indent > 0) {
             add(takeCells(token, indent)[0], run)
           }
-        } else if (used > 0 && used + cellWidth(token) <= limit) {
+        } else if (used > 0 && used + paddingFor(run) + cellWidth(token) <= limit) {
           add(token, run)
         } else if (used > 0) {
           breakRow()
@@ -534,15 +549,17 @@ export const wrapSpans = (runs: Span[], room: number): Span[][] => {
         continue
       }
       hasWords = true
-      if (used > 0 && used + cellWidth(token) > limit) {
+      if (used > 0 && used + paddingFor(run) + cellWidth(token) > limit) {
         breakRow()
       }
       let rest = token
-      while (cellWidth(rest) > limit) {
-        const [head, tail] = takeCells(rest, limit)
+      while (rest !== '' && paddingFor(run) + cellWidth(rest) > limit) {
+        const [head, tail] = takeCells(rest, limit - paddingFor(run))
         add(head, run)
-        breakRow()
         rest = tail
+        if (rest !== '') {
+          breakRow()
+        }
       }
       add(rest, run)
     }
@@ -556,7 +573,7 @@ export const wrapText = (text: string, room: number, isPlain = false): Span[][] 
   text.split('\n').flatMap(line => wrapSpans(isPlain ? [{ text: line, style: 'plain' }] : spans(line), room))
 
 /** Cells a row of runs takes. */
-export const rowWidth = (row: Span[]) => row.reduce((sum, run) => sum + cellWidth(run.text), 0)
+export const rowWidth = (row: Span[]) => row.reduce((sum, run) => sum + runWidth(run), 0)
 
 /** A command a reply names in inline code: a slash command or `! shell` for this session, or a shell command. */
 export type Command = { kind: 'slash' | 'bang' | 'shell'; text: string }

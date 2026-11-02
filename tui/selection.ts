@@ -37,23 +37,29 @@ const RESET = "\x1b[0m";
 
 export const plain = (line: string) => line.replace(CODE_ALL, "");
 
-/** The background of the cell at `col`, as red, green and blue joined with `;`, or null for the terminal's own. */
+/** The background after a color code, as red, green and blue joined with `;`, or null for the terminal's own. */
+function backgroundAfter(code: string, background: string | null) {
+  const codes = /^\x1b\[([0-9;]*)m$/.exec(code);
+  if (!codes) return background;
+  const list = (codes[1] || "0").split(";").map(Number);
+  for (let i = 0; i < list.length; i++) {
+    const one = list[i];
+    if (one === 0 || one === 49) background = null;
+    else if (one === 48 && list[i + 1] === 2) {
+      background = list.slice(i + 2, i + 5).join(";");
+      i += 4;
+    } else if (one === 38) i += list[i + 1] === 5 ? 2 : 4;
+  }
+  return background;
+}
+
+/** The background of the cell at `col`, as `backgroundAfter` gives it. */
 function backgroundAt(line: string, col: number) {
   let background: string | null = null;
   let at = 0;
   for (const part of line.split(CODE)) {
-    if (LINK.test(part)) continue;
-    const codes = /^\x1b\[([0-9;]*)m$/.exec(part);
-    if (codes) {
-      const list = (codes[1] || "0").split(";").map(Number);
-      for (let i = 0; i < list.length; i++) {
-        const code = list[i];
-        if (code === 0 || code === 49) background = null;
-        else if (code === 48 && list[i + 1] === 2) {
-          background = list.slice(i + 2, i + 5).join(";");
-          i += 4;
-        } else if (code === 38) i += list[i + 1] === 5 ? 2 : 4;
-      }
+    if (CODE.test(part)) {
+      background = backgroundAfter(part, background);
       continue;
     }
     for (const { segment } of graphemes.segment(part)) {
@@ -64,13 +70,13 @@ function backgroundAt(line: string, col: number) {
   return background;
 }
 
-/** The cells of `text` from `from` up to `to`. A wide character is in if it starts inside. */
-export function sliceCells(text: string, from: number, to: number) {
+/** The cells of `text` from `from` up to `to`, but those in `skip`. A wide character is in if it starts inside. */
+export function sliceCells(text: string, from: number, to: number, skip?: Set<number>) {
   let out = "";
   let col = 0;
   for (const { segment } of graphemes.segment(text)) {
     if (col >= to) break;
-    if (col >= from) out += segment;
+    if (col >= from && !skip?.has(col)) out += segment;
     col += cellsOf(segment);
   }
   return out;
@@ -153,15 +159,30 @@ const MATCH = `\x1b[48;2;${rgb(PALETTE.goldDeep).join(";")}m\x1b[38;2;${rgb(PALE
  */
 export function findIn(line: string, query: string): [number, number][] {
   if (!query) return [];
-  const text = plain(line);
-  if (PICTURE.test(text.trimStart().replace(/^[│ ]+/, ""))) return [];
+  if (PICTURE.test(plain(line).trimStart().replace(/^[│ ]+/, ""))) return [];
+  // The row's text without the padding around inline code, and the cells each of its characters takes.
+  const padding = paddingIn(line);
+  let text = "";
+  const starts: number[] = [];
+  const ends: number[] = [];
+  let col = 0;
+  for (const { segment } of graphemes.segment(plain(line))) {
+    const width = cellsOf(segment);
+    if (!padding.has(col)) {
+      text += segment;
+      for (let i = 0; i < segment.length; i++) {
+        starts.push(col);
+        ends.push(col + width);
+      }
+    }
+    col += width;
+  }
   const exact = query !== query.toLowerCase();
   const haystack = exact ? text : text.toLowerCase();
   const needle = exact ? query : query.toLowerCase();
   const found: [number, number][] = [];
   for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + needle.length)) {
-    const from = cellWidth(text.slice(0, at));
-    found.push([from, from + cellWidth(text.slice(at, at + needle.length))]);
+    found.push([starts[at] ?? col, ends[at + needle.length - 1] ?? col]);
   }
   return found;
 }
@@ -212,6 +233,34 @@ function foregroundAfter(code: string, fg: string | null) {
   }
   return { fg, sets };
 }
+
+/** Inline code's background (`markdown-view.tsx`), as `backgroundAfter` gives it. */
+const RAISED = rgb(PALETTE.raised).join(";");
+
+/**
+ * The cells of a line that pad inline code, which aren't its text: the space at each end of a run
+ * on its background. Inline code is trimmed, so its own text never starts or ends with a space.
+ */
+const paddingIn = cached(1000, (line) => {
+  const cells: { at: number; raised: boolean; space: boolean }[] = [];
+  let background: string | null = null;
+  let at = 0;
+  for (const part of line.split(CODE)) {
+    if (CODE.test(part)) {
+      background = backgroundAfter(part, background);
+      continue;
+    }
+    for (const { segment } of graphemes.segment(part)) {
+      cells.push({ at, raised: background === RAISED, space: segment === " " });
+      at += cellsOf(segment);
+    }
+  }
+  const padding = new Set<number>();
+  cells.forEach((cell, i) => {
+    if (cell.raised && cell.space && !(cells[i - 1]?.raised && cells[i + 1]?.raised)) padding.add(cell.at);
+  });
+  return padding;
+});
 
 /**
  * A row under the pointer, which a click acts on, with its words lit in gold from cell `from` on.
@@ -380,7 +429,7 @@ export function selectedText(rows: { text: string; inset: number }[], start: Cel
     const body = sliceCells(plain(line), inset, Infinity);
     if (PICTURE.test(body) || (start.row !== end.row && PANEL_EDGE.test(body))) continue;
     const cells = cellsOn(line, row, start, end, inset);
-    out.push(cells ? sliceCells(plain(line), cells[0], cells[1]).trimEnd() : "");
+    out.push(cells ? sliceCells(plain(line), cells[0], cells[1], paddingIn(line)).trimEnd() : "");
   }
   while (out.length > 1 && out.at(-1) === "") out.pop();
   while (out.length > 1 && out[0] === "") out.shift();

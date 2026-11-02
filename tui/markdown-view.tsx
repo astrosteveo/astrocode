@@ -186,15 +186,11 @@ function Styled({ run, voice = "claude" }: { run: Span; voice?: Voice }) {
   const words = voice === "you" && run.href === undefined ? paintKeywords(text, 0, text.length, keywordsIn(text)) : text;
   switch (run.style) {
     case "code":
+      // A cell of the code's background on each side makes it a chip. Whole cells rather than half
+      // blocks, so a comma right after the code sits against it instead of half a cell away.
       return (
         <Text color={PALETTE.tealLight} backgroundColor={PALETTE.raised}>
-          {text}
-        </Text>
-      );
-    case "command":
-      return (
-        <Text bold color={PALETTE.tealLight} backgroundColor={PALETTE.raised}>
-          {text}
+          {` ${text} `}
         </Text>
       );
     case "bold":
