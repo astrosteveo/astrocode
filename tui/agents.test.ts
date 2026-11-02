@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Agent } from "../src/agents";
 import { initialState } from "../src/view/state";
-import { hereState, listLines, moveTo, startFolder } from "./agents";
+import { chosenLine, hereState, listLines, moveTo, startFolder } from "./agents";
 
 const agent = (id: string, folder: string, createdAt = 0): Agent => ({
   id,
@@ -80,4 +80,13 @@ test("↑↓ move a session at a time, or a project at a time to its first row, 
   expect(moveTo(lines, "c1", -1, true)).toBe("b1");
   expect(moveTo(lines, "b1", -1, true)).toBe("here");
   expect(moveTo([], undefined, 1, true)).toBeUndefined();
+});
+
+test("the chosen row is drawn as chosen, or while a task is typed, its project's heading", () => {
+  const lines = listLines([agent("a1", "/p/a"), agent("a2", "/p/a"), agent("b1", "/p/b")], null, "/p/a");
+  const at = (key: string) => lines.findIndex((line) => (line.kind === "folder" ? `# ${line.folder}` : line.kind === "agent" ? line.agent.id : line.kind) === key);
+  expect(chosenLine(lines, "a2", false)).toBe(at("a2"));
+  expect(chosenLine(lines, "a2", true)).toBe(at("# /p/a"));
+  expect(chosenLine(lines, "b1", true)).toBe(at("# /p/b"));
+  expect(chosenLine([], undefined, true)).toBe(-1);
 });

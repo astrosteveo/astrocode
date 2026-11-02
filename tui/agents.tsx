@@ -94,6 +94,12 @@ export function moveTo(lines: Line[], current: string | undefined, step: -1 | 1,
   return groups[within(at + step, groups.length)]?.[0];
 }
 
+/** Where the highlight is drawn: on the chosen row, or while a task is typed, on its project's heading. */
+export function chosenLine(lines: Line[], current: string | undefined, typing: boolean) {
+  const at = lines.findIndex((line) => keyOf(line) === current);
+  return typing && at >= 0 ? lines.slice(0, at).findLastIndex((line) => line.kind === "folder") : at;
+}
+
 type Props = {
   /** The session open in astrocode, if there is one: Esc goes back to it. */
   here: { store: Store; sessionId?: string; title?: string } | null;
@@ -286,6 +292,7 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
   // the keys' line, the note, and a spare row so the screen never scrolls.
   const room = Math.max(3, rows - 10 - peekRows);
   const at = Math.max(0, lines.findIndex((line) => keyOf(line) === current));
+  const chosen = chosenLine(lines, current, Boolean(text));
   const first = Math.min(Math.max(0, at - Math.floor(room / 2)), Math.max(0, lines.length - room));
   const shown = lines.slice(first, first + room);
 
@@ -309,12 +316,15 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
         {agents && !lines.length ? <Text color={PALETTE.haze}>No background sessions yet. Describe a task below to start one.</Text> : null}
         {shown.map((line, i) => {
           if (line.kind === "gap") return <Text key={`gap-${first + i}`}> </Text>;
-          if (line.kind === "folder")
+          if (line.kind === "folder") {
+            // Raised in place rather than marked with ›, which would push the heading out of line.
+            const raised = first + i === chosen;
             return (
-              <Text key={`folder-${line.folder}`} color={PALETTE.haze}>
-                {fit(shortPath(line.folder, "", home), inner, true)}
-              </Text>
+              <Box key={`folder-${line.folder}`} width={inner} backgroundColor={raised ? PALETTE.raised : undefined}>
+                <Text color={raised ? PALETTE.gold : PALETTE.haze}>{fit(shortPath(line.folder, "", home), inner, true)}</Text>
+              </Box>
             );
+          }
           const row =
             line.kind === "here"
               ? { key: "here", name: hereName(title), look: LOOK[hereLook], said: "open in astrocode", prs: "", age: "" }
@@ -323,7 +333,7 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
           const middle = Math.max(0, inner - 2 - 2 - nameCells - 2 - tail);
           const state = `${row.look.label}${row.said ? " · " : ""}`;
           return (
-            <ChoiceRow key={row.key} selected={row.key === current} width={inner}>
+            <ChoiceRow key={row.key} selected={first + i === chosen} width={inner}>
               <Text wrap="truncate">
                 <Text color={row.look.color}>{`${row.look.glyph} `}</Text>
                 <Text color={PALETTE.star}>{pad(fit(row.name, nameCells, false), nameCells)}</Text>

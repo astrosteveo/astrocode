@@ -96,7 +96,7 @@ The agents view lists Claude Code's background sessions, the ones `claude agents
 | Key | What it does |
 | :-- | :-- |
 | Type, then Enter | Start it and open it, as Ctrl+Enter does in Claude Code's agent view, but in astrocode: a new conversation with the task as its first message, and the model, effort and permission mode the top line names. It starts in the project of the session you've chosen, which the top line names too: choose a row in another project to start one there. In the folder you're in, it starts there. Ctrl+Enter does the same |
-| ↑ ↓ | Choose a session, and with it the project a new one starts in. With a task typed, they move a project at a time, to its first row |
+| ↑ ↓ | Choose a session, and with it the project a new one starts in. With a task typed, they move a project at a time, and the project's heading is what's highlighted |
 | Enter | Open it. A finished or stopped session moves into astrocode: its Claude Code in the background stops, and astrocode picks the conversation up with its history on screen. So does one listed as needing input that's only waiting for a prompt, as a conversation astrocode moved to the background is. A session that's working or waiting on you opens with `claude attach`, in Claude Code's own screen, since taking it over would cut it off. ← or Ctrl+Z there comes back to this view, and the session carries on |
 | Space | What it was asked, what it says now, its result, its pull requests and its folder |
 | Ctrl+X | Stop it, then press again within two seconds to delete it |
