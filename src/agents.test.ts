@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { attaches, backgroundArgs, backgroundedId, dispatch, groupAgents, parseAgentList, prLabel, summary, toAgent, type Agent } from "./agents";
+import { attaches, backgroundArgs, backgroundedId, dispatch, groupAgents, leftForAgentView, parseAgentList, prLabel, summary, toAgent, type Agent } from "./agents";
 
 const LIST = JSON.stringify([
   {
@@ -91,6 +91,11 @@ test("moves in a session that's listed as needing input but is only waiting for 
   // As a conversation astrocode hands to the background service is listed until it's sent one.
   expect(attaches(agent({ alive: true, state: "blocked", status: "idle" }))).toBe(false);
   expect(attaches(agent({ alive: true, state: "blocked", status: "waiting", waitingFor: "permission prompt" }))).toBe(true);
+});
+
+test("an attached session that turns into Claude Code's agent view has been left for it", () => {
+  expect(leftForAgentView(["/home/u/.local/bin/claude", "agents"])).toBe(true);
+  expect(leftForAgentView(["claude", "attach", "f20ea808"])).toBe(false);
 });
 
 test("groups by project, this one first and the rest by path, each oldest first", () => {

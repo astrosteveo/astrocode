@@ -5,7 +5,7 @@
 // shows more, Ctrl+X stops and then deletes, Esc goes back.
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { attaches, dispatch, groupAgents, listAgents, prLabel, projectOf, removeAgent, STATE_LABELS, stopAgent, summary, type Agent, type AgentState, type SessionSettings } from "../src/agents";
+import { attaches, dispatch, groupAgents, leftForAgentView, listAgents, prLabel, projectOf, removeAgent, STATE_LABELS, stopAgent, summary, type Agent, type AgentState, type SessionSettings } from "../src/agents";
 import { installedBinary } from "../src/claude";
 import { topLevelEnv } from "../src/session";
 import { ago } from "../src/view/format";
@@ -170,13 +170,16 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
       await onStart(task, target);
     });
 
-  /** `claude attach`, in Claude Code's own screen, with the terminal lent to it until you leave. */
+  /**
+   * `claude attach`, in Claude Code's own screen, with the terminal lent to it until you leave it,
+   * or press ← in it, which would put Claude Code's agent view in place of this one.
+   */
   const attach = (agent: Agent) =>
     act(async () => {
       attaching.current = true;
       const suspension = await suspendTerminal();
       try {
-        await lendTerminal([installedBinary(), "attach", agent.id], topLevelEnv());
+        await lendTerminal([installedBinary(), "attach", agent.id], topLevelEnv(), leftForAgentView);
       } finally {
         await suspension.resume();
         attaching.current = false;
@@ -383,7 +386,7 @@ function peekOf(line: Line, title: string | undefined, state: HereState, cwd: st
   add("Result", agent.result);
   add("PRs", agent.prs.map((pr) => pr.href).join("  "));
   add("Folder", shortPath(agent.cwd, "", home));
-  add("Enter", attaches(agent) ? "joins it where it runs, in Claude Code's own screen" : "moves it into astrocode");
+  add("Enter", attaches(agent) ? "joins it where it runs, in Claude Code's own screen, until ← or Ctrl+Z" : "moves it into astrocode");
   return rows;
 }
 

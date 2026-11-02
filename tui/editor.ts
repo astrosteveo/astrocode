@@ -39,8 +39,12 @@ async function runEditor(file: string) {
  * code. It can't simply be handed this terminal: Bun goes on reading stdin after Ink lets go of
  * it, paused or not, so a program waiting on the same terminal gets about one key in ten. Only
  * destroying the stream stops Bun, and Ink can't go on after that.
+ *
+ * A program can also replace itself with another, as `claude attach` does with Claude Code's
+ * agent view. `leaveWhen` sees its command line as it runs, and once it says so the program is
+ * ended and the terminal comes back.
  */
-export async function lendTerminal(command: string[], env?: Record<string, string | undefined>) {
+export async function lendTerminal(command: string[], env?: Record<string, string | undefined>, leaveWhen?: (argv: string[]) => boolean) {
   const { stdin, stdout } = process;
   const size = (): [number, number] => [stdout.columns || 80, stdout.rows || 24];
   let drained!: () => void;
@@ -60,8 +64,14 @@ export async function lendTerminal(command: string[], env?: Record<string, strin
   stdin.on("readable", pass);
   stdout.on("resize", resize);
   // A program can stop itself, as Vim does on Ctrl+Z, and there's no shell in its terminal to bring
-  // it back, so it's brought back at once.
-  const watch = process.platform === "linux" ? setInterval(() => void wake(proc.pid), 300) : undefined;
+  // it back, so it's brought back at once. Often enough that a program it leaves barely draws.
+  const watch =
+    process.platform === "linux"
+      ? setInterval(() => {
+          void wake(proc.pid);
+          if (leaveWhen) void commandLine(proc.pid).then((argv) => argv && leaveWhen(argv) && proc.kill("SIGTERM"));
+        }, 100)
+      : undefined;
   try {
     const code = await proc.exited;
     // What it drew last can still be on its way; it mustn't land after Ink draws again.
@@ -73,6 +83,15 @@ export async function lendTerminal(command: string[], env?: Record<string, strin
     stdout.off("resize", resize);
     terminal?.close();
     stdin.setRawMode(false);
+  }
+}
+
+/** A running program's arguments, its name first, as Linux has them in /proc; undefined once it has ended. */
+async function commandLine(pid: number) {
+  try {
+    return (await readFile(`/proc/${pid}/cmdline`, "utf8")).split("\0").slice(0, -1);
+  } catch {
+    return undefined;
   }
 }
 

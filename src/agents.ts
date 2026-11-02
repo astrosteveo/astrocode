@@ -156,6 +156,14 @@ export function attaches(agent: Agent) {
   return agent.state === "working" || agent.state === "blocked" || agent.status === "busy" || agent.status === "waiting";
 }
 
+/**
+ * Whether `claude attach` has turned into Claude Code's agent view, which ← in it opens, by
+ * replacing itself with `claude agents`. astrocode's agents view is the one to go back to.
+ */
+export function leftForAgentView(argv: string[]) {
+  return argv[1] === "agents";
+}
+
 /** Sessions by the project they were started in: `here`'s first, the rest by path, each oldest first. */
 export function groupAgents(agents: Agent[], here: string) {
   const groups = new Map<string, Agent[]>();
