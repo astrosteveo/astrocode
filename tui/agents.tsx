@@ -45,7 +45,7 @@ const LOOK: Record<AgentState | "idle", { glyph: string; color: string; label: s
 };
 
 /** One line of the list: a project's heading, a session, or the gap between projects. */
-type Line = { kind: "folder"; folder: string } | { kind: "here" } | { kind: "agent"; agent: Agent } | { kind: "gap" };
+type Line = { kind: "folder"; folder: string } | { kind: "here"; folder: string } | { kind: "agent"; agent: Agent } | { kind: "gap" };
 
 /** The rows of the list in order, the session open here first under its project, and the lines that draw them. */
 export function listLines(agents: Agent[], here: { cwd: string; folder: string } | null, cwd: string) {
@@ -55,10 +55,20 @@ export function listLines(agents: Agent[], here: { cwd: string; folder: string }
   for (const group of groups) {
     if (lines.length) lines.push({ kind: "gap" });
     lines.push({ kind: "folder", folder: group.folder });
-    if (here && group.folder === here.folder) lines.push({ kind: "here" });
+    if (here && group.folder === here.folder) lines.push({ kind: "here", folder: here.folder });
     for (const agent of group.agents) lines.push({ kind: "agent", agent });
   }
   return lines;
+}
+
+/**
+ * Where a new session starts with `line` chosen: in its project, as Claude Code's agent view does
+ * when grouped by directory. In the project astrocode runs in, that's `cwd` itself, which may be a
+ * subfolder or worktree of it.
+ */
+export function startFolder(line: Line | undefined, cwd: string) {
+  const folder = line?.kind === "agent" ? line.agent.folder : line?.kind === "here" ? line.folder : undefined;
+  return !folder || folder === projectOf(cwd) ? cwd : folder;
 }
 
 const keyOf = (line: Line) => (line.kind === "here" ? "here" : line.kind === "agent" ? line.agent.id : undefined);
@@ -66,7 +76,7 @@ const keyOf = (line: Line) => (line.kind === "here" ? "here" : line.kind === "ag
 type Props = {
   /** The session open in astrocode, if there is one: Esc goes back to it. */
   here: { store: Store; sessionId?: string; title?: string } | null;
-  /** Where a new session starts. */
+  /** Where a new session starts in this project. Another project's row starts it in that project. */
   cwd: string;
   home: string;
   /** What a new session runs with. */
@@ -129,6 +139,7 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onExit }
   const current = keys[index];
   const focused = lines.find((line) => keyOf(line) === current);
   const hereLook = live ? hereState(live, here?.store.shells.size ?? 0) : "idle";
+  const target = startFolder(focused, cwd);
 
   const say = (text: string, tone: "info" | "error" = "info") => setNote({ text, tone });
   /** Runs an action, saying what went wrong if it fails. */
@@ -142,11 +153,11 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onExit }
   const start = (task: string) =>
     act(async () => {
       say("Starting a background session…");
-      const id = await dispatch(task, cwd, settings);
+      const id = await dispatch(task, target, settings);
       setText("");
       await refresh();
       setSelected(id);
-      say(`Started ${id} in ${shortPath(cwd, "", home)}.`);
+      say(`Started ${id} in ${shortPath(target, "", home)}.`);
     });
 
   /** `claude attach`, in Claude Code's own screen, with the terminal lent to it until you leave. */
@@ -242,7 +253,7 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onExit }
   const counts = { blocked: 0, working: 0, done: 0 };
   for (const agent of others) if (agent.state in counts) counts[agent.state as keyof typeof counts] += 1;
   const tally = [`${counts.blocked} need${counts.blocked === 1 ? "s" : ""} input`, `${counts.working} working`, `${counts.done} done`].join(" · ");
-  const newSessions = [settings.model, settings.effort && `${settings.effort} effort`, settings.mode, shortPath(cwd, "", home)].filter(Boolean).join(" · ");
+  const newSessions = [settings.model, settings.effort && `${settings.effort} effort`, settings.mode].filter(Boolean).join(" · ");
 
   const peekLines = peek && focused ? peekOf(focused, title, hereLook, live?.cwd, home) : [];
   const peekRows = peekLines.reduce((sum, line) => sum + Math.max(1, Math.ceil(cellWidth(line.text) / Math.max(1, inner - 10))), 0) + (peekLines.length ? 1 : 0);
@@ -263,7 +274,9 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onExit }
         <Text bold color={PALETTE.star}>
           Agents
         </Text>
-        <Text color={PALETTE.dust}>{`  New sessions: ${newSessions}`}</Text>
+        <Text color={PALETTE.dust}>{"  New sessions in "}</Text>
+        <Text color={PALETTE.star}>{shortPath(target, "", home)}</Text>
+        <Text color={PALETTE.dust}>{newSessions ? `: ${newSessions}` : ""}</Text>
       </Text>
       <Text color={PALETTE.haze}>{agents ? tally : "Reading Claude Code's background sessions…"}</Text>
       <Box flexDirection="column" marginTop={1} height={room} overflow="hidden">

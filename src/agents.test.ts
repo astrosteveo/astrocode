@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { attaches, backgroundArgs, backgroundedId, groupAgents, parseAgentList, prLabel, summary, toAgent, type Agent } from "./agents";
+import { attaches, backgroundArgs, backgroundedId, dispatch, groupAgents, parseAgentList, prLabel, summary, toAgent, type Agent } from "./agents";
 
 const LIST = JSON.stringify([
   {
@@ -125,4 +125,8 @@ test("reads the id claude --bg prints", () => {
   expect(backgroundedId("backgrounded · 8c2ad407 · astrocode-bgtest\n  claude agents   list sessions")).toBe("8c2ad407");
   expect(backgroundedId("note: woke session 8c2ad407 with its saved options (--name, --model).\nbackgrounded · 8c2ad407 · x (idle — send a prompt to start)")).toBe("8c2ad407");
   expect(backgroundedId("Error: something")).toBeUndefined();
+});
+
+test("won't start a session in a folder that's gone", async () => {
+  await expect(dispatch("task", "/nonexistent/astrocode-gone", {})).rejects.toThrow("/nonexistent/astrocode-gone is gone");
 });

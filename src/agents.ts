@@ -4,6 +4,7 @@
 // say those files aren't a stable interface, so everything read from them is optional, and a row
 // without it still shows its state.
 import type { EffortLevel, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -166,6 +167,8 @@ export function groupAgents(agents: Agent[], here: string) {
 
 /** Starts a background session on `task` in `cwd`, and gives its id. */
 export async function dispatch(task: string, cwd: string, settings: SessionSettings) {
+  // An older project's folder may be deleted, and spawning in it would only say ENOENT.
+  if (!existsSync(cwd)) throw new Error(`${cwd} is gone.`);
   // `--` so a task that starts with a dash isn't read as an option.
   return backgrounded(await installedClaude(cwd, ["--bg", ...flags(settings), "--", task]));
 }

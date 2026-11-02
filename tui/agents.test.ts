@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Agent } from "../src/agents";
 import { initialState } from "../src/view/state";
-import { hereState, listLines } from "./agents";
+import { hereState, listLines, startFolder } from "./agents";
 
 const agent = (id: string, folder: string, createdAt = 0): Agent => ({
   id,
@@ -50,4 +50,20 @@ test("the open session can move to the background only while nothing runs or wai
   expect(hereState(idle, 1)).toBe("working");
   expect(hereState({ ...idle, busy: true, pending: [{ id: "p" } as (typeof idle.pending)[number]] }, 0)).toBe("blocked");
   expect(hereState({ ...idle, questions: [{ id: "q" } as (typeof idle.questions)[number]] }, 0)).toBe("blocked");
+});
+
+test("a new session starts in the selected row's project", () => {
+  const lines = listLines([agent("b", "/p/other"), agent("a", "/p/here")], { cwd: "/p/here", folder: "/p/here" }, "/p/here");
+  const at = (key: string) => lines.find((line) => (line.kind === "agent" ? line.agent.id : line.kind) === key);
+  expect(startFolder(at("b"), "/p/here")).toBe("/p/other");
+  expect(startFolder(at("a"), "/p/here")).toBe("/p/here");
+  expect(startFolder(at("here"), "/p/here")).toBe("/p/here");
+});
+
+test("in the project astrocode runs in, a new session starts in its own folder, worktree or subfolder", () => {
+  const worktree = "/p/here/.claude/worktrees/feat-x";
+  const lines = listLines([agent("a", "/p/here")], { cwd: worktree, folder: "/p/here" }, worktree);
+  expect(startFolder(lines.find((line) => line.kind === "here"), worktree)).toBe(worktree);
+  expect(startFolder(lines.find((line) => line.kind === "agent"), worktree)).toBe(worktree);
+  expect(startFolder(undefined, "/p/here/src")).toBe("/p/here/src");
 });

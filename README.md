@@ -95,8 +95,8 @@ The agents view lists Claude Code's background sessions, the ones `claude agents
 
 | Key | What it does |
 | :-- | :-- |
-| Type, then Enter | Start a background session on that task, in this folder, with the model, effort and permission mode a new conversation here would have |
-| ↑ ↓ | Choose a session |
+| Type, then Enter | Start a background session on that task, in Claude Code's background service, with the model, effort and permission mode a new conversation here would have. It starts in the project of the session you've chosen, which the top line names: choose a row in another project to start one there. In the folder you're in, it starts there |
+| ↑ ↓ | Choose a session, and with it the project a new one starts in |
 | Enter | Open it. A finished or stopped session moves into astrocode: its Claude Code in the background stops, and astrocode picks the conversation up with its history on screen. A session that's working or waiting on you opens with `claude attach`, in Claude Code's own screen, since taking it over would cut it off; leave it as Claude Code says (Ctrl+Z comes straight back) |
 | Space | What it was asked, what it says now, its result, its pull requests and its folder |
 | Ctrl+X | Stop it, then press again within two seconds to delete it |
