@@ -22,7 +22,8 @@ export function installedClaude(cwd: string, args: string[]) {
 
 /** The `claude` on your PATH, or the SDK's when there's none. */
 export function installedBinary() {
-  return Bun.which("claude") ?? claudeBinary();
+  // Bun.which reads the PATH astrocode started with unless it's given the one it has now.
+  return Bun.which("claude", { PATH: process.env.PATH }) ?? claudeBinary();
 }
 
 async function run(binary: string, cwd: string, args: string[], input?: string) {
