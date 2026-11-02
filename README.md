@@ -96,6 +96,7 @@ The agents view lists Claude Code's background sessions, the ones `claude agents
 | Key | What it does |
 | :-- | :-- |
 | Type, then Enter | Start a background session on that task, in Claude Code's background service, with the model, effort and permission mode a new conversation here would have. It starts in the project of the session you've chosen, which the top line names: choose a row in another project to start one there. In the folder you're in, it starts there |
+| Type, then Ctrl+Enter | Start it and open it, as Claude Code's agent view does, but in astrocode: a new conversation in the same project, with the task as its first message. Needs a terminal with the kitty keyboard protocol |
 | ↑ ↓ | Choose a session, and with it the project a new one starts in |
 | Enter | Open it. A finished or stopped session moves into astrocode: its Claude Code in the background stops, and astrocode picks the conversation up with its history on screen. A session that's working or waiting on you opens with `claude attach`, in Claude Code's own screen, since taking it over would cut it off; leave it as Claude Code says (Ctrl+Z comes straight back) |
 | Space | What it was asked, what it says now, its result, its pull requests and its folder |
@@ -103,7 +104,7 @@ The agents view lists Claude Code's background sessions, the ones `claude agents
 | Esc | Back to the conversation open in astrocode, or quit when there's none |
 | Ctrl+C twice | Quit |
 
-Opening another session, or quitting from the view, moves the conversation open in astrocode to Claude Code's background service with `claude --bg --resume`, so it carries on in `claude agents` as it would in Claude Code. It goes as it was there if it had run in the background before, and with astrocode's model, effort and mode if it hadn't. That waits until Claude is done in it: its Claude Code stops here, and whatever it was doing would stop too.
+Opening another session, starting one with Ctrl+Enter, or quitting from the view moves the conversation open in astrocode to Claude Code's background service with `claude --bg --resume`, so it carries on in `claude agents` as it would in Claude Code, and the next screen says so. It goes as it was there if it had run in the background before, and with astrocode's model, effort and mode if it hadn't. That waits until Claude is done in it: its Claude Code stops here, and whatever it was doing would stop too.
 
 astrocode reads the list with `claude agents --json`, and runs the `claude` on your `PATH` for everything in the view, since that's the Claude Code the background service runs. Each row's summary, result and pull requests come from Claude Code's `~/.claude/jobs/<id>/state.json`, which its docs say isn't a stable interface; without them, a row still shows its state.
 

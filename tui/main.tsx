@@ -2,7 +2,7 @@ import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
 import { render } from "ink";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { moveToBackground, stopAgent, type SessionSettings } from "../src/agents";
+import { checkFolder, moveToBackground, stopAgent, type SessionSettings } from "../src/agents";
 import { loadHistory, savedSessions, sessionTitle } from "../src/history";
 import { AgentSession } from "../src/session";
 import { showServer, visualInstructions } from "../src/show";
@@ -36,7 +36,12 @@ export type TerminalOptions = {
 type Held = { store: Store; session: AgentSession; cwd: string };
 
 /** What the agents view was left for. */
-type Leaving = { kind: "back" } | { kind: "open"; cwd: string; sessionId: string } | { kind: "exit" };
+type Leaving =
+  | { kind: "back" }
+  | { kind: "open"; cwd: string; sessionId: string; note?: string }
+  /** A new conversation in astrocode, on `task`, as Ctrl+Enter starts. */
+  | { kind: "start"; cwd: string; task: string; note?: string }
+  | { kind: "exit" };
 
 export async function startTerminal(options: TerminalOptions) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -210,6 +215,8 @@ export async function startTerminal(options: TerminalOptions) {
     const sessionId = held?.session.knownId;
     const title = held && sessionId ? await sessionTitle(sessionId, held.cwd).catch(() => undefined) : undefined;
     let leaving: Leaving = { kind: "exit" };
+    /** Says where the conversation open here went, once it's moved to the background. */
+    const moved = (job: string | undefined) => job && `${title ?? "This conversation"} carries on in the background as ${job}: claude attach ${job}, or astrocode agents.`;
     process.stdin.setRawMode(true);
     const app = render(
       <AgentsView
@@ -226,12 +233,16 @@ export async function startTerminal(options: TerminalOptions) {
             throw new Error("Claude is still working in this session, or waiting on you. Esc goes back to it.");
           // Its Claude Code holds the conversation while it runs, even idle; stopped, it can be resumed here.
           if (agent.alive) await stopAgent(agent.id);
-          await handOff();
-          leave({ kind: "open", cwd: agent.cwd, sessionId: agent.sessionId });
+          const job = await handOff();
+          leave({ kind: "open", cwd: agent.cwd, sessionId: agent.sessionId, note: moved(job) });
+        }}
+        onStart={async (task, cwd) => {
+          checkFolder(cwd);
+          const job = await handOff();
+          leave({ kind: "start", cwd, task, note: moved(job) });
         }}
         onExit={async () => {
-          const job = await handOff();
-          if (job) farewell = `${title ?? "This conversation"} carries on in the background as ${job}: claude attach ${job}, or astrocode agents.`;
+          farewell = moved(await handOff());
           leave({ kind: "exit" });
         }}
       />,
@@ -255,7 +266,12 @@ export async function startTerminal(options: TerminalOptions) {
     }
     const leaving = await showAgents();
     if (leaving.kind === "exit") break;
-    if (leaving.kind === "open") held = await open(leaving.cwd, leaving.sessionId);
+    if (leaving.kind === "open") held = await open(leaving.cwd, leaving.sessionId, leaving.note);
+    if (leaving.kind === "start") {
+      held = await open(leaving.cwd, undefined, leaving.note);
+      held.store.sent.push(leaving.task);
+      held.session.send(leaving.task);
+    }
     // The agents view had its own screen. Scrollback is written again, the conversation and all, on a clean one.
     if (held && !fullscreen) redrawScrollback(held.store);
     screen = "session";

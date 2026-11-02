@@ -1,7 +1,8 @@
 // The agents view: Claude Code's background sessions, as `claude agents` lists them, opened with ←
 // in an empty message box or with `astrocode agents`. The session open in astrocode heads its
-// project's group. Type a task and press Enter to start a background session on it; Enter on a
-// row opens it, ↑↓ choose, Space shows more, Ctrl+X stops and then deletes, Esc goes back.
+// project's group. Type a task and press Enter to start a background session on it, or Ctrl+Enter
+// to start it in astrocode, in the chosen row's project; Enter on a row opens it, ↑↓ choose, Space
+// shows more, Ctrl+X stops and then deletes, Esc goes back.
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { attaches, dispatch, groupAgents, listAgents, prLabel, projectOf, removeAgent, STATE_LABELS, stopAgent, summary, type Agent, type AgentState, type SessionSettings } from "../src/agents";
@@ -84,11 +85,13 @@ type Props = {
   onBack: () => void;
   /** Moves a background session into astrocode. Rejects with what went wrong. */
   onOpen: (agent: Agent) => Promise<void>;
+  /** Starts a conversation in astrocode, in `cwd`, with `task` as its first message. Rejects with what went wrong. */
+  onStart: (task: string, cwd: string) => Promise<void>;
   /** Quits astrocode. Rejects with what went wrong, such as the open session still working. */
   onExit: () => Promise<void>;
 };
 
-export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onExit }: Props) {
+export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart, onExit }: Props) {
   const { columns, rows } = useWindowSize();
   const width = Math.max(40, columns);
   const { suspendTerminal } = useApp();
@@ -158,6 +161,13 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onExit }
       await refresh();
       setSelected(id);
       say(`Started ${id} in ${shortPath(target, "", home)}.`);
+    });
+
+  /** Ctrl+Enter, as in Claude Code's agent view: start it and open it, here in astrocode. */
+  const startHere = (task: string) =>
+    act(async () => {
+      say(`Starting in ${shortPath(target, "", home)}…`);
+      await onStart(task, target);
     });
 
   /** `claude attach`, in Claude Code's own screen, with the terminal lent to it until you leave. */
@@ -231,7 +241,8 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onExit }
       const next = keys[Math.max(0, Math.min(keys.length - 1, index + (key.upArrow ? -1 : 1)))];
       return setSelected(next);
     }
-    if (key.return) return text.trim() ? start(text.trim()) : open();
+    if (key.return && text.trim()) return key.ctrl ? startHere(text.trim()) : start(text.trim());
+    if (key.return) return open();
     if (key.ctrl && input === "x") return stopOrDelete();
     if (key.ctrl && input === "u") return setText("");
     if (key.backspace || key.delete) return setText((typed) => [...typed].slice(0, -1).join(""));
@@ -266,7 +277,7 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onExit }
 
   const enter = !focused || focused.kind === "folder" || focused.kind === "gap" ? "" : focused.kind === "here" ? "enter back to it" : attaches(focused.agent) ? "enter attach" : "enter open here";
   const stop = focused?.kind === "agent" ? (focused.agent.alive ? "ctrl+x stop" : "ctrl+x delete") : "";
-  const hints = text ? ["enter start", "esc clear"] : [enter, "space peek", stop, here ? "esc back" : "esc quit"].filter(Boolean);
+  const hints = text ? ["enter start in the background", "ctrl+enter start and open", "esc clear"] : [enter, "space peek", stop, here ? "esc back" : "esc quit"].filter(Boolean);
 
   return (
     <Box flexDirection="column" width={width} paddingX={1}>

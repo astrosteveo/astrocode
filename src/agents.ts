@@ -165,10 +165,14 @@ export function groupAgents(agents: Agent[], here: string) {
     .map(([folder, members]) => ({ folder, agents: members }));
 }
 
+/** Fails when `cwd` is gone, which an older project's folder can be: a session started there would only say ENOENT. */
+export function checkFolder(cwd: string) {
+  if (!existsSync(cwd)) throw new Error(`${cwd} is gone.`);
+}
+
 /** Starts a background session on `task` in `cwd`, and gives its id. */
 export async function dispatch(task: string, cwd: string, settings: SessionSettings) {
-  // An older project's folder may be deleted, and spawning in it would only say ENOENT.
-  if (!existsSync(cwd)) throw new Error(`${cwd} is gone.`);
+  checkFolder(cwd);
   // `--` so a task that starts with a dash isn't read as an option.
   return backgrounded(await installedClaude(cwd, ["--bg", ...flags(settings), "--", task]));
 }
