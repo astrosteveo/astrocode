@@ -164,9 +164,12 @@ export function leftForAgentView(argv: string[]) {
   return argv[1] === "agents";
 }
 
-/** Sessions by the project they were started in: `here`'s first, the rest by path, each oldest first. */
-export function groupAgents(agents: Agent[], here: string) {
-  const groups = new Map<string, Agent[]>();
+/**
+ * Sessions by the project they were started in: `here`'s first, the rest by path, each oldest
+ * first. Each of `folders` has a group too, empty if nothing ran there.
+ */
+export function groupAgents(agents: Agent[], here: string, folders: string[] = []) {
+  const groups = new Map<string, Agent[]>(folders.map((folder) => [folder, []]));
   for (const agent of [...agents].sort((a, b) => a.createdAt - b.createdAt)) {
     const group = groups.get(agent.folder) ?? [];
     group.push(agent);

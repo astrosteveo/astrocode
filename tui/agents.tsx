@@ -1,8 +1,10 @@
-// The agents view: Claude Code's background sessions, as `claude agents` lists them, opened with ←
-// in an empty message box or with `astrocode agents`. The session open in astrocode heads its
-// project's group. Type a task and press Enter, or Ctrl+Enter, to start it in astrocode, in the
-// chosen row's project; Enter on a row opens it, ↑↓ choose a session, or a project while a task is
-// typed, Space shows more, Ctrl+X stops and then deletes, Esc goes back.
+// The agents view, as Claude Code's `claude agents` is: the conversations astrocode runs, and
+// Claude Code's background sessions, opened with ← in an empty message box or with `astrocode
+// agents`. astrocode's conversations head their projects' groups and carry on while you're here or
+// in another one. Type a task and press Enter to start it in a new one, in the chosen row's
+// project, and stay here to start more; Ctrl+Enter starts it and opens it. Enter or → on a row
+// opens it, ↑↓ choose a row, or a project while a task is typed, Space shows more, Ctrl+X stops
+// and then deletes, Esc goes back.
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { attaches, groupAgents, leftForAgentView, listAgents, prLabel, projectOf, removeAgent, STATE_LABELS, stopAgent, summary, type Agent, type AgentState, type SessionSettings } from "../src/agents";
@@ -11,11 +13,12 @@ import { topLevelEnv } from "../src/session";
 import { ago } from "../src/view/format";
 import type { State } from "../src/view/state";
 import { shortPath } from "../src/view/tools";
+import { describe } from "./activity";
 import { ChoiceRow } from "./choice";
 import { lendTerminal } from "./editor";
+import { firstPrompt, titleOf, type Conversation, type Fleet } from "./fleet";
 import { cellWidth } from "./markdown";
 import { fit } from "./markdown-view";
-import type { Store } from "./store";
 import { PALETTE } from "./theme";
 
 /** How often the list is read again. */
@@ -25,15 +28,39 @@ const ARM_MS = 2000;
 /** The widest the name column gets. */
 const NAME_CELLS = 32;
 
-/** The session open in astrocode, as the view shows it: whether Claude works in it or waits on you. */
-export type HereState = "working" | "blocked" | "idle";
+/** Where one of astrocode's conversations is: working, waiting on you, or idle and free to move to the background. */
+export type LiveState = "working" | "blocked" | "idle";
 
-/** Where the session open in astrocode is: working, waiting on you, or idle and free to move to the background. */
-export function hereState(state: State, shells: number): HereState {
+export function liveState(state: State, shells: number): LiveState {
   if (state.pending.length || state.questions.length || state.elicitations.length) return "blocked";
   // What runs in the background, Claude's or yours, would stop with this Claude Code.
   if (state.busy || state.tasks.length || shells) return "working";
   return "idle";
+}
+
+/** The state a row shows for one of astrocode's conversations: its live state, or once it's idle, how its last turn ended. */
+export function mineState(state: State, shells: number): AgentState | "idle" {
+  const live = liveState(state, shells);
+  if (live !== "idle") return live;
+  const turn = state.items.findLast((item) => item.kind === "turn");
+  if (turn?.kind !== "turn") return "idle";
+  return turn.outcome === "finished" ? "done" : turn.outcome;
+}
+
+/** What its row says: what Claude is doing, what went wrong, or once it's done, the start of Claude's last reply. */
+export function mineSummary(state: State, shells: number) {
+  // "Working" says only what the row's state already does.
+  if (liveState(state, shells) !== "idle") return describe(state).replace(/^Working$/, "");
+  const turn = state.items.findLast((item) => item.kind === "turn");
+  if (turn?.kind === "turn" && turn.outcome !== "finished" && turn.detail) return turn.detail;
+  const reply = state.items.findLast((item) => item.kind === "text" && !item.command);
+  return reply?.kind === "text" ? plainLine(reply.text) : "";
+}
+
+/** The first line of Markdown with something in it, without the marks that would only be noise on a row. */
+function plainLine(markdown: string) {
+  const line = markdown.split("\n").find((one) => one.trim()) ?? "";
+  return line.replace(/^\s*(?:#+|>|[-*]|\d+\.)\s+/, "").replace(/\*\*|`/g, "").trim();
 }
 
 const LOOK: Record<AgentState | "idle", { glyph: string; color: string; label: string }> = {
@@ -45,18 +72,19 @@ const LOOK: Record<AgentState | "idle", { glyph: string; color: string; label: s
   idle: { glyph: "◇", color: PALETTE.haze, label: "Idle" },
 };
 
-/** One line of the list: a project's heading, a session, or the gap between projects. */
-type Line = { kind: "folder"; folder: string } | { kind: "here"; folder: string } | { kind: "agent"; agent: Agent } | { kind: "gap" };
+/** One line of the list: a project's heading, one of astrocode's conversations, a background session, or the gap between projects. */
+type Line = { kind: "folder"; folder: string } | { kind: "mine"; key: string; folder: string } | { kind: "agent"; agent: Agent } | { kind: "gap" };
 
-/** The rows of the list in order, the session open here first under its project, and the lines that draw them. */
-export function listLines(agents: Agent[], here: { cwd: string; folder: string } | null, cwd: string) {
-  const groups = groupAgents(agents, here?.cwd ?? cwd);
-  if (here && !groups.some((group) => group.folder === here.folder)) groups.unshift({ folder: here.folder, agents: [] });
+/**
+ * The rows of the list in order, and the lines that draw them: by project, `cwd`'s first, with
+ * astrocode's conversations first in each, in the order they started.
+ */
+export function listLines(agents: Agent[], mine: readonly { key: string; cwd: string }[], cwd: string) {
   const lines: Line[] = [];
-  for (const group of groups) {
+  for (const group of groupAgents(agents, cwd, mine.map((one) => projectOf(one.cwd)))) {
     if (lines.length) lines.push({ kind: "gap" });
     lines.push({ kind: "folder", folder: group.folder });
-    if (here && group.folder === here.folder) lines.push({ kind: "here", folder: here.folder });
+    for (const one of mine) if (projectOf(one.cwd) === group.folder) lines.push({ kind: "mine", key: one.key, folder: group.folder });
     for (const agent of group.agents) lines.push({ kind: "agent", agent });
   }
   return lines;
@@ -68,11 +96,11 @@ export function listLines(agents: Agent[], here: { cwd: string; folder: string }
  * subfolder or worktree of it.
  */
 export function startFolder(line: Line | undefined, cwd: string) {
-  const folder = line?.kind === "agent" ? line.agent.folder : line?.kind === "here" ? line.folder : undefined;
+  const folder = line?.kind === "agent" ? line.agent.folder : line?.kind === "mine" ? line.folder : undefined;
   return !folder || folder === projectOf(cwd) ? cwd : folder;
 }
 
-const keyOf = (line: Line) => (line.kind === "here" ? "here" : line.kind === "agent" ? line.agent.id : undefined);
+const keyOf = (line: Line) => (line.kind === "mine" ? line.key : line.kind === "agent" ? line.agent.id : undefined);
 
 /**
  * The row ↑ or ↓ chooses from `current`: the session before or after it, or by project, the first
@@ -101,32 +129,40 @@ export function chosenLine(lines: Line[], current: string | undefined, typing: b
 }
 
 type Props = {
-  /** The session open in astrocode, if there is one: Esc goes back to it. */
-  here: { store: Store; sessionId?: string; title?: string } | null;
+  /** The conversations astrocode runs. */
+  fleet: Fleet;
+  /** The one the view was opened from, which Esc goes back to. */
+  here?: string;
   /** Where a new session starts in this project. Another project's row starts it in that project. */
   cwd: string;
   home: string;
   /** What a new session runs with. */
   settings: SessionSettings;
-  onBack: () => void;
-  /** Moves a background session into astrocode. Rejects with what went wrong. */
+  /** Said on the note line as the view opens, such as why astrocode didn't quit. */
+  notice?: string;
+  /** Shows one of astrocode's conversations. */
+  onShow: (key: string) => void;
+  /** Moves a background session into astrocode and shows it. Rejects with what went wrong. */
   onOpen: (agent: Agent) => Promise<void>;
-  /** Starts a conversation in astrocode, in `cwd`, with `task` as its first message. Rejects with what went wrong. */
-  onStart: (task: string, cwd: string) => Promise<void>;
-  /** Quits astrocode. Rejects with what went wrong, such as the open session still working. */
+  /** Starts a conversation in astrocode, in `cwd`, with `task` as its first message, and gives its key. Rejects with what went wrong. */
+  onStart: (task: string, cwd: string) => Promise<string>;
+  /** Stops one of astrocode's conversations. It's saved, so /resume can pick it up again. */
+  onStop: (key: string) => void;
+  /** Quits astrocode. Rejects with what went wrong, such as a conversation still working. */
   onExit: () => Promise<void>;
 };
 
-export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart, onExit }: Props) {
+export function AgentsView({ fleet, here, cwd, home, settings, notice, onShow, onOpen, onStart, onStop, onExit }: Props) {
   const { columns, rows } = useWindowSize();
   const width = Math.max(40, columns);
   const { suspendTerminal } = useApp();
-  const live = useHere(here?.store);
+  const mine = useFleet(fleet);
   const [agents, setAgents] = useState<Agent[] | null>(null);
+  const [titles, setTitles] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState<{ text: string; tone: "info" | "error" } | null>(null);
+  const [note, setNote] = useState<{ text: string; tone: "info" | "error" } | null>(notice ? { text: notice, tone: "error" } : null);
   const [text, setText] = useState("");
-  const [selected, setSelected] = useState<string | undefined>(here ? "here" : undefined);
+  const [selected, setSelected] = useState<string | undefined>(here);
   const [peek, setPeek] = useState(false);
   /** What a first Ctrl+X or Ctrl+C readied, until it's pressed again or the moment passes. */
   const [armed, setArmed] = useState<{ action: "delete"; id: string } | { action: "exit" } | null>(null);
@@ -135,13 +171,16 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
   const attaching = useRef(false);
 
   const refresh = () =>
-    listAgents().then(
-      (list) => {
-        setAgents(list);
-        setError(null);
-      },
-      (failure: unknown) => setError(messageOf(failure)),
-    );
+    Promise.all([
+      listAgents().then(
+        (list) => {
+          setAgents(list);
+          setError(null);
+        },
+        (failure: unknown) => setError(messageOf(failure)),
+      ),
+      Promise.all(fleet.getSnapshot().map(async (one) => [one.key, await titleOf(one)] as const)).then((named) => setTitles(Object.fromEntries(named))),
+    ]);
 
   useEffect(() => {
     void refresh();
@@ -157,18 +196,20 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
     return () => clearTimeout(timer);
   }, [armed]);
 
-  // A conversation open here that ran in the background before is still listed there, stopped:
+  // A conversation in astrocode that ran in the background before is still listed there, stopped:
   // its row here stands for it, named as it was there.
-  const others = (agents ?? []).filter((agent) => !here?.sessionId || agent.sessionId !== here.sessionId);
-  const title = here?.title ?? agents?.find((agent) => here?.sessionId && agent.sessionId === here.sessionId)?.name;
-  const hereRow = here && live ? { cwd: live.cwd, folder: projectOf(live.cwd) } : null;
-  const lines = listLines(others, hereRow, cwd);
+  const ids = new Map(mine.flatMap((one) => (one.session.knownId ? [[one.session.knownId, one.key] as const] : [])));
+  const others = (agents ?? []).filter((agent) => !agent.sessionId || !ids.has(agent.sessionId));
+  const nameOf = (one: Conversation) =>
+    titles[one.key] ?? agents?.find((agent) => agent.sessionId && ids.get(agent.sessionId) === one.key)?.name ?? firstPrompt(one.store.getSnapshot()) ?? "New conversation";
+  const lines = listLines(others, mine, fleet.get(here)?.cwd ?? cwd);
   const keys = lines.flatMap((line) => keyOf(line) ?? []);
   const index = Math.max(0, keys.indexOf(selected ?? ""));
   const current = keys[index];
   const focused = lines.find((line) => keyOf(line) === current);
-  const hereLook = live ? hereState(live, here?.store.shells.size ?? 0) : "idle";
+  const focusedMine = focused?.kind === "mine" ? fleet.get(focused.key) : undefined;
   const target = startFolder(focused, cwd);
+  const back = fleet.get(here);
 
   const say = (text: string, tone: "info" | "error" = "info") => setNote({ text, tone });
   /** Runs an action, saying what went wrong if it fails. */
@@ -180,13 +221,18 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
   };
 
   /**
-   * Enter or Ctrl+Enter: start it and open it, as Ctrl+Enter does in Claude Code's agent view, but
-   * here in astrocode. Claude Code's background service would show it only in its own screen.
+   * Enter: start it in a new conversation in astrocode, which carries on while you stay here to
+   * start more, as a dispatched session does in Claude Code's agent view. Ctrl+Enter opens it too.
    */
-  const start = (task: string) =>
+  const start = (task: string, open: boolean) =>
     act(async () => {
-      say(`Starting in ${shortPath(target, "", home)}…`);
-      await onStart(task, target);
+      const where = shortPath(target, "", home);
+      say(`Starting in ${where}…`);
+      const key = await onStart(task, target);
+      if (open) return onShow(key);
+      setText("");
+      setSelected(key);
+      say(`Started “${fit(task, 40, false)}” in ${where}.`);
     });
 
   /**
@@ -209,7 +255,7 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
 
   const open = () => {
     if (!focused || focused.kind === "folder" || focused.kind === "gap") return;
-    if (focused.kind === "here") return onBack();
+    if (focused.kind === "mine") return onShow(focused.key);
     const agent = focused.agent;
     if (attaches(agent)) return attach(agent);
     act(async () => {
@@ -219,10 +265,11 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
   };
 
   const stopOrDelete = () => {
-    if (!focused || focused.kind !== "agent") {
-      if (focused?.kind === "here") say("This session is open in astrocode. Enter goes back to it.");
-      return;
+    if (focusedMine) {
+      onStop(focusedMine.key);
+      return say(`Stopped ${nameOf(focusedMine)}. /resume picks it up again.`);
     }
+    if (!focused || focused.kind !== "agent") return;
     const agent = focused.agent;
     if (armed?.action === "delete" && armed.id === agent.id) {
       setArmed(null);
@@ -251,7 +298,7 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
     if (key.escape) {
       if (peek) return setPeek(false);
       if (text) return setText("");
-      return here ? onBack() : quit();
+      return back ? onShow(back.key) : quit();
     }
     if (key.ctrl && input === "c") {
       if (text) return setText("");
@@ -261,8 +308,8 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
     }
     // With a task typed, the choice that matters is the project it starts in.
     if (key.upArrow || key.downArrow) return setSelected(moveTo(lines, current, key.upArrow ? -1 : 1, Boolean(text)));
-    if (key.return && text.trim()) return start(text.trim());
-    if (key.return) return open();
+    if (key.return && text.trim()) return start(text.trim(), key.ctrl);
+    if (key.return || (key.rightArrow && !text)) return open();
     if (key.ctrl && input === "x") return stopOrDelete();
     if (key.ctrl && input === "u") return setText("");
     if (key.backspace || key.delete) return setText((typed) => [...typed].slice(0, -1).join(""));
@@ -272,21 +319,38 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
     setText((typed) => typed + input.replace(/[\r\n]+/g, " "));
   });
 
+  /** A row's name, look and what it says, for one of astrocode's conversations or a background session. */
+  const rowOf = (line: Extract<Line, { kind: "mine" | "agent" }>) => {
+    if (line.kind === "agent") {
+      const { agent } = line;
+      return { key: agent.id, name: agent.name, state: agent.state, said: summary(agent), prs: prLabel(agent), age: ago(agent.updatedAt) };
+    }
+    const one = fleet.get(line.key);
+    const state = one?.store.getSnapshot();
+    const shells = one?.store.shells.size ?? 0;
+    return {
+      key: line.key,
+      name: one ? nameOf(one) : "",
+      state: state ? mineState(state, shells) : ("idle" as const),
+      said: state ? mineSummary(state, shells) : "",
+      prs: "",
+      age: "",
+    };
+  };
+  const rowLines = lines.filter((line): line is Extract<Line, { kind: "mine" | "agent" }> => line.kind === "mine" || line.kind === "agent");
+  const shownRows = rowLines.map(rowOf);
+
   const inner = width - 2;
-  const nameCells = Math.min(
-    NAME_CELLS,
-    Math.floor(inner * 0.3),
-    Math.max(8, ...others.map((agent) => cellWidth(agent.name)), here ? cellWidth(hereName(title)) : 0),
-  );
-  const ageCells = Math.max(0, ...others.map((agent) => ago(agent.updatedAt).length));
-  const prCells = Math.max(0, ...others.map((agent) => prLabel(agent).length));
+  const nameCells = Math.min(NAME_CELLS, Math.floor(inner * 0.3), Math.max(8, ...shownRows.map((row) => cellWidth(row.name))));
+  const ageCells = Math.max(0, ...shownRows.map((row) => row.age.length));
+  const prCells = Math.max(0, ...shownRows.map((row) => row.prs.length));
 
   const counts = { blocked: 0, working: 0, done: 0 };
-  for (const agent of others) if (agent.state in counts) counts[agent.state as keyof typeof counts] += 1;
+  for (const row of shownRows) if (row.state in counts) counts[row.state as keyof typeof counts] += 1;
   const tally = [`${counts.blocked} need${counts.blocked === 1 ? "s" : ""} input`, `${counts.working} working`, `${counts.done} done`].join(" · ");
   const newSessions = [settings.model, settings.effort && `${settings.effort} effort`, settings.mode].filter(Boolean).join(" · ");
 
-  const peekLines = peek && focused ? peekOf(focused, title, hereLook, live?.cwd, home) : [];
+  const peekLines = peek && focused ? peekOf(focused, focusedMine && { name: nameOf(focusedMine), state: focusedMine.store.getSnapshot(), shells: focusedMine.store.shells.size, cwd: focusedMine.cwd }, home) : [];
   const peekRows = peekLines.reduce((sum, line) => sum + Math.max(1, Math.ceil(cellWidth(line.text) / Math.max(1, inner - 10))), 0) + (peekLines.length ? 1 : 0);
   // Less the header and the gap under it, the message box with its edges and the gap over it,
   // the keys' line, the note, and a spare row so the screen never scrolls.
@@ -296,9 +360,9 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
   const first = Math.min(Math.max(0, at - Math.floor(room / 2)), Math.max(0, lines.length - room));
   const shown = lines.slice(first, first + room);
 
-  const enter = !focused || focused.kind === "folder" || focused.kind === "gap" ? "" : focused.kind === "here" ? "enter back to it" : attaches(focused.agent) ? "enter attach" : "enter open here";
-  const stop = focused?.kind === "agent" ? (focused.agent.alive ? "ctrl+x stop" : "ctrl+x delete") : "";
-  const hints = text ? ["enter start and open", "↑↓ project", "esc clear"] : [enter, "space peek", stop, here ? "esc back" : "esc quit"].filter(Boolean);
+  const enter = !focused || focused.kind === "folder" || focused.kind === "gap" ? "" : focused.kind === "mine" ? "enter open" : attaches(focused.agent) ? "enter attach" : "enter open here";
+  const stop = focusedMine ? "ctrl+x stop" : focused?.kind === "agent" ? (focused.agent.alive ? "ctrl+x stop" : "ctrl+x delete") : "";
+  const hints = text ? ["enter start", "ctrl+enter start and open", "↑↓ project", "esc clear"] : [enter, "space peek", stop, back ? "esc back" : "esc quit"].filter(Boolean);
 
   return (
     <Box flexDirection="column" width={width} paddingX={1}>
@@ -313,7 +377,7 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
       <Text color={PALETTE.haze}>{agents ? tally : "Reading Claude Code's background sessions…"}</Text>
       <Box flexDirection="column" marginTop={1} height={room} overflow="hidden">
         {error ? <Text color={PALETTE.rose}>{error}</Text> : null}
-        {agents && !lines.length ? <Text color={PALETTE.haze}>No background sessions yet. Describe a task below to start one.</Text> : null}
+        {agents && !lines.length ? <Text color={PALETTE.haze}>No sessions yet. Describe a task below to start one.</Text> : null}
         {shown.map((line, i) => {
           if (line.kind === "gap") return <Text key={`gap-${first + i}`}> </Text>;
           if (line.kind === "folder") {
@@ -325,20 +389,21 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
               </Box>
             );
           }
-          const row =
-            line.kind === "here"
-              ? { key: "here", name: hereName(title), look: LOOK[hereLook], said: "open in astrocode", prs: "", age: "" }
-              : { key: line.agent.id, name: line.agent.name, look: LOOK[line.agent.state], said: summary(line.agent), prs: prLabel(line.agent), age: ago(line.agent.updatedAt) };
+          const row = rowOf(line);
+          const look = LOOK[row.state];
           const tail = (prCells ? 2 + prCells : 0) + (ageCells ? 2 + ageCells : 0);
           const middle = Math.max(0, inner - 2 - 2 - nameCells - 2 - tail);
-          const state = `${row.look.label}${row.said ? " · " : ""}`;
+          const state = `${look.label}${row.said ? " · " : ""}`;
           return (
             <ChoiceRow key={row.key} selected={first + i === chosen} width={inner}>
               <Text wrap="truncate">
-                <Text color={row.look.color}>{`${row.look.glyph} `}</Text>
-                <Text color={PALETTE.star}>{pad(fit(row.name, nameCells, false), nameCells)}</Text>
+                <Text color={look.color}>{`${look.glyph} `}</Text>
+                {/* The one the view was opened from stays bold, as in Claude Code's agent view. */}
+                <Text color={PALETTE.star} bold={row.key === here}>
+                  {pad(fit(row.name, nameCells, false), nameCells)}
+                </Text>
                 {"  "}
-                <Text color={row.look.color}>{fit(state, middle, false)}</Text>
+                <Text color={look.color}>{fit(state, middle, false)}</Text>
                 <Text color={PALETTE.haze}>{pad(fit(row.said, Math.max(0, middle - cellWidth(state)), false), Math.max(0, middle - cellWidth(state)))}</Text>
                 <Text color={PALETTE.dust}>{prCells ? `  ${row.prs.padStart(prCells)}` : ""}</Text>
                 <Text color={PALETTE.dust}>{ageCells ? `  ${row.age.padStart(ageCells)}` : ""}</Text>
@@ -376,27 +441,32 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
   );
 }
 
-/** The open session's state as it changes, so its row says whether Claude is still working. */
-function useHere(store: Store | undefined) {
-  return useSyncExternalStore(store?.subscribe ?? NO_SUBSCRIPTION, store?.getSnapshot ?? NO_STATE);
-}
-
-const NO_SUBSCRIPTION = () => () => {};
-const NO_STATE = () => undefined;
-
-function hereName(title?: string) {
-  return title ?? "this session";
+/** astrocode's conversations, drawn again as any of them changes, so each row says what Claude is doing in it. */
+function useFleet(fleet: Fleet) {
+  const mine = useSyncExternalStore(fleet.subscribe, fleet.getSnapshot);
+  const [, redraw] = useState(0);
+  useEffect(() => {
+    const stops = mine.map((one) => one.store.subscribe(() => redraw((n) => n + 1)));
+    return () => {
+      for (const stop of stops) stop();
+    };
+  }, [mine]);
+  return mine;
 }
 
 /** What Space shows about a row: what it was asked, what it says now, its result, pull requests and folder. */
-function peekOf(line: Line, title: string | undefined, state: HereState, cwd: string | undefined, home: string) {
+function peekOf(line: Line, mine: { name: string; state: State; shells: number; cwd: string } | undefined, home: string) {
   const rows: { label: string; text: string }[] = [];
   const add = (label: string, text: string | undefined) => {
     if (text) rows.push({ label, text });
   };
-  if (line.kind === "here") {
-    add("Session", `${hereName(title)} · ${LOOK[state].label}, open in astrocode`);
-    add("Folder", cwd && shortPath(cwd, "", home));
+  if (line.kind === "mine" && mine) {
+    const live = liveState(mine.state, mine.shells) !== "idle";
+    add("Session", `${mine.name} · ${LOOK[mineState(mine.state, mine.shells)].label}, in astrocode`);
+    add("Asked", firstPrompt(mine.state));
+    add(live ? "Now" : "Result", mineSummary(mine.state, mine.shells));
+    add("Folder", shortPath(mine.cwd, "", home));
+    add("Enter", "opens it");
     return rows;
   }
   if (line.kind !== "agent") return rows;

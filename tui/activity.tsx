@@ -65,7 +65,8 @@ function Sweep({ text, frame }: { text: string; frame: number }) {
   );
 }
 
-function describe(state: State) {
+/** What Claude is doing, in a few words: "Thinking", "Running Bash · the test suite", "Waiting for your OK". */
+export function describe(state: State) {
   if (state.questions.length > 0) return "Claude has a question for you";
   if (state.elicitations.length > 0) return `${state.elicitations[0]?.server ?? "An MCP server"} is asking you something`;
   if (state.pending.length > 0) return "Waiting for your OK";

@@ -8,9 +8,10 @@ import { AgentSession } from "../src/session";
 import { showServer, visualInstructions } from "../src/show";
 import { loadSettings, saved as settingsSaved } from "../src/settings";
 import { loadStash, stashSaved } from "../src/stash";
-import { AgentsView, hereState } from "./agents";
+import { AgentsView, liveState } from "./agents";
 import { App } from "./app";
 import { CANVAS_COLORS, canvas } from "./diagrams";
+import { Fleet, moveAll, titleOf, type Conversation } from "./fleet";
 import { gitInfo } from "./git";
 import { loadKeymap } from "./keys";
 import { Mouse, MouseContext } from "./mouse";
@@ -32,16 +33,11 @@ export type TerminalOptions = {
   agents?: boolean;
 };
 
-/** A conversation open in astrocode: what's on screen, and the Claude Code it runs in. */
-type Held = { store: Store; session: AgentSession; cwd: string };
+/** A conversation astrocode runs: what's on screen for it, and the Claude Code it runs in. */
+type Held = Conversation & { session: AgentSession };
 
-/** What the agents view was left for. */
-type Leaving =
-  | { kind: "back" }
-  | { kind: "open"; cwd: string; sessionId: string; note?: string }
-  /** A new conversation in astrocode, on `task`, as a task typed in the agents view starts. */
-  | { kind: "start"; cwd: string; task: string; note?: string }
-  | { kind: "exit" };
+/** What the agents view was left for: one of astrocode's conversations, or out of astrocode. */
+type Leaving = { kind: "show"; key: string } | { kind: "exit" };
 
 export async function startTerminal(options: TerminalOptions) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -67,20 +63,24 @@ export async function startTerminal(options: TerminalOptions) {
   // says is wrong with the file waits for the first conversation to show it.
   const { keymap, problems } = await loadKeymap();
   let unsaid = problems;
-  let held: Held | null = null;
+  const fleet = new Fleet<Held>();
+  /** The conversation on screen, or the one the agents view was opened from. */
+  let shown: Held | null = null;
+  let started = 0;
   // Process warnings print straight to stderr, over the screen. The SDK warns on every start in
   // bypass mode that canUseTool won't run, but Claude's questions still come through it.
   process.removeAllListeners("warning");
   process.on("warning", (warning) => {
     if ((warning as { code?: string }).code === "CLAUDE_SDK_CAN_USE_TOOL_SHADOWED") return;
-    held?.store.emit({ kind: "notice", tone: "info", text: `Warning: ${warning.message}` });
+    shown?.store.emit({ kind: "notice", tone: "info", text: `Warning: ${warning.message}` });
   });
 
   /** Starts a conversation in `cwd`, a new one or `resume`d with its history on screen, with what you last picked. */
   const open = async (cwd: string, resume?: string, note?: string): Promise<Held> => {
     const store = new Store(cwd, homedir());
     const saved = await loadSettings();
-    const stash = await loadStash(cwd);
+    // The stash is the folder's, and one conversation holds it, so it can't come back twice.
+    const stash = fleet.getSnapshot().some((one) => one.cwd === cwd) ? null : await loadStash(cwd);
     if (stash) store.unstash(stash);
     if (saved.todos) store.todos = saved.todos;
     if (saved.notify) store.notifyMode = saved.notify;
@@ -120,7 +120,8 @@ export async function startTerminal(options: TerminalOptions) {
           store.emit({ kind: "notice", tone: "error", text: `Couldn't load the earlier conversation: ${error instanceof Error ? error.message : String(error)}` }),
         );
     }
-    return { store, session, cwd };
+    started += 1;
+    return fleet.add({ key: `astrocode-${started}`, store, session, cwd });
   };
 
   /** What a session started from the agents view runs with: what a new conversation here would. */
@@ -184,65 +185,80 @@ export async function startTerminal(options: TerminalOptions) {
   };
 
   /**
-   * Moves the conversation open here to Claude Code's background service, which carries it on where
-   * `claude agents` lists it, and gives its id there. Only while Claude is idle: its Claude Code here
-   * stops, and whatever it was doing would stop with it.
+   * Moves a conversation to Claude Code's background service, which carries it on where `claude
+   * agents` lists it, and gives its id there. Its Claude Code here stops, so only while it's idle.
    */
-  const handOff = async () => {
-    if (!held) return undefined;
-    const { store, session, cwd } = held;
+  const handOff = async (conversation: Held) => {
+    const { store, session, cwd } = conversation;
     const state = store.getSnapshot();
-    if (hereState(state, store.shells.size) !== "idle") throw new Error("Claude is still working in this session, or waiting on you. Esc goes back to it.");
     const id = session.knownId;
     session.close();
-    held = null;
+    fleet.remove(conversation);
     // A conversation with nothing said in it yet has nothing to carry on.
     if (!id || !state.items.some((item) => item.kind === "prompt")) return undefined;
-    try {
-      return await moveToBackground(id, cwd, { model: state.model, effort: state.effort, mode: state.mode });
-    } catch (error) {
-      session.start();
-      held = { store, session, cwd };
-      throw error;
+    return moveToBackground(id, cwd, { model: state.model, effort: state.effort, mode: state.mode });
+  };
+
+  /**
+   * As astrocode quits, moves its conversations but `except` to Claude Code's background service,
+   * so they carry on as sessions `claude agents` dispatched would, and says where they went. Fails,
+   * moving none, while one is working or waiting on you, which quitting would cut off.
+   */
+  const leaveAll = async (except?: Held) => {
+    const leaving = fleet.getSnapshot().filter((one) => one !== except);
+    const busy = leaving.filter((one) => liveState(one.store.getSnapshot(), one.store.shells.size) !== "idle");
+    if (busy.length) {
+      const names = (await Promise.all(busy.map(titleOf))).map((name) => `“${name}”`).join(", ");
+      // The note line is one row, so what matters comes first.
+      throw new Error(`Can't quit while Claude works or waits on you in ${names}. Ctrl+X stops one.`);
     }
+    return (await moveAll(leaving, handOff)).join("\n") || undefined;
+  };
+
+  /** Stops one of astrocode's conversations. It's saved, so /resume picks it up again. */
+  const stop = (conversation: Held) => {
+    conversation.store.stopShells();
+    conversation.session.close();
+    fleet.remove(conversation);
+    if (shown === conversation) shown = null;
   };
 
   let farewell: string | undefined;
 
-  /** The agents view, until it's left: back to the conversation open here, into another one, or out of astrocode. */
-  const showAgents = async (): Promise<Leaving> => {
+  /** The agents view, until it's left for one of astrocode's conversations or out of astrocode. */
+  const showAgents = async (notice?: string): Promise<Leaving> => {
     const settings = await newSettings();
-    const sessionId = held?.session.knownId;
-    const title = held && sessionId ? await sessionTitle(sessionId, held.cwd).catch(() => undefined) : undefined;
     let leaving: Leaving = { kind: "exit" };
-    /** Says where the conversation open here went, once it's moved to the background. */
-    const moved = (job: string | undefined) => job && `${title ?? "This conversation"} carries on in the background as ${job}: claude attach ${job}, or astrocode agents.`;
     process.stdin.setRawMode(true);
     const app = render(
       <AgentsView
-        here={held ? { store: held.store, sessionId, title } : null}
-        cwd={held?.cwd ?? options.cwd}
+        fleet={fleet}
+        here={shown?.key}
+        cwd={shown?.cwd ?? options.cwd}
         home={homedir()}
         settings={settings}
-        onBack={() => leave({ kind: "back" })}
+        notice={notice}
+        onShow={(key) => leave({ kind: "show", key })}
         onOpen={async (agent) => {
-          if (agent.sessionId && agent.sessionId === held?.session.knownId) return leave({ kind: "back" });
           if (!agent.sessionId) throw new Error(`Claude Code hasn't said which conversation ${agent.name} is.`);
           if (!existsSync(agent.cwd)) throw new Error(`${agent.name}'s folder, ${agent.cwd}, is gone.`);
-          if (held && hereState(held.store.getSnapshot(), held.store.shells.size) !== "idle")
-            throw new Error("Claude is still working in this session, or waiting on you. Esc goes back to it.");
           // Its Claude Code holds the conversation while it runs, even idle; stopped, it can be resumed here.
           if (agent.alive) await stopAgent(agent.id);
-          const job = await handOff();
-          leave({ kind: "open", cwd: agent.cwd, sessionId: agent.sessionId, note: moved(job) });
+          leave({ kind: "show", key: (await open(agent.cwd, agent.sessionId)).key });
         }}
         onStart={async (task, cwd) => {
           checkFolder(cwd);
-          const job = await handOff();
-          leave({ kind: "start", cwd, task, note: moved(job) });
+          const conversation = await open(cwd);
+          conversation.store.sent.push(task);
+          conversation.session.send(task);
+          return conversation.key;
+        }}
+        onStop={(key) => {
+          const conversation = fleet.get(key);
+          if (conversation) stop(conversation);
         }}
         onExit={async () => {
-          farewell = moved(await handOff());
+          farewell = await leaveAll();
           leave({ kind: "exit" });
         }}
       />,
@@ -256,33 +272,40 @@ export async function startTerminal(options: TerminalOptions) {
     return leaving;
   };
 
-  if (!options.agents) held = await open(options.cwd, resume, note);
-  let screen: "session" | "agents" = held ? "session" : "agents";
+  if (!options.agents) shown = await open(options.cwd, resume, note);
+  let screen: "session" | "agents" = shown ? "session" : "agents";
+  /** Why astrocode didn't quit, for the agents view to say. */
+  let notice: string | undefined;
   for (;;) {
-    if (screen === "session" && held) {
-      if ((await showSession(held)) === "exit") break;
+    if (screen === "session" && shown) {
+      if ((await showSession(shown)) === "exit") {
+        // The conversation astrocode quits from ends with it, as `claude` does; the rest carry on.
+        try {
+          farewell = await leaveAll(shown);
+          break;
+        } catch (error) {
+          notice = error instanceof Error ? error.message : String(error);
+        }
+      }
       screen = "agents";
       continue;
     }
-    const leaving = await showAgents();
+    const leaving = await showAgents(notice);
+    notice = undefined;
     if (leaving.kind === "exit") break;
-    if (leaving.kind === "open") held = await open(leaving.cwd, leaving.sessionId, leaving.note);
-    if (leaving.kind === "start") {
-      held = await open(leaving.cwd, undefined, leaving.note);
-      held.store.sent.push(leaving.task);
-      held.session.send(leaving.task);
-    }
+    shown = fleet.get(leaving.key) ?? null;
     // The agents view had its own screen. Scrollback is written again, the conversation and all, on a clean one.
-    if (held && !fullscreen) redrawScrollback(held.store);
+    if (shown && !fullscreen) redrawScrollback(shown.store);
     screen = "session";
   }
 
-  const last = held as Held | null;
-  last?.session.close();
+  // What's still running here is the conversation astrocode quit from, if any.
+  const last = fleet.getSnapshot().at(0);
+  for (const one of fleet.getSnapshot()) one.session.close();
   window.stop();
   await Promise.all([settingsSaved(), stashSaved(), canvas.close()]);
   if (farewell) console.log(`\n${farewell}`);
-  else if (last?.session.id) console.log(`\nResume this conversation with: astrocode --resume ${last.session.id}`);
+  if (last?.session.id) console.log(`\nResume this conversation with: astrocode --resume ${last.session.id}`);
   process.exit(0);
 }
 
