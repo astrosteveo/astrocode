@@ -87,6 +87,12 @@ test("joins a session that's working or waiting on you; moves the rest into astr
   expect(attaches(agent({ state: "stopped" }))).toBe(false);
 });
 
+test("moves in a session that's listed as needing input but is only waiting for a prompt", () => {
+  // As a conversation astrocode hands to the background service is listed until it's sent one.
+  expect(attaches(agent({ alive: true, state: "blocked", status: "idle" }))).toBe(false);
+  expect(attaches(agent({ alive: true, state: "blocked", status: "waiting", waitingFor: "permission prompt" }))).toBe(true);
+});
+
 test("groups by project, this one first and the rest by path, each oldest first", () => {
   const groups = groupAgents(
     [
