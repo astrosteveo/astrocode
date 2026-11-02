@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { render } from "ink";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -77,7 +77,7 @@ test("Ctrl+Enter starts the task in astrocode, in the chosen row's project", asy
   expect(existsSync(dispatched)).toBe(false);
 });
 
-test("Enter alone starts it in Claude Code's background service, not in astrocode", async () => {
+test("Enter alone starts it in astrocode too, not in Claude Code's background service", async () => {
   const { press, started, app } = view();
   await settle(500);
   press("fix the build");
@@ -85,6 +85,6 @@ test("Enter alone starts it in Claude Code's background service, not in astrocod
   press("\r");
   await settle(500);
   app.unmount();
-  expect(started).toEqual([]);
-  expect(readFileSync(dispatched, "utf8").trim()).toBe(other);
+  expect(started).toEqual([{ task: "fix the build", cwd: other }]);
+  expect(existsSync(dispatched)).toBe(false);
 });

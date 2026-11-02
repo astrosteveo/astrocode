@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { attaches, backgroundArgs, backgroundedId, dispatch, groupAgents, leftForAgentView, parseAgentList, prLabel, summary, toAgent, type Agent } from "./agents";
+import { attaches, backgroundArgs, backgroundedId, checkFolder, groupAgents, leftForAgentView, parseAgentList, prLabel, summary, toAgent, type Agent } from "./agents";
 
 const LIST = JSON.stringify([
   {
@@ -138,6 +138,6 @@ test("reads the id claude --bg prints", () => {
   expect(backgroundedId("Error: something")).toBeUndefined();
 });
 
-test("won't start a session in a folder that's gone", async () => {
-  await expect(dispatch("task", "/nonexistent/astrocode-gone", {})).rejects.toThrow("/nonexistent/astrocode-gone is gone");
+test("won't start a session in a folder that's gone", () => {
+  expect(() => checkFolder("/nonexistent/astrocode-gone")).toThrow("/nonexistent/astrocode-gone is gone");
 });

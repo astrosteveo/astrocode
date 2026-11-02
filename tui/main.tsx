@@ -39,7 +39,7 @@ type Held = { store: Store; session: AgentSession; cwd: string };
 type Leaving =
   | { kind: "back" }
   | { kind: "open"; cwd: string; sessionId: string; note?: string }
-  /** A new conversation in astrocode, on `task`, as Ctrl+Enter starts. */
+  /** A new conversation in astrocode, on `task`, as a task typed in the agents view starts. */
   | { kind: "start"; cwd: string; task: string; note?: string }
   | { kind: "exit" };
 

@@ -1,11 +1,11 @@
 // The agents view: Claude Code's background sessions, as `claude agents` lists them, opened with ←
 // in an empty message box or with `astrocode agents`. The session open in astrocode heads its
-// project's group. Type a task and press Enter to start a background session on it, or Ctrl+Enter
-// to start it in astrocode, in the chosen row's project; Enter on a row opens it, ↑↓ choose, Space
-// shows more, Ctrl+X stops and then deletes, Esc goes back.
+// project's group. Type a task and press Enter, or Ctrl+Enter, to start it in astrocode, in the
+// chosen row's project; Enter on a row opens it, ↑↓ choose, Space shows more, Ctrl+X stops and
+// then deletes, Esc goes back.
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { attaches, dispatch, groupAgents, leftForAgentView, listAgents, prLabel, projectOf, removeAgent, STATE_LABELS, stopAgent, summary, type Agent, type AgentState, type SessionSettings } from "../src/agents";
+import { attaches, groupAgents, leftForAgentView, listAgents, prLabel, projectOf, removeAgent, STATE_LABELS, stopAgent, summary, type Agent, type AgentState, type SessionSettings } from "../src/agents";
 import { installedBinary } from "../src/claude";
 import { topLevelEnv } from "../src/session";
 import { ago } from "../src/view/format";
@@ -153,18 +153,11 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
       .finally(() => setBusy(false));
   };
 
+  /**
+   * Enter or Ctrl+Enter: start it and open it, as Ctrl+Enter does in Claude Code's agent view, but
+   * here in astrocode. Claude Code's background service would show it only in its own screen.
+   */
   const start = (task: string) =>
-    act(async () => {
-      say("Starting a background session…");
-      const id = await dispatch(task, target, settings);
-      setText("");
-      await refresh();
-      setSelected(id);
-      say(`Started ${id} in ${shortPath(target, "", home)}.`);
-    });
-
-  /** Ctrl+Enter, as in Claude Code's agent view: start it and open it, here in astrocode. */
-  const startHere = (task: string) =>
     act(async () => {
       say(`Starting in ${shortPath(target, "", home)}…`);
       await onStart(task, target);
@@ -244,7 +237,7 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
       const next = keys[Math.max(0, Math.min(keys.length - 1, index + (key.upArrow ? -1 : 1)))];
       return setSelected(next);
     }
-    if (key.return && text.trim()) return key.ctrl ? startHere(text.trim()) : start(text.trim());
+    if (key.return && text.trim()) return start(text.trim());
     if (key.return) return open();
     if (key.ctrl && input === "x") return stopOrDelete();
     if (key.ctrl && input === "u") return setText("");
@@ -280,7 +273,7 @@ export function AgentsView({ here, cwd, home, settings, onBack, onOpen, onStart,
 
   const enter = !focused || focused.kind === "folder" || focused.kind === "gap" ? "" : focused.kind === "here" ? "enter back to it" : attaches(focused.agent) ? "enter attach" : "enter open here";
   const stop = focused?.kind === "agent" ? (focused.agent.alive ? "ctrl+x stop" : "ctrl+x delete") : "";
-  const hints = text ? ["enter start in the background", "ctrl+enter start and open", "esc clear"] : [enter, "space peek", stop, here ? "esc back" : "esc quit"].filter(Boolean);
+  const hints = text ? ["enter start and open", "esc clear"] : [enter, "space peek", stop, here ? "esc back" : "esc quit"].filter(Boolean);
 
   return (
     <Box flexDirection="column" width={width} paddingX={1}>

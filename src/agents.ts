@@ -183,13 +183,6 @@ export function checkFolder(cwd: string) {
   if (!existsSync(cwd)) throw new Error(`${cwd} is gone.`);
 }
 
-/** Starts a background session on `task` in `cwd`, and gives its id. */
-export async function dispatch(task: string, cwd: string, settings: SessionSettings) {
-  checkFolder(cwd);
-  // `--` so a task that starts with a dash isn't read as an option.
-  return backgrounded(await installedClaude(cwd, ["--bg", ...flags(settings), "--", task]));
-}
-
 /**
  * Hands a conversation to Claude Code's background service, which carries it on under the same
  * session id, idle until it's given a prompt, and gives its id.
