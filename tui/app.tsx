@@ -49,8 +49,9 @@ import { fit } from "./markdown-view";
 import { McpPanel } from "./mcp";
 import { MemoryPanel } from "./memory";
 import { ModelPicker } from "./model-picker";
-import { FollowDock, FollowEmpty, followedCall, useDwell } from "./follow";
-import { Inspector, type Place } from "./inspector";
+import { FollowDock, followedCall, useDwell } from "./follow";
+import { Inspector, placeOf, type TabId } from "./inspector";
+import { targetMove, targetTab, WHOLE } from "./opened";
 import { hit, MouseContext, useMouse } from "./mouse";
 import { Picker, type PickerItem } from "./picker";
 import { drawsImages, pictureRows, resendPictures } from "./pictures";
@@ -146,7 +147,7 @@ const HELP = [
   "Ctrl+B moves a command or subagent Claude is waiting on to the background. /tasks lists what runs there and your ! commands: open one to watch it (a subagent shows its transcript, a workflow its phases), and x stops it. Esc stops Claude's turn but not what runs in the background; Ctrl+X Ctrl+K twice stops it all. Ctrl+T shows or hides the to-dos.",
   "Ctrl+Enter or Ctrl+X Ctrl+S sends what you've queued now, with what's typed behind it: Claude reads it in this turn, with what it runs moved to the background, or else stops and takes it next; Ctrl+X Enter sends it to wait for the end of Claude's turn. Ctrl+Z suspends astrocode until the shell's fg.",
   "Ctrl+O picks a tool call to inspect: its exact command or input, its whole output and what Claude got back, in tabs. In the inspector ← and → move between calls, Tab between tabs, c copies, Esc closes. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
-  "Alt+L follows Claude: a panel shows each tool call as Claude makes it, beside the transcript on a wide full screen and above the message box otherwise. Looking back at a call holds it there; Esc or Alt+L follows Claude again.",
+  "Alt+L follows Claude: a dock above the message box shows each tool call as Claude makes it. Looking back at a call holds it there; Esc or Alt+L follows Claude again.",
   "← in an empty box opens the agents view, as `claude agents` does: astrocode's conversations, which carry on while you're away from them, and Claude Code's background sessions. Type a task there and press Enter to start another conversation alongside this one, Ctrl+Enter to start it and open it; Enter on a row opens one, Esc comes back here.",
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
@@ -162,7 +163,7 @@ const FULLSCREEN_HELP = [
   "Full screen: the wheel, PgUp and PgDn scroll; Ctrl+Home and Ctrl+End go to the top and the end.",
   "Ctrl+F finds text in the conversation: Enter or ↑ goes to the match before, ↓ to the one after. Alt+↑ and Alt+↓ jump between your messages, Alt+Shift+↑ and Alt+Shift+↓ between tool calls and commands.",
   "Drag to copy, double-click to copy a word, triple-click to copy a line.",
-  "Click a line of a step to inspect that call beside the transcript (in its place on a narrow screen), a step's name to open it with Claude's thinking and every line, a command of yours to open it (a running one shows its live output), an option to choose it, the mode, the model or the effort to change it.",
+  "Click a line of a step to open that call under it, at any width, and again to close it; a step's name to open it with Claude's thinking and every line, a command of yours to open it (a running one shows its live output), an option to choose it, the mode, the model or the effort to change it.",
   "Click copy on a code block to copy it, ▶ run on a shell block to run it as a ! command, and a turn's closing line to list the files it changed and the commands it ran.",
   "Click a picture to enlarge it, with ← and → to flip through the others.",
   "Hold Shift to select with the terminal's own selection instead.",
@@ -277,8 +278,11 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     }
   }, [state.mode]);
 
-  /** The tool call the inspector shows, and whether it has the keys, which a click on the message box takes back. */
-  const [inspect, setInspect] = useState<{ id: string; focus: boolean } | null>(null);
+  /**
+   * The tool call opened: under its line in full screen, with the tab it shows and whether that's
+   * whole; in the inspector in scrollback, with whether that has the keys.
+   */
+  const [inspect, setInspect] = useState<{ id: string; focus: boolean; tab?: TabId; whole?: boolean } | null>(null);
 
   useEffect(() => {
     setExpanded(new Set());
@@ -567,7 +571,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     setReveal({ key: item.key });
   };
 
-  /** Opens a call in the inspector, with the keys. One still running in a task opens that task's view instead. */
+  /**
+   * Opens a call: under its line in full screen, in the inspector with the keys in scrollback. One
+   * still running in a task opens that task's view instead.
+   */
   const inspectCall = (id: string) => {
     const index = state.tools[id];
     const item = index === undefined ? undefined : state.items[index];
@@ -580,17 +587,35 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     return true;
   };
 
+  /** A call's line clicked: it opens under the line, or closes if it's the one open. */
+  const toggleCall = (id: string) => {
+    if (inspect?.id !== id) return inspectCall(id);
+    setInspect(null);
+    return true;
+  };
+
   /**
-   * A click on an entry in full screen: a step's line inspects its call, and a call drawn on its
-   * own, such as a picture or a plan, opens in the inspector too. Steps, commands of yours and a
-   * turn's closer open or close in place. Something still running, or that ran in the
-   * background, opens its view instead.
+   * A click on an entry in full screen: a step's line opens its call under it, as does a call drawn
+   * on its own, such as a picture or a plan, and a click on what opened closes it, shows another of
+   * its tabs, the whole tab, or the call before or after. Steps, commands of yours and a turn's
+   * closer open or close in place. Something still running, or that ran in the background, opens
+   * its view instead.
    */
   const toggleTool = (key: string) => {
+    const tab = targetTab(key);
+    if (key === WHOLE || tab) {
+      setInspect((open) => open && (tab ? { ...open, tab, whole: false } : { ...open, whole: true }));
+      return true;
+    }
+    const by = targetMove(key);
+    if (by) {
+      moveInspector(by);
+      return false;
+    }
     const call = targetCall(key);
-    if (call !== undefined) return inspectCall(call);
+    if (call !== undefined) return toggleCall(call);
     const item = state.items.find((one) => one.key === key);
-    if (item?.kind === "tool") return inspectCall(item.call.id);
+    if (item?.kind === "tool") return toggleCall(item.call.id);
     const task = item ? runningKeyOf(item, state) : undefined;
     if (task) {
       setOverlay({ kind: "task", key: task });
@@ -1461,12 +1486,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     if (message) notice(ok ? "info" : "error", message);
   };
 
-  // The inspector: the call it shows, while that's still in the conversation, and whether it has
+  // The call opened, while that's still in the conversation, and whether scrollback's inspector has
   // the keys, which go to a prompt or a picker that opens meanwhile.
   const inspectedAt = inspect ? state.tools[inspect.id] : undefined;
   const inspectedItem = inspectedAt === undefined ? undefined : state.items[inspectedAt];
   const inspected = inspectedItem?.kind === "tool" ? inspectedItem.call : undefined;
-  const inspectorKeys = Boolean(inspected && inspect?.focus && !question && !elicitation && !request && !overlay);
+  const inspectorKeys = Boolean(!fullscreen && inspected && inspect?.focus && !question && !elicitation && !request && !overlay);
   // A click on the message box gives it back the keys, and the inspector stays open.
   useMouse((event) => {
     if (event.type === "press" && event.button === "left" && inspectorKeys && hit(panelBox.current, event)) setInspect((open) => open && { ...open, focus: false });
@@ -1483,55 +1508,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     copy(text);
     setToast(`Copied the ${what}, ${plural(text.split("\n").length, "line")}`);
   };
-  const inspector = (inspectorWidth: number, height: number, over = false) => {
-    if (inspected) {
-      return (
-        <Inspector
-          call={inspected}
-          place={placeOf(state, inspected.id)}
-          waiting={waiting.has(inspected.id)}
-          width={inspectorWidth}
-          height={height}
-          focused={inspectorKeys}
-          over={over}
-          cwd={state.cwd}
-          home={state.home}
-          log={state.agentLogs[inspected.id]}
-          keymap={store.keymap}
-          onFollow={toggleFollow}
-          onClose={() => setInspect(null)}
-          onFocus={() => setInspect((open) => open && { ...open, focus: true })}
-          onMove={moveInspector}
-          onCopy={copied}
-        />
-      );
-    }
-    if (!following) return null;
-    if (!followed) return <FollowEmpty width={inspectorWidth} height={height} />;
-    return (
-      <Inspector
-        call={followed}
-        place={placeOf(state, followed.id)}
-        waiting={waiting.has(followed.id)}
-        width={inspectorWidth}
-        height={height}
-        focused={false}
-        over={over}
-        cwd={state.cwd}
-        home={state.home}
-        log={state.agentLogs[followed.id]}
-        following
-        keymap={store.keymap}
-        onClose={toggleFollow}
-        onFocus={() => setInspect({ id: followed.id, focus: true })}
-        onHold={() => setInspect({ id: followed.id, focus: false })}
-        onMove={(by) => moveFrom(followed.id, by)}
-        onCopy={copied}
-      />
-    );
-  };
-  // On a wide full screen the inspector, and Follow Claude, stand beside the transcript.
-  const beside = fullscreen && width >= INSPECTOR_BESIDE_FROM;
   const overlaid = picker();
   const above = question ? (
     <QuestionPrompt key={question.id} request={question} width={width} rows={rows} onAnswer={(answers) => session.answer(question.id, answers)} />
@@ -1553,8 +1529,24 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     overlaid
   ) : inspected && !fullscreen ? (
     // In scrollback the inspector sits above the message box, as tall as leaves the box in view.
-    inspector(width, Math.max(10, rows - 10))
-  ) : following && !beside ? (
+    <Inspector
+      call={inspected}
+      place={placeOf(state, inspected.id)}
+      waiting={waiting.has(inspected.id)}
+      width={width}
+      height={Math.max(10, rows - 10)}
+      focused={inspectorKeys}
+      cwd={state.cwd}
+      home={state.home}
+      log={state.agentLogs[inspected.id]}
+      keymap={store.keymap}
+      onFollow={toggleFollow}
+      onClose={() => setInspect(null)}
+      onFocus={() => setInspect((open) => open && { ...open, focus: true })}
+      onMove={moveInspector}
+      onCopy={copied}
+    />
+  ) : following ? (
     <FollowDock
       call={followed}
       waiting={followed ? waiting.has(followed.id) : false}
@@ -1659,8 +1651,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   );
 
   if (fullscreen) {
-    // On a narrow screen the inspector takes the transcript's place, and Follow Claude docks above the message box.
-    const inspectorWidth = beside ? Math.min(INSPECTOR_MOST, Math.max(INSPECTOR_LEAST, Math.round(width * INSPECTOR_SHARE))) : width;
     return (
       <Screen
         state={state}
@@ -1670,13 +1660,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         rows={rows}
         expanded={expanded}
         waiting={waiting}
-        inspector={
-          inspected
-            ? { width: inspectorWidth, over: !beside, call: inspected.id, node: (height) => inspector(inspectorWidth, height, !beside) }
-            : following && beside
-              ? { width: inspectorWidth, over: false, node: (height) => inspector(inspectorWidth, height) }
-              : undefined
-        }
+        opened={inspected ? { id: inspected.id, tab: inspect?.tab, whole: inspect?.whole } : undefined}
         reveal={reveal}
         keys={!overlay && !inspectorKeys}
         onToggle={toggleTool}
@@ -1792,26 +1776,6 @@ function toolCalls(items: Item[], { cwd, home, width }: { cwd: string; home: str
 
 /** How many leading items are finished, so they can go into scrollback for good. */
 const NONE: ReadonlySet<string> = new Set();
-
-/** A screen this wide or wider has room for the inspector beside the transcript. */
-const INSPECTOR_BESIDE_FROM = 140;
-/** The inspector's share of a wide screen, and the fewest and most columns it takes there. */
-const INSPECTOR_SHARE = 0.45;
-const INSPECTOR_LEAST = 64;
-const INSPECTOR_MOST = 110;
-
-/** Where a call is in its turn: its place among the turn's calls, and its step's among the turn's steps. */
-function placeOf(state: State, id: string): Place {
-  const at = state.tools[id] ?? 0;
-  let from = at;
-  while (from > 0 && state.items[from - 1]?.kind !== "prompt") from--;
-  let to = at;
-  while (to < state.items.length && state.items[to]?.kind !== "prompt") to++;
-  const calls = state.items.slice(from, to).flatMap((item) => (item.kind === "tool" ? [item.call.id] : []));
-  const found = [...steps(state.items)].filter(([start]) => start >= from && start < to).map(([, step]) => step);
-  const step = found.findIndex((one) => one.calls.some((item) => item.call.id === id));
-  return { index: calls.indexOf(id) + 1, count: calls.length, step: step === -1 ? undefined : step + 1, steps: found.length };
-}
 
 /**
  * How many items scrollback may write for good, held back so a step goes whole: not one Claude is

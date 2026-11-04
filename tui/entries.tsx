@@ -221,6 +221,13 @@ export function opens(step: StepRow) {
   return Boolean(step.more) || step.flow.some((one) => one.kind !== "row") || step.flow.length > MOST_ROWS;
 }
 
+/** Whether a closed step leaves `line` out, among the lines between its first two and its last three. */
+export function leavesOut(step: StepRow, line: ActivityRow) {
+  const rows = step.flow.filter((one) => one.kind === "row");
+  const at = rows.findIndex((one) => one.row === line);
+  return rows.length > MOST_ROWS && at >= 2 && at < rows.length - 3;
+}
+
 /**
  * A step as an activity log: what Claude set out to do, with how long it took, and under it a line
  * for each thing it did, what that acted on and what came of it. A failure says why under its line,
