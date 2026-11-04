@@ -113,8 +113,9 @@ export type Item =
   /**
    * `uuid` is the message's id in the transcript, where rewinding goes back to. `images` go by their
    * `[Image #n]`. `at` is when it was sent or written, where known, which times a replayed turn.
+   * `starts`: it started a turn, which the turn's ledger counts from.
    */
-  | { kind: "prompt"; key: string; text: string; uuid?: string; images?: Record<number, ImageAttachment>; at?: number; remote?: boolean }
+  | { kind: "prompt"; key: string; text: string; uuid?: string; images?: Record<number, ImageAttachment>; at?: number; remote?: boolean; starts?: boolean }
   /**
    * `command` is the slash command whose output this is, with `uuid`, its row's id, which a mod
    * that draws that command's output knows it by; `drawing` is what the mod drew in its place.
@@ -158,7 +159,7 @@ export type Item =
 export type ToolItem = Extract<Item, { kind: "tool" }>;
 
 /** A message sent while Claude works, waiting in Claude Code's queue until Claude takes it. `later`: after the turn ends. */
-export type Queued = { text: string; uuid: string; images?: Record<number, ImageAttachment>; at?: number; later?: boolean };
+export type Queued = { text: string; uuid: string; images?: Record<number, ImageAttachment>; at?: number; later?: boolean; starts?: boolean };
 
 type NewItem = Item extends infer I ? (I extends Item ? Omit<I, "key"> : never) : never;
 
@@ -329,11 +330,11 @@ export function reduce(state: State, event: ViewEvent): State {
       return { ...state, commands: event.commands };
     case "prompt":
       // Claude Code echoes a message sent over Remote Control as it starts on it, so it never waits here.
-      if (event.remote) return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at, remote: true }), busy: true };
+      if (event.remote) return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at, remote: true, starts: event.starts }), busy: true };
       if (state.busy && event.uuid) {
-        return { ...state, queue: [...state.queue, { text: event.text, uuid: event.uuid, images: event.images, at: event.at, later: event.later }] };
+        return { ...state, queue: [...state.queue, { text: event.text, uuid: event.uuid, images: event.images, at: event.at, later: event.later, starts: event.starts }] };
       }
-      return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at }), busy: true };
+      return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at, starts: event.starts }), busy: true };
     case "shell":
       return add(state, { kind: "shell", id: event.id, command: event.command, status: "running", stdout: "", stderr: "", startedAt: event.at, at: event.at });
     case "shell-output":
@@ -601,7 +602,7 @@ function applyLifecycle(state: State, uuid: unknown, stage: unknown): State {
   const queued = state.queue.find((one) => one.uuid === uuid);
   if (!queued) return state;
   const queue = state.queue.filter((one) => one !== queued);
-  if (stage === "started") return { ...add({ ...state, queue }, { kind: "prompt", text: queued.text, uuid: queued.uuid, images: queued.images, at: queued.at }), busy: true };
+  if (stage === "started") return { ...add({ ...state, queue }, { kind: "prompt", text: queued.text, uuid: queued.uuid, images: queued.images, at: queued.at, starts: queued.starts }), busy: true };
   if (stage === "cancelled" || stage === "completed") return { ...state, queue };
   return state;
 }

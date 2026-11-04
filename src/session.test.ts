@@ -156,6 +156,7 @@ test("counts a message you sent mid-turn in the turn it joined", async () => {
   one.send("add a line");
   one.send("and a file");
   await until(() => kinds(events).includes("sdk:result"));
+  expect(events.flatMap((event) => (event.kind === "prompt" ? [event.starts] : []))).toEqual([true, false]);
   expect(events.find((event) => event.kind === "ledger")).toMatchObject({
     files: [
       { path: join(top, "a.txt"), added: 1, removed: 0 },

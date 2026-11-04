@@ -105,6 +105,27 @@ test("counts the calls before a message you sent while Claude worked, which it t
   expect(lastTurn(state)).toMatchObject({ commands: ["bun test", "git log --oneline -3"] });
 });
 
+test("counts only its own work in a turn after Claude Code stopped mid-turn", () => {
+  const ran = " 7 pass\n 0 fail\nRan 7 tests across 1 file.";
+  const pushed = { stdout: "", stderr: "To github.com:a/b.git", interrupted: false, gitOperation: { push: { branch: "x" } } };
+  const state = [
+    { kind: "prompt", text: "test and push", starts: true } as const,
+    call("t", "Bash", { command: "bun test" }),
+    answered("t", ran, { stdout: ran, stderr: "", interrupted: false }),
+    call("p", "Bash", { command: "git push" }),
+    answered("p", "To github.com:a/b.git", pushed),
+    // No result: Claude Code stopped, and the next message starts a turn, though the view still waited on the last.
+    { kind: "notice", tone: "error", text: "Claude Code stopped: boom" } as const,
+    { kind: "prompt", text: "what's 2+2?", uuid: "q", starts: true } as const,
+    sdk({ type: "command_lifecycle", command_uuid: "q", state: "started", uuid: "l", session_id: "s" }),
+    sdk({ type: "assistant", uuid: "a", session_id: "s", parent_tool_use_id: null, message: { id: "m", model: "claude-opus-5-5", role: "assistant", content: [{ type: "text", text: "4" }] } }, T),
+    ended(),
+  ].reduce(reduce, start());
+  expect(lastTurn(state)).toMatchObject({ commands: [] });
+  expect(lastTurn(state)).not.toHaveProperty("tests");
+  expect(lastTurn(state)).not.toHaveProperty("pushed");
+});
+
 /** The closing line as it reads. */
 const closing = (state: State) => {
   const turn = lastTurn(state);

@@ -129,8 +129,9 @@ export type SessionEvent =
    * are the images it carried, by the number of the `[Image #n]` each went with. `at` is when it
    * was sent, known for a replayed one. `later`: sent while Claude works, to wait for the turn's end.
    * `remote`: sent from claude.ai or the Claude app over Remote Control, as Claude starts on it.
+   * `starts`: it starts a turn, as no turn was under way when it was sent; one sent mid-turn joins it.
    */
-  | { kind: "prompt"; text: string; uuid?: string; images?: Record<number, ImageAttachment>; at?: number; later?: boolean; remote?: boolean }
+  | { kind: "prompt"; text: string; uuid?: string; images?: Record<number, ImageAttachment>; at?: number; later?: boolean; remote?: boolean; starts?: boolean }
   /**
    * A command you ran with `!`: as it starts, what its terminal shows as it runs, and how it ended.
    * `at` is when each happened, from Claude Code's timestamps in a replayed conversation.

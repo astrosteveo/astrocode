@@ -339,10 +339,10 @@ export class AgentSession {
     this.sent.add(uuid);
     if (how.now) this.pressing.add(uuid);
     const mentions = mentionsIn(text, images);
-    this.options.emit({ kind: "prompt", text, uuid, images: Object.fromEntries(mentions.map(({ n, image }) => [n, image])), at: Date.now(), later: how.later });
-    const run = this.run;
     const starts = !this.turning;
     this.turning = true;
+    this.options.emit({ kind: "prompt", text, uuid, images: Object.fromEntries(mentions.map(({ n, image }) => [n, image])), at: Date.now(), later: how.later, starts });
+    const run = this.run;
     // Typed by a person: Claude Code acts on what only you can ask for, such as the ultracode
     // keyword or a skill named partway through, only in a message stamped as yours.
     const message: SDKUserMessage = {
@@ -659,6 +659,7 @@ export class AgentSession {
       images: images.length ? Object.fromEntries(images.map((image, i) => [i + 1, image])) : undefined,
       at: Number.isNaN(at) ? Date.now() : at,
       remote: true,
+      starts: !this.turning,
     });
     return true;
   }
