@@ -189,15 +189,19 @@ function assertion(lines: string[]) {
   return undefined;
 }
 
-type Counts = { passed: number; failed: number; skipped: number };
+export type Counts = { passed: number; failed: number; skipped: number };
 
 /**
- * A test run's counts, from the summary its runner printed (bun, jest, vitest, pytest, cargo, go):
- * `47 passed`, `1 failed`. Counts of none are left out, and so is everything when no runner's
- * summary is there, as when a commit message says "passed".
+ * A test run's counts, from the summary its runner printed (bun, jest, vitest, pytest, cargo, go),
+ * or undefined when no runner's summary is there, as when a commit message says "passed".
  */
+export function testTotals(text: string): Counts | undefined {
+  return summaryCounts(meaningful(text));
+}
+
+/** A test run's counts as words, `47 passed`, `1 failed`, leaving out counts of none. */
 export function testCounts(text: string): { text: string; failed: boolean }[] {
-  const counts = summaryCounts(meaningful(text));
+  const counts = testTotals(text);
   if (!counts) return [];
   return (["passed", "failed", "skipped"] as const).flatMap((word) => (counts[word] ? [{ text: `${counts[word]} ${word}`, failed: word === "failed" }] : []));
 }

@@ -20,6 +20,7 @@ import {
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import { hooksListing, memoryDialog, permissionRules, sandboxDialog, skillsDialog, statusDialog } from "./dialogs";
 import {
   imageBlocks,
@@ -39,6 +40,7 @@ import {
 } from "./events";
 import { AsyncQueue } from "./queue";
 import { SHOW_SERVER, SHOW_TOOL } from "./show";
+import { Snapshots } from "./snapshots";
 import { field } from "./view/tools";
 
 export type SessionOptions = {
@@ -182,6 +184,10 @@ export class AgentSession {
   private remote: RemoteControl | null = null;
   /** The messages and notes sent from here that Claude Code hasn't echoed back yet, by uuid. */
   private sent = new Set<string>();
+  /** The working tree at each edge of a turn, for the ledger the turn closes with. */
+  private snapshots: Snapshots;
+  /** A turn is under way: from the message that starts it, or the first word of one Claude starts itself, to its result. */
+  private turning = false;
 
   constructor(private readonly options: SessionOptions) {
     this.model = options.model;
@@ -192,6 +198,7 @@ export class AgentSession {
     this.continueLast = options.continue ?? false;
     this.agentSummaries = options.agentSummaries ?? false;
     this.remoteWanted = options.remoteControl ?? false;
+    this.snapshots = new Snapshots(options.cwd, homedir());
   }
 
   /** The conversation's id, once Claude Code has reported it. */
@@ -334,6 +341,8 @@ export class AgentSession {
     const mentions = mentionsIn(text, images);
     this.options.emit({ kind: "prompt", text, uuid, images: Object.fromEntries(mentions.map(({ n, image }) => [n, image])), at: Date.now(), later: how.later });
     const run = this.run;
+    const starts = !this.turning;
+    this.turning = true;
     // Typed by a person: Claude Code acts on what only you can ask for, such as the ultracode
     // keyword or a skill named partway through, only in a message stamped as yours.
     const message: SDKUserMessage = {
@@ -345,6 +354,8 @@ export class AgentSession {
       priority: how.later ? "later" : undefined,
     };
     this.post(run, async () => {
+      // The working tree the turn starts from, recorded before Claude Code has the message.
+      if (starts) await this.snapshots.start();
       // Claude Code has no way to ignore the keyword in one message, and reads the trigger as it
       // starts on a message, so the trigger goes off before it arrives and back on once Claude
       // Code says the message's turn is over.
@@ -845,6 +856,8 @@ export class AgentSession {
   }
 
   close() {
+    this.turning = false;
+    this.snapshots.close();
     const run = this.run;
     if (!run) return;
     this.run = null;
@@ -948,7 +961,16 @@ export class AgentSession {
         if (message.type === "system" && field(message, "subtype") === "bridge_state") this.bridged(message);
         // Not in the SDK's types: a mod asked to be drawn again, or one loaded.
         if (message.type === "system" && field(message, "subtype") === "ui_invalidate") this.modsChanged();
-        this.options.emit(sdkEvent(message, Date.now()));
+        const at = Date.now();
+        // A turn Claude starts by itself counts what it changed from where the last one ended.
+        if ((message.type === "assistant" || message.type === "stream_event") && !message.parent_tool_use_id) this.turning = true;
+        if (message.type === "result" && this.turning) {
+          this.turning = false;
+          // Before the result, so the turn's closing line is whole when it's drawn: scrollback can't redraw it.
+          const ledger = await this.snapshots.end();
+          if (ledger) this.options.emit({ kind: "ledger", ...ledger });
+        }
+        this.options.emit(sdkEvent(message, at));
         // Skills found as Claude works in a folder bring commands of their own.
         if (message.type === "system" && message.subtype === "commands_changed") this.options.emit({ kind: "commands", commands: message.commands.map(commandInfo) });
         // Not in the SDK's types: where each message is in Claude Code's queue. Every message gets
@@ -959,7 +981,10 @@ export class AgentSession {
     } catch (error) {
       if (!run.closing) this.options.emit({ kind: "notice", tone: "error", text: `Claude Code stopped: ${messageOf(error)}` });
     } finally {
-      if (this.run === run) this.run = null;
+      if (this.run === run) {
+        this.run = null;
+        this.turning = false;
+      }
       this.cancelWaiting(run, !run.closing);
       // The link was to this Claude Code. The next one connects again, with a link of its own.
       if (this.remoteWanted && this.remote && !this.run) this.reportRemote({ status: "connecting" });

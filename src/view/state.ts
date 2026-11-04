@@ -11,9 +11,10 @@ import type {
   SDKPartialAssistantMessage,
   SDKResultMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { CommandInfo, ElicitationRequest, ImageAttachment, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, RemoteControl, SessionEvent } from "../events";
+import type { CommandInfo, ElicitationRequest, FileChange, ImageAttachment, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, RemoteControl, SessionEvent } from "../events";
 import { AGENT_LINES, agentLines, type AgentLine } from "./agents";
 import { compact, duration } from "./format";
+import { turnWork } from "./ledger";
 
 type StreamEvent = SDKPartialAssistantMessage["event"];
 type AssistantBlock = SDKAssistantMessage["message"]["content"][number];
@@ -133,9 +134,17 @@ export type Item =
        * not the turn's tokens. `durationMs` is from your message to the last thing saved in the turn.
        */
       replayed?: boolean;
-      /** The files the turn's edits and writes changed, and the commands Claude ran, in order. */
-      files?: string[];
+      /** The files the turn changed: git's diff between its edges, else its edits' own diffs. */
+      files?: FileChange[];
+      /** The commands Claude ran, in order. */
       commands?: string[];
+      /** How the turn's last test run went, from its runner's summary. */
+      tests?: { passed: number; failed: number };
+      /** The commits the turn made, oldest first: unknown outside git, or where git couldn't say. */
+      commits?: string[];
+      /** It pushed, and acted on a pull request, as Claude Code read its commands. */
+      pushed?: boolean;
+      pr?: { number: number; action: string };
     }
   /**
    * `of`: the tool call a line of progress is about, which the next line for it replaces.
@@ -269,6 +278,8 @@ export type State = {
   busy: boolean;
   /** Output tokens of this turn's finished messages. */
   turnTokens: number;
+  /** What git says the turn now ending changed, from its edges, until its result closes it. */
+  ledger?: { files: FileChange[]; commits: string[] };
   seq: number;
 };
 
@@ -340,6 +351,8 @@ export function reduce(state: State, event: ViewEvent): State {
     }
     case "sdk":
       return applySdk(state, event.message, event.images, event.at);
+    case "ledger":
+      return { ...state, ledger: { files: event.files, commits: event.commits } };
     case "permission": {
       const next = { ...state, pending: [...state.pending.filter((p) => p.id !== event.request.id), event.request] };
       // A subagent's prompt marks its call on the Agent call it runs under, and for a nested one the
@@ -807,8 +820,8 @@ function applyUser(state: State, message: UserMessage, images: Record<string, Im
 function applyResult(state: State, message: SDKResultMessage, at?: number): State {
   // Claude Code answers a message that doesn't start a turn, such as a `!` command's, with a result of no turns.
   if (!state.busy && message.num_turns === 0) return state;
-  const settled = { ...stopRunningTools(state, at), busy: false, live: null, turnTokens: 0, retry: undefined, compacting: false, fast: fastOf(message) ?? state.fast };
-  const turn = { kind: "turn" as const, durationMs: message.duration_ms, tokens: state.turnTokens, ...turnWork(settled.items) };
+  const settled = { ...stopRunningTools(state, at), busy: false, live: null, turnTokens: 0, ledger: undefined, retry: undefined, compacting: false, fast: fastOf(message) ?? state.fast };
+  const turn = { kind: "turn" as const, durationMs: message.duration_ms, tokens: state.turnTokens, ...turnWork(settled.items, state, state.ledger) };
   // Stop, Esc and Deny all end the turn early. The SDK reports that as an error, but it isn't one.
   if (message.terminal_reason === "aborted_streaming" || message.terminal_reason === "aborted_tools") {
     return add(settled, { ...turn, outcome: "stopped" });
@@ -824,32 +837,10 @@ function applyResult(state: State, message: SDKResultMessage, at?: number): Stat
 }
 
 /**
- * What the turn now ending did: the files it changed and the commands it ran, since the turn before
- * it ended. A message you sent while Claude worked, which it took mid-turn, doesn't split the turn.
- */
-function turnWork(items: Item[]) {
-  const start = items.findLastIndex((item) => item.kind === "turn");
-  const files: string[] = [];
-  const commands: string[] = [];
-  for (const item of items.slice(start + 1)) {
-    if (item.kind !== "tool") continue;
-    const { name, input, status } = item.call;
-    const path = typeof input.file_path === "string" ? input.file_path : typeof input.notebook_path === "string" ? input.notebook_path : "";
-    if ((name === "Edit" || name === "Write" || name === "NotebookEdit" || name === "MultiEdit") && status === "done" && path && !files.includes(path)) files.push(path);
-    // A command that failed or was stopped still ran.
-    if (name === "Bash" && typeof input.command === "string" && ran(item.call)) commands.push(input.command);
-  }
-  return { files, commands };
-}
-
-function ran(call: ToolCall) {
-  return call.status === "done" || call.status === "error" || (call.status === "stopped" && !call.unanswered);
-}
-
-/**
  * A saved conversation doesn't record where its turns ended, so each replayed turn ends where the
  * next prompt starts, and the last one at the end, timed from your message to the last thing saved
- * in it, with the files it changed and the commands it ran. Items from `from` on are the replayed ones.
+ * in it, with what it did. A saved conversation has no record of the turn's git, so the files are its
+ * edits'. Items from `from` on are the replayed ones.
  */
 function closeTurns(state: State, from: number): State {
   let seq = state.seq;
@@ -862,7 +853,7 @@ function closeTurns(state: State, from: number): State {
     const began = turn[0]?.kind === "prompt" ? turn[0].at : undefined;
     const ended = Math.max(...turn.map(lastAt).filter((at) => at !== undefined));
     const durationMs = began !== undefined && ended > began ? ended - began : 0;
-    items.push({ kind: "turn", key: `i${seq++}`, outcome: "finished", durationMs, tokens: 0, replayed: true, ...turnWork(turn) });
+    items.push({ kind: "turn", key: `i${seq++}`, outcome: "finished", durationMs, tokens: 0, replayed: true, ...turnWork(turn, state) });
     start = -1;
   };
   for (const item of state.items.slice(from)) {

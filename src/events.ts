@@ -145,6 +145,12 @@ export type SessionEvent =
    * which times tool calls, live or replayed.
    */
   | { kind: "sdk"; message: SDKMessage; images?: Record<string, ImageAttachment[]>; at?: number }
+  /**
+   * What the turn now ending changed, from git: the files that differ between the working tree at
+   * its start and at its end, and the commits made on HEAD since it started, oldest first. Sent just
+   * before the turn's result, and only in a git repository.
+   */
+  | { kind: "ledger"; files: FileChange[]; commits: string[] }
   | { kind: "permission"; request: PermissionRequest }
   | { kind: "question"; request: QuestionRequest }
   | { kind: "elicitation"; request: ElicitationRequest }
