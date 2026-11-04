@@ -39,8 +39,17 @@ export async function editFile(path: string) {
   if (code !== 0) throw new Error(`${editor} exited with ${code ?? "a signal"}.`);
 }
 
+/** Your editor's command: $VISUAL, else $EDITOR, else vi. */
+const editorCommand = () => process.env.VISUAL || process.env.EDITOR || "vi";
+
+/** Your editor by name, as `claude` names it in a hint: `nvim` is Nvim, `code --wait` is Code. */
+export function editorName() {
+  const program = editorCommand().trim().split(/\s+/)[0]?.split("/").at(-1) || "vi";
+  return program.charAt(0).toUpperCase() + program.slice(1);
+}
+
 async function runEditor(file: string) {
-  const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+  const editor = editorCommand();
   // exec, so the editor is the process its terminal starts, and its state can be read by its pid.
   const code = await lendTerminal(["/bin/sh", "-c", `exec ${editor} "$1"`, "sh", file]);
   return { editor, code };

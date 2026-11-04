@@ -341,6 +341,10 @@ test("a no with a comment tells Claude what you said and lets it carry on; a pla
   expect(await mcp).toEqual({ behavior: "allow", updatedInput: { command: "rm -rf build" }, updatedPermissions: switched });
   expect(events.flatMap((event) => (event.kind === "resolved" ? [event.outcome] : []))).toEqual(["deny", "deny", "allow"]);
   expect(events.findLast((event) => event.kind === "permission")).toMatchObject({ request: { displayName: "Greet", server: "hello" } });
+  // A yes with the input you changed, such as a plan you edited, sends that input.
+  const plan = asking("d", "ExitPlanMode");
+  one.decide("d", { allow: true, input: { plan: "# Edited" } });
+  expect(await plan).toEqual({ behavior: "allow", updatedInput: { plan: "# Edited" }, updatedPermissions: undefined });
 });
 
 test("a Claude Code that fails to start has loaded nothing", async () => {

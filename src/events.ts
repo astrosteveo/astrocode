@@ -26,10 +26,10 @@ export type PermissionRequest = {
 };
 
 /**
- * Your answer to a permission prompt: yes, with the changes to what's allowed that it makes, or no,
- * with what you'd have Claude do instead.
+ * Your answer to a permission prompt: yes, with the changes to what's allowed that it makes and the
+ * call's input where you changed it (a plan you edited), or no, with what you'd have Claude do instead.
  */
-export type Decision = { allow: true; updates?: PermissionUpdate[] } | { allow: false; comment?: string };
+export type Decision = { allow: true; updates?: PermissionUpdate[]; input?: Record<string, unknown> } | { allow: false; comment?: string };
 
 /** One of Claude's multiple-choice questions, from the AskUserQuestion tool. */
 export type Question = {

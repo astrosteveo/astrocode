@@ -1667,6 +1667,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       mode={state.mode}
       modes={state.modesAvailable}
       onDecide={(answer) => session.decide(request.id, answer)}
+      onEdit={(path) => handOver(() => editFile(path)).catch(report)}
     />
   ) : null;
   const above = decision ? null : overlaid ? (

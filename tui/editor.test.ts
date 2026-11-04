@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { lendTerminal, readInEditor } from "./editor";
+import { editorName, lendTerminal, readInEditor } from "./editor";
 
 // The tests' stdin isn't a terminal, and what the program draws needn't reach the test's output.
 const saved = { setRawMode: process.stdin.setRawMode, write: process.stdout.write };
@@ -47,5 +47,24 @@ test("shows text in the editor from a file of its own, gone once the editor quit
     if (visual === undefined) delete process.env.VISUAL;
     else process.env.VISUAL = visual;
     rmSync(kept, { recursive: true, force: true });
+  }
+});
+
+test("names your editor as claude's hint does: by its program, with its options and folder left off", () => {
+  const before = { VISUAL: process.env.VISUAL, EDITOR: process.env.EDITOR };
+  try {
+    delete process.env.VISUAL;
+    process.env.EDITOR = "/usr/bin/nvim";
+    expect(editorName()).toBe("Nvim");
+    process.env.VISUAL = "code --wait";
+    expect(editorName()).toBe("Code");
+    delete process.env.VISUAL;
+    delete process.env.EDITOR;
+    expect(editorName()).toBe("Vi");
+  } finally {
+    for (const [name, value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
   }
 });
