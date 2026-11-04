@@ -191,6 +191,14 @@ test("leaves ~/.claude out when it's inside the repository, but not the project'
   expect((await elsewhere.end())?.files).toEqual([{ path: join(project, ".claude/settings.json"), added: 1, removed: 0 }]);
 });
 
+test("counts ~/.claude when you work in it", async () => {
+  const home = repo({ "notes.txt": lines(1), ".claude/skills/x/SKILL.md": lines(1) });
+  const edges = snapshots(join(home, ".claude/skills/x"), home);
+  await edges.start();
+  write(home, ".claude/skills/x/SKILL.md", lines(2));
+  expect((await edges.end())?.files).toEqual([{ path: join(home, ".claude/skills/x/SKILL.md"), added: 1, removed: 0 }]);
+});
+
 test("names the commits the turn made, not one made before it", async () => {
   const top = repo({ "a.txt": lines(1) });
   const edges = snapshots(top);

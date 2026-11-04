@@ -262,7 +262,7 @@ The line that closes a turn, and the review surface.
 - **What counts as a change:** whatever changed in the working tree between the turn's start and its end, edits made through Bash included.
   - At each turn's edge, astrocode records the working tree as a git tree object, built with a temporary index so your own index and stash are untouched. The ledger is the diff between the two trees.
   - Outside git, the edit tools' own diffs count.
-  - Files under `~/.claude` don't count.
+  - Files under `~/.claude` don't count, unless the project is there, as when you work on a skill.
 - **Stopped:** `╰ stopped after 41s · …`. **Failed** (an API error): `╰ failed: <message> · …`.
 - **Opened** (Enter, a click, or `/diff` for the latest turn), it lists:
   - each file, with `new`, `+N −N` or `deleted`;
