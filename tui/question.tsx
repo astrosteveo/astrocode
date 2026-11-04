@@ -4,6 +4,7 @@ import { Box, Text, useInput, usePaste, type DOMElement } from "ink";
 import { useRef, useState } from "react";
 import type { Answers, ImageAttachment, QuestionRequest } from "../src/events";
 import { ChoiceRow } from "./choice";
+import { Waiting } from "./decision";
 import { drawnPreview, isHtmlPreview, PREVIEW_GAP, previewLayout } from "./diagrams";
 import { wrapText } from "./markdown";
 import { Panel } from "./markdown-view";
@@ -176,17 +177,23 @@ export function QuestionPrompt({ request, width, rows: screenRows, onAnswer }: P
   return (
     <Panel width={width} accent={PALETTE.gold} note={questions.length > 1 ? `${step + 1} of ${questions.length}` : undefined}>
       {questions.length > 1 ? (
-        <Text>
-          {questions.map((one, i) => (
-            <Text key={i} bold={i === step} color={i < step ? PALETTE.teal : i === step ? PALETTE.gold : PALETTE.dust}>
-              {`${i > 0 ? "   " : ""}${i < step ? "✓ " : ""}${one.header || `Question ${i + 1}`}`}
-            </Text>
-          ))}
-        </Text>
+        <Box justifyContent="space-between">
+          <Text>
+            {questions.map((one, i) => (
+              <Text key={i} bold={i === step} color={i < step ? PALETTE.teal : i === step ? PALETTE.gold : PALETTE.dust}>
+                {`${i > 0 ? "   " : ""}${i < step ? "✓ " : ""}${one.header || `Question ${i + 1}`}`}
+              </Text>
+            ))}
+          </Text>
+          <Waiting />
+        </Box>
       ) : null}
-      <Text bold color={PALETTE.star}>
-        {question.question}
-      </Text>
+      <Box justifyContent="space-between">
+        <Text bold color={PALETTE.star}>
+          {question.question}
+        </Text>
+        {questions.length > 1 ? null : <Waiting />}
+      </Box>
       {beside ? (
         <Box marginTop={1} columnGap={PREVIEW_GAP}>
           {options}

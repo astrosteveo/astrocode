@@ -60,7 +60,6 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
     redraw();
   };
   const shownAt = useRef(Date.now());
-  const { time } = useAnimation({ interval: 1000 });
   const options = useRef<(DOMElement | null)[]>([]);
   const list = useRef<DOMElement>(null);
   const early = () => Date.now() - shownAt.current < GRACE_MS;
@@ -155,7 +154,7 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
         <Text bold color={PALETTE.star}>
           {ask.header}
         </Text>
-        <Text color={PALETTE.gold}>{`waiting ${duration(time)}`}</Text>
+        <Waiting />
       </Box>
       {ask.subject ? <Text color={PALETTE.haze}>{ask.subject}</Text> : null}
       {note ? <Text color={PALETTE.haze}>{note}</Text> : null}
@@ -201,6 +200,16 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
         </Box>
       ) : null}
     </Panel>
+  );
+}
+
+/** How long Claude has waited on you, at the end of a decision's title row: the one place that says it waits. */
+export function Waiting() {
+  const { time } = useAnimation({ interval: 1000 });
+  return (
+    <Box flexShrink={0} paddingLeft={2}>
+      <Text color={PALETTE.gold}>{`waiting ${duration(time)}`}</Text>
+    </Box>
   );
 }
 

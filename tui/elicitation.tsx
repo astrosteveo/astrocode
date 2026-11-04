@@ -9,6 +9,7 @@ import { Box, Text, useInput, usePaste, type DOMElement } from "ink";
 import { useReducer, useRef, type ReactNode } from "react";
 import type { ElicitationAnswer, ElicitationField, ElicitationRequest } from "../src/events";
 import { ChoiceRow } from "./choice";
+import { Waiting } from "./decision";
 import { Dial } from "./effort";
 import { Panel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
@@ -162,9 +163,12 @@ export function ElicitationPrompt({ request, width, onOpen, onAnswer }: Props) {
   const actionLabel: Record<string, string> = { open: "Open it in the browser", send: "Send", decline: "Decline" };
   return (
     <Panel width={width} accent={PALETTE.gold} note={request.server}>
-      <Text bold color={PALETTE.star}>
-        {request.title ?? (request.mode === "url" ? `${request.server} asks you to open an address` : `${request.server} asks for some details`)}
-      </Text>
+      <Box justifyContent="space-between">
+        <Text bold color={PALETTE.star}>
+          {request.title ?? (request.mode === "url" ? `${request.server} asks you to open an address` : `${request.server} asks for some details`)}
+        </Text>
+        <Waiting />
+      </Box>
       {request.message ? <Text color={PALETTE.haze}>{request.message}</Text> : null}
       {request.mode === "url" && request.url ? <Text color={PALETTE.sky}>{request.url}</Text> : null}
       <Box ref={list} flexDirection="column" marginTop={1}>
