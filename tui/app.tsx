@@ -579,8 +579,15 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       });
   };
 
-  /** Your keys to the transcript, or back to the box. In scrollback that opens or closes the viewer. */
-  const toTranscript = (on: boolean) => (fullscreen ? setTranscriptKeys(on) : void viewer.show(on));
+  /**
+   * Your keys to the transcript, or back to the box. In scrollback that opens or closes the viewer,
+   * and a call left open there closes with it, as nothing would show it, or hold Follow Claude on it.
+   */
+  const toTranscript = (on: boolean) => {
+    if (fullscreen) return setTranscriptKeys(on);
+    if (!on) setInspect(null);
+    void viewer.show(on);
+  };
 
   /**
    * Ctrl+O and /output: your keys go to the transcript, whose cursor opens any line in place. With
