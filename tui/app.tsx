@@ -261,6 +261,17 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     return () => clearTimeout(timer);
   }, [toast]);
 
+  /**
+   * Why a key did nothing, for a moment where the mode shows, as `claude` says it. Pressed again,
+   * the same words stay up longer rather than stacking.
+   */
+  const [hint, setHint] = useState<{ text: string } | null>(null);
+  useEffect(() => {
+    if (!hint) return;
+    const timer = setTimeout(() => setHint(null), TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [hint]);
+
   // A mod's toast shows for as long as the mod asked, and a newer one takes its place.
   const [modToast, setModToast] = useState<{ plugin: string; text: string } | null>(null);
   useEffect(() => {
@@ -432,7 +443,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     const next = effortStep(levels, state.effort, by);
     if (next) return void session.setEffort(next).then(() => setToast(`${next} effort`), report);
     if (by === 1 && state.effort !== "max" && levels.includes("max")) {
-      notice("info", `${keyLabel(keyFor(store.keymap, "chat:increaseEffort") ?? "shift+up")} stops below max; /effort max sets it.`);
+      setHint({ text: `${keyLabel(keyFor(store.keymap, "chat:increaseEffort") ?? "shift+up")} stops below max · /effort max to set it` });
     }
   };
 
@@ -1656,6 +1667,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           width={width}
           armed={
             armed ??
+            hint?.text ??
             (stopArmed ? `Press ${keyLabel(keyFor(store.keymap, "chat:killAgents") ?? "ctrl+x ctrl+k")} again to stop what's running (${runningNow})` : null)
           }
           running={runningNow}
