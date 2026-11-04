@@ -178,6 +178,18 @@ test("a step Claude wrote no sentence for has no heading: its calls sit right un
   expect(transcript.rows[first]).toMatchObject({ head: true, hot: true, target: callTarget("a") });
 });
 
+test("the start screen heads the transcript only until the conversation starts, which then takes its rows", () => {
+  // Before anything but notices, such as why Claude Code didn't start, the start screen is first, with the notice under it.
+  const failed = layout(input({ ...initialState("/p", "/home/u"), items: [{ kind: "notice", key: "n", tone: "error", text: "Claude Code didn't start." }] }, 118));
+  expect(failed.starts.get("banner")).toBe(0);
+  expect(plain(failed).join("\n")).toContain("astrocode");
+  expect(failed.starts.get("n")).toBeGreaterThan(0);
+  const talking = layout(input(turn([call("a")]), 118));
+  expect(talking.starts.has("banner")).toBe(false);
+  expect(plain(talking).join("\n")).not.toContain("astrocode");
+  expect(talking.starts.get("p")).toBe(0);
+});
+
 /** Your message, then `items` with no sentence of Claude's before them: one step without a heading. */
 function unnamed(items: Item[]): State {
   const tools = Object.fromEntries(items.flatMap((item, i) => (item.kind === "tool" ? [[item.call.id, i + 1]] : [])));

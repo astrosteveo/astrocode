@@ -176,7 +176,11 @@ export function layout({ state, width, pictureRows, start, expanded, waiting, op
     lines.forEach((text, line) => rows.push({ text, key, line, head: line === head, hot: hot && line >= head, open, inset }));
   };
 
-  add("banner", draw(START, `${width}|${JSON.stringify(start)}`, width, () => <StartScreen start={start} width={width} />), 0, 0);
+  // The start screen heads the transcript until the conversation starts, with notices under it,
+  // such as why Claude Code didn't start; then the conversation has its rows.
+  if (state.items.every((item) => item.kind === "notice")) {
+    add("banner", draw(START, `${width}|${JSON.stringify(start)}`, width, () => <StartScreen start={start} width={width} />), 0, 0);
+  }
   for (const entry of arrange(state, waiting, expanded)) {
     const { spaced } = entry;
     if (entry.kind === "step") {
