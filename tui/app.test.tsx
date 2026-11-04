@@ -287,6 +287,18 @@ test("a decision stands in the box's place, right under the line that asks, and 
   expect(row(/❯ half a thought/)).not.toBe(-1);
 });
 
+test("with the call that waits open in the transcript, \"waiting\" is still said once, in the decision", async () => {
+  const command = { command: "rm -rf build", description: "Clean the build" };
+  const asking = turn([call("a"), call("b", { name: "Bash", input: command, status: "running" })]);
+  const { screen, press, update, row } = await launch({ ...asking, busy: true }, { columns: 120, rows: 40 });
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  expect(row(/‹ 2 of 2 ›/)).not.toBe(-1);
+  await update({ ...asking, busy: true, pending: [{ id: "b", toolName: "Bash", input: command, description: command.description }] });
+  expect(row(/‹ 2 of 2 ›/)).not.toBe(-1);
+  expect(screen().join("\n").match(/waiting/gi)).toEqual(["waiting"]);
+});
+
 test("a decision opening brings the end back into view, so the line that asks sits right above it", async () => {
   const command = { command: "rm -rf build", description: "Clean the build" };
   const asking = turn([call("a"), call("b", { name: "Bash", input: command, status: "running" })]);

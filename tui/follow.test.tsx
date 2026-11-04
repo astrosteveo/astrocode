@@ -110,7 +110,7 @@ test("the dock says it waits for you, before Claude has made a call it says what
   await settle();
   app.unmount();
   expect(first.screen()).toContain("◆ Waiting for you");
-  expect(first.screen()).toContain("waiting for you");
+  expect(first.screen()).toContain("▐◇▌");
   // It asks to edit; nothing is being edited yet.
   expect(first.screen()).toContain("Edit a.ts");
   expect(first.screen()).not.toContain("Editing");

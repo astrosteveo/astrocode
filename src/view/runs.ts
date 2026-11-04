@@ -79,7 +79,8 @@ export function runOfShell(item: ShellItem): Run {
 /** How a run went, in a few words for the end of its headline: `✓ 3.2s`, `✕ exit 1 · 8s`. */
 export function runStatus(run: Run): { text: string; tone: Tone } {
   const took = run.ms !== undefined && run.ms >= 1000 ? duration(run.ms) : run.ms !== undefined ? `${(run.ms / 1000).toFixed(1)}s` : "";
-  if (run.status === "waiting") return { text: "waiting for you", tone: "you" };
+  // Only marked: the decision is the one place that says Claude waits.
+  if (run.status === "waiting") return { text: "◇", tone: "you" };
   if (run.background === "running") return { text: "◌ in the background", tone: "claude" };
   switch (run.status) {
     case "running":

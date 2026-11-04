@@ -356,9 +356,9 @@ export function spentOn(call: ToolCall) {
   return timed(ms) ? took(ms) : "";
 }
 
-/** How the call went, for the pill in the header. */
+/** How the call went, for the pill in the header. One that waits is only marked: the decision says so. */
 export function statusOf(call: ToolCall, waiting: boolean): { text: string; color: string } {
-  if (waiting) return { text: "waiting for you", color: PALETTE.gold };
+  if (waiting) return { text: "◇", color: PALETTE.gold };
   const bash = call.name === "Bash" ? runOfCall(call, false) : null;
   if (call.background === "running") return { text: "◌ in the background", color: PALETTE.teal };
   switch (call.status) {
