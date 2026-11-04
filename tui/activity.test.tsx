@@ -8,7 +8,7 @@ import { Activity } from "./activity";
 const working: State = { ...initialState("/p", "/home/u"), busy: true };
 
 /** The now line over `state`, without its colors and the spaces before its keys. */
-const nowLine = (state: State) => stripVTControlCharacters(renderToString(<Activity state={state} width={100} />, { columns: 100 })).replace(/ {2,}/g, "  ");
+const nowLine = (state: State, width = 100) => stripVTControlCharacters(renderToString(<Activity state={state} width={width} />, { columns: width })).replace(/ {2,}/g, "  ");
 
 /** Claude at work on `call`, which runs. */
 function running(call: Partial<ToolCall> & Pick<ToolCall, "name" | "input">): State {
@@ -44,6 +44,27 @@ test("while a command or subagent Claude waits on can move to the background, th
   expect(nowLine(command)).toBe("◐ Running the tests · 8s  esc to stop");
   expect(nowLine(task({ background: true }))).toBe("◐ Running the tests · 8s  esc to stop");
   expect(nowLine(task({ status: "completed" }))).toBe("◐ Running the tests · 8s  esc to stop");
+});
+
+test("at 80 columns the now line stays one row: what Claude does is cut to leave its time, tokens and keys", () => {
+  const explore = running({ name: "Agent", input: { subagent_type: "pr-review-toolkit:silent-failure-hunter", description: "Hunt" }, elapsed: 72 });
+  const moving = { ...explore, turnTokens: 12_000, taskInfo: { t: { id: "t", description: "Hunt", type: "local_agent", toolUseId: "c", background: false, status: "running" as const } } };
+  const tool = { messageId: "m", blocks: [{ kind: "tool" as const, name: "mcp__claude_ai_Claude_Docs__batch_create_document_from_template", text: "" }], finalized: 0 };
+  const command = running({ name: "Bash", input: { command: `bun test ${"src/a-rather-long-folder/".repeat(4)}` }, elapsed: 8 });
+  const read = running({ name: "Read", input: { file_path: "/p/src/some/really/deep/folder/structure/that/goes/on/and/on/retry.ts" } });
+  const retry = { ...working, retry: { attempt: 2, max: 10, at: Date.now(), delayMs: 8000, status: 529, error: "a_very_long_reason_that_claude_code_gave_for_this_failure" } };
+  const cases: [State, string][] = [
+    [moving, "◐ Waiting on pr-review-t… · 1m 12s · 12k tokens  esc to stop  ctrl+b background"],
+    [{ ...working, live: tool }, "◐ Getting batch_create_document_from_template (claude_ai_Clau… · 1s  esc to stop"],
+    [command, "◐ Running bun test src/a-rather-long-folder/src/a-rather-long… · 8s  esc to stop"],
+    // A path keeps its end, the file's name.
+    [read, "◐ Reading …/deep/folder/structure/that/goes/on/and/on/retry.ts · 1s  esc to stop"],
+    [retry, "◐ Retrying in 8s · a very long reason that claude code gave for th…  esc to stop"],
+  ];
+  for (const [state, line] of cases) {
+    expect(nowLine(state, 80)).toBe(line);
+    expect(stripVTControlCharacters(renderToString(<Activity state={state} width={80} />, { columns: 80 }))).toHaveLength(80);
+  }
 });
 
 test("a request tried again says when, why and which attempt", () => {

@@ -36,17 +36,24 @@ export function Activity({ state, width, stop = "esc", background = "ctrl+b" }: 
   const tokens = state.turnTokens + Math.round(live / 4);
   // Claude Code reports a call's seconds now and then, if at all, so the clock counts on between.
   const time = Math.max((doing.elapsed ?? 0) * 1000, Date.now() - since);
-  const after = doing.about ?? ` · ${duration(time)}${tokens > 0 ? ` · ${compact(tokens)} tokens` : ""}`;
   const hint = [`${stop} to stop`, ...(background && movable(state) ? [`${background} background`] : [])].join("   ");
-  const target = doing.target ? fit(doing.target, width - GUTTER - cellWidth(doing.what) - cellWidth(after) - cellWidth(hint) - 3, doing.path ?? false) : "";
+  // One row: the keys keep their place, two cells after the rest. The time and tokens keep theirs,
+  // so what Claude acts on is cut first, then what it's doing; a retry's reason gives way to when.
+  const room = width - GUTTER - cellWidth(hint) - 2;
+  const after = doing.about !== undefined ? fit(doing.about, room - cellWidth(doing.what), false) : ` · ${duration(time)}${tokens > 0 ? ` · ${compact(tokens)} tokens` : ""}`;
+  const what = fit(doing.what, room - cellWidth(after), false);
+  const target = doing.target && what === doing.what ? fit(doing.target, room - cellWidth(what) - cellWidth(after) - 1, doing.path ?? false) : "";
   return (
     <Box justifyContent="space-between" width={width}>
       <Text wrap="truncate-end">
-        <Text color={doing.color ?? PALETTE.teal}>{`${mark} ${doing.what}`}</Text>
+        <Text color={doing.color ?? PALETTE.teal}>{`${mark} ${what}`}</Text>
         {target ? <Text color={PALETTE.star}>{` ${target}`}</Text> : null}
         <Text color={PALETTE.haze}>{after}</Text>
       </Text>
-      <Text color={PALETTE.dust}>{hint}</Text>
+      {/* Narrower than all that, it's the rest that's cut, never the keys. */}
+      <Box flexShrink={0} marginLeft={2}>
+        <Text color={PALETTE.dust}>{hint}</Text>
+      </Box>
     </Box>
   );
 }
