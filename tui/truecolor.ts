@@ -15,3 +15,17 @@ export function inColor<T>(draw: () => T): T {
     chalk.level = before;
   }
 }
+
+/** For tests that render the app and read its colors: true color for every frame from `start()` until `stop()`. */
+export function trueColor() {
+  let before = chalk.level;
+  return {
+    start() {
+      before = chalk.level;
+      chalk.level = 3;
+    },
+    stop() {
+      chalk.level = before;
+    },
+  };
+}

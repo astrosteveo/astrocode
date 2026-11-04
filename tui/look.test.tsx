@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "ink";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
+import type { Agent } from "../src/agents";
 import type { AgentSession } from "../src/session";
 import { initialState, type Item, type State, type ToolCall } from "../src/view/state";
 import { App } from "./app";
@@ -9,17 +10,25 @@ import { Background, Fleet } from "./fleet";
 import { Mouse, MouseContext } from "./mouse";
 import { scratchConfig } from "./scratch-config";
 import { Store } from "./store";
+import { PALETTE, rgb } from "./theme";
+import { trueColor } from "./truecolor";
 
 const COLUMNS = 120;
 const ROWS = 40;
 
-// What the App might save, settings or prompt history, goes to a scratch folder, never yours.
+// What the App might save, settings or prompt history, goes to a scratch folder, never yours. Its
+// frames are drawn in true color, so a test can read their colors.
 const config = scratchConfig();
+const color = trueColor();
 let quit: (() => void) | null = null;
-beforeEach(config.start);
+beforeEach(() => {
+  config.start();
+  color.start();
+});
 afterEach(async () => {
   quit?.();
   quit = null;
+  color.stop();
   await config.stop();
 });
 
@@ -39,8 +48,12 @@ function turn(more: Partial<State> = {}): State {
   return { ...initialState("/p", "/home/u"), items, tools: { a: 2, b: 3 }, ...more };
 }
 
-/** astrocode full screen at 120×40 over `state`, with a session that does nothing. `frame()` is the last frame drawn, a row per line. */
-async function launch(state: State) {
+/**
+ * astrocode full screen at 120×40 over `state`, with a session that does nothing and Claude Code's
+ * background sessions `agents`. `frame()` is the last frame drawn, a row per line, and `drawn()`
+ * the same with its colors.
+ */
+async function launch(state: State, agents: Agent[] = []) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: COLUMNS, rows: ROWS });
   const writes: string[] = [];
   stdout.on("data", (chunk: Buffer) => writes.push(chunk.toString()));
@@ -60,7 +73,7 @@ async function launch(state: State) {
         onToggleFullscreen={() => {}}
         onAgents={() => {}}
         fleet={new Fleet()}
-        backgroundSessions={new Background(async () => [])}
+        backgroundSessions={new Background(async () => agents)}
         agentsHint={Promise.resolve(false)}
       />
     </MouseContext.Provider>,
@@ -72,8 +85,13 @@ async function launch(state: State) {
   };
   await settle();
   // Each frame is written whole; the mouse writes its own codes between them.
-  const frame = () => stripVTControlCharacters(writes.findLast((one) => one.split("\n").length >= ROWS - 1) ?? "").split("\n");
-  return { frame };
+  const drawn = () => writes.findLast((one) => one.split("\n").length >= ROWS - 1) ?? "";
+  const frame = () => stripVTControlCharacters(drawn()).split("\n");
+  const press = async (keys: string) => {
+    stdin.write(keys);
+    await settle();
+  };
+  return { frame, drawn, press };
 }
 
 /** The rows from the box's hairline to the bottom of the screen. */
@@ -94,4 +112,79 @@ test("while Claude works, the line that says what it's doing sits right over the
   expect(lines[hairline - 1]).toMatch(/esc to stop/);
   // Above it is the transcript's end, not a row holding a dot.
   expect(lines[hairline - 2]).not.toMatch(/^[⠀-⣿]\s*$/);
+});
+
+const GOLD = rgb(PALETTE.gold).join(";");
+
+/**
+ * What a frame draws in gold, top to bottom and left to right: each run of characters in gold, or
+ * of cells on gold (`█` for a blank one), with its spaces closed up. A hairline of `▁`, however
+ * long, is `▁`. Spaces in gold show nothing, so they only join what's on either side.
+ */
+function goldIn(frame: string) {
+  const runs: string[] = [];
+  for (const line of frame.split("\n")) {
+    let fg = "";
+    let bg = "";
+    let row = "";
+    for (const [, code, text] of line.matchAll(/(\x1b\[[0-9;]*m|\x1b\][^\x07]*\x07|\x1b\[[0-9;?]*[A-Za-z])|([^\x1b])/gu)) {
+      if (code?.endsWith("m") && code.startsWith("\x1b[")) {
+        const params = code.slice(2, -1).split(";");
+        for (let i = 0; i < params.length; i++) {
+          const n = Number(params[i] || 0);
+          if (n === 0) [fg, bg] = ["", ""];
+          else if (n === 39) fg = "";
+          else if (n === 49) bg = "";
+          else if (n === 38 || n === 48) {
+            const value = params[i + 1] === "2" ? params.slice(i + 2, i + 5).join(";") : params[i + 2]!;
+            if (n === 38) fg = value;
+            else bg = value;
+            i += params[i + 1] === "2" ? 4 : 2;
+          }
+        }
+      } else if (text !== undefined) row += bg === GOLD ? (text === " " ? "█" : text) : fg === GOLD ? text : "\0";
+    }
+    for (const run of row.split(/\0+/)) {
+      const words = run.replace(/\s+/g, " ").trim();
+      if (words) runs.push(/^▁+$/.test(words) ? "▁" : words);
+    }
+  }
+  return runs;
+}
+
+/** A turn with a step Claude named, so the step has its mark, then the reply and the turn's ledger. */
+function finished(more: Partial<State> = {}): State {
+  const state = turn(more);
+  state.items.push({ kind: "turn", key: "end", outcome: "finished", durationMs: 6000, tokens: 1200, files: [{ path: "/p/src/a.ts", added: 2, removed: 1 }] });
+  return state;
+}
+
+/** Another conversation, a background session, waiting on you. */
+const elsewhere: Agent = { id: "bg1", name: "other", cwd: "/q", folder: "/q", state: "blocked", status: "waiting", alive: true, createdAt: 0, updatedAt: 0, prs: [] };
+
+test("gold marks only you: your message, where your keys are, and what waits on you, in every mode", async () => {
+  for (const mode of ["default", "acceptEdits", "plan", "auto", "bypassPermissions", "dontAsk"] as const) {
+    const { drawn } = await launch(finished({ mode }), [elsewhere]);
+    // Your message's mark; the box, which has your keys: its hairline, its ❯ and its cursor; and the conversation waiting on you.
+    expect({ mode, gold: goldIn(drawn()) }).toEqual({ mode, gold: ["●", "▁", "❯ █", "← 1 needs you"] });
+    quit?.();
+  }
+});
+
+test("with your keys in the transcript, gold is its cursor's ›, and no longer the box's", async () => {
+  const { drawn, press } = await launch(finished({ mode: "auto" }), [elsewhere]);
+  await press("\x0f");
+  expect(goldIn(drawn())).toEqual(["●", "›", "← 1 needs you"]);
+});
+
+test("while Claude waits on you, gold is the step and the line that ask, and the decision with your keys", async () => {
+  const state = turn({ busy: true });
+  const asking = state.items.findIndex((item) => item.kind === "tool" && item.call.name === "Bash");
+  const item = state.items[asking]!;
+  if (item.kind === "tool") state.items[asking] = { ...item, call: { ...item.call, status: "running", result: undefined } };
+  state.pending = [{ id: "b", toolName: "Bash", input: { command: "bun test" }, description: "Run the tests" }];
+  state.items = state.items.slice(0, asking + 1);
+  const { drawn } = await launch(state);
+  await settle(600);
+  expect(goldIn(drawn())).toEqual(["●", "●", "Run the tests", "▁", expect.stringMatching(/^waiting \d+s$/), "›"]);
 });

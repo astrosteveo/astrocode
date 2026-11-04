@@ -32,7 +32,8 @@ export const MODE_CHIPS: Record<PermissionMode, { label: string; color: string }
   default: { label: "ask first", color: PALETTE.haze },
   acceptEdits: { label: "accept edits", color: PALETTE.teal },
   plan: { label: "plan", color: PALETTE.sky },
-  auto: { label: "auto", color: PALETTE.gold },
+  // Not gold, which marks only you, as `← 1 needs you` beside the chip does.
+  auto: { label: "auto", color: PALETTE.ember },
   bypassPermissions: { label: "bypass permissions", color: PALETTE.rose },
   dontAsk: { label: "don't ask", color: PALETTE.ember },
 };
