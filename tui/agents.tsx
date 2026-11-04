@@ -12,15 +12,17 @@ import { installedBinary } from "../src/claude";
 import { DEFAULT_MODE, topLevelEnv } from "../src/session";
 import { activityRows } from "../src/view/activity";
 import { ago, modelLabel } from "../src/view/format";
+import { runningList } from "../src/view/runs";
 import type { State } from "../src/view/state";
 import { shortPath } from "../src/view/tools";
 import { describe } from "./activity";
 import { ChoiceRow } from "./choice";
 import { lendTerminal } from "./editor";
-import { firstPrompt, liveState, needYou, titleOf, type Conversation, type Fleet } from "./fleet";
+import { firstPrompt, liveState, needsYou, needYou, titleOf, type Conversation, type Fleet } from "./fleet";
+import type { GitInfo } from "./git";
 import { cellWidth } from "./markdown";
 import { fit } from "./markdown-view";
-import { MODE_CHIPS } from "./status";
+import { MODE_CHIPS, StatusBar } from "./status";
 import { PALETTE } from "./theme";
 
 /** How often the list is read again. */
@@ -186,6 +188,8 @@ type Props = {
   settings: SessionSettings;
   /** Said on the note line as the view opens, such as why astrocode didn't quit. */
   notice?: string;
+  /** The branch of the conversation the view was opened from, for its status bar. */
+  git?: GitInfo | null;
   /** Shows one of astrocode's conversations. */
   onShow: (key: string) => void;
   /** Moves a background session into astrocode and shows it. Rejects with what went wrong. */
@@ -198,7 +202,7 @@ type Props = {
   onExit: () => Promise<void>;
 };
 
-export function AgentsView({ fleet, here, cwd, home, settings, notice, onShow, onOpen, onStart, onStop, onExit }: Props) {
+export function AgentsView({ fleet, here, cwd, home, settings, notice, git = null, onShow, onOpen, onStart, onStop, onExit }: Props) {
   const { columns, rows } = useWindowSize();
   const width = Math.max(40, columns);
   const { suspendTerminal } = useApp();
@@ -410,9 +414,11 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, onShow, o
 
   const peekLines = peek && focused ? peekOf(focused, focusedMine && { name: nameOf(focusedMine), state: focusedMine.store.getSnapshot(), shells: focusedMine.store.shells.size, cwd: focusedMine.cwd }, home) : [];
   const peekRows = peekLines.reduce((sum, line) => sum + Math.max(1, Math.ceil(cellWidth(line.text) / Math.max(1, inner - 10))), 0) + (peekLines.length ? 1 : 0);
+  // The status bar of the conversation you came from stays, so you can see its mode and plan.
+  const backState = back?.store.getSnapshot();
   // Less the header and the gap under it, the message box with its edges and the gap over it,
-  // the keys' line, the note, and a spare row so the screen never scrolls.
-  const room = Math.max(3, rows - 10 - peekRows);
+  // the keys' line, the note, the status bar, and a spare row so the screen never scrolls.
+  const room = Math.max(3, rows - 10 - (backState ? 1 : 0) - peekRows);
   const at = Math.max(0, lines.findIndex((line) => keyOf(line) === current));
   const chosen = chosenLine(lines, current, Boolean(text));
   const first = Math.min(Math.max(0, at - Math.floor(room / 2)), Math.max(0, lines.length - room));
@@ -514,6 +520,22 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, onShow, o
       <Text color={note?.tone === "error" ? PALETTE.rose : PALETTE.haze} wrap="truncate">
         {note ? `  ${note.text}` : " "}
       </Text>
+      {back && backState ? (
+        // Out over the view's padding, where it sits under a conversation.
+        <Box marginX={-1}>
+          <StatusBar
+            state={backState}
+            mode={backState.mode}
+            git={git}
+            width={width}
+            armed={null}
+            running={runningList(backState).filter((one) => one.status === "running").length}
+            keepWarm={back.store.keepWarm}
+            usageMode={back.store.usageMode}
+            needsYou={needsYou(mine, back.store, agents ?? [])}
+          />
+        </Box>
+      ) : null}
     </Box>
   );
 }
