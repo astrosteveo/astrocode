@@ -209,3 +209,25 @@ test("starts from the repository's first file", async () => {
   expect(await edges.end()).toEqual({ files: [{ path: join(top, "a.txt"), added: 2, removed: 0 }], commits: [] });
 });
 
+
+/** Runs `body` with the temporary folder at `path`, as when TMPDIR names one that isn't there. */
+async function withTemp<T>(path: string, body: () => Promise<T>) {
+  const was = process.env.TMPDIR;
+  process.env.TMPDIR = path;
+  try {
+    return await body();
+  } finally {
+    if (was === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = was;
+  }
+}
+
+test("says nothing, rather than failing, when it can't make its folder", async () => {
+  const top = repo({ "a.txt": lines(1) });
+  await withTemp(join(folder(), "missing"), async () => {
+    const edges = snapshots(top);
+    await edges.start();
+    write(top, "a.txt", lines(2));
+    expect(await edges.end()).toBeNull();
+  });
+});
