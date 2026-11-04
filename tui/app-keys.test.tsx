@@ -10,7 +10,7 @@ import { App } from "./app";
 import { Store } from "./store";
 
 /** Keys as a terminal sends them. */
-const KEYS = { enter: "\r", ctrlL: "\x0c" };
+const KEYS = { enter: "\r", ctrlL: "\x0c", shiftUp: "\x1b[1;2A" };
 
 /** What Ctrl+L writes in scrollback: the screen and its scrollback cleared, for the conversation to be written again. */
 const CLEARED = "\x1b[2J\x1b[3J\x1b[H";
@@ -87,4 +87,18 @@ test("Ctrl+L redraws with an overlay open too, where the message box doesn't hav
   await press(KEYS.ctrlL);
   ink.unmount();
   expect(written().slice(before)).toContain(CLEARED);
+});
+
+test("Shift+↑ at the top says once, for a moment, that max takes /effort, as claude does", async () => {
+  const { press, store, ink, written } = app();
+  await settle();
+  store.emit({ kind: "effort", effort: "xhigh" });
+  await settle();
+  await press(KEYS.shiftUp, KEYS.shiftUp, KEYS.shiftUp);
+  expect(stripVTControlCharacters(written())).toContain("Shift+↑ stops below max · /effort max to set it");
+  expect(store.getSnapshot().items.filter((item) => item.kind === "notice")).toEqual([]);
+  const before = written().length;
+  await settle(2200);
+  ink.unmount();
+  expect(stripVTControlCharacters(written().slice(before))).toContain("ask first");
 });
