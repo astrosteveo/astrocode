@@ -420,7 +420,10 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, onShow, o
 
   const enter = !focused || focused.kind === "folder" || focused.kind === "gap" ? "" : focused.kind === "mine" ? "enter open" : attaches(focused.agent) ? "enter attach" : "enter open here";
   const stop = focusedMine ? "ctrl+x stop" : focused?.kind === "agent" ? (focused.agent.alive ? "ctrl+x stop" : "ctrl+x delete") : "";
-  const hints = text ? ["enter start", "ctrl+enter start and open", "↑↓ project", "esc clear"] : [enter, "space peek", stop, back ? "esc back" : "esc quit"].filter(Boolean);
+  const rowHints = [enter, "space peek", stop].filter(Boolean);
+  // The name gets what room the line leaves it, so the hints stay on one line.
+  const backTo = back ? `esc back to ${fit(nameOf(back), Math.max(8, inner - 2 - cellWidth([...rowHints, "esc back to "].join(" · "))), false)}` : "esc quit";
+  const hints = text ? ["enter start", "ctrl+enter start and open", "↑↓ project", "esc clear"] : [...rowHints, backTo];
 
   return (
     <Box flexDirection="column" width={width} paddingX={1}>

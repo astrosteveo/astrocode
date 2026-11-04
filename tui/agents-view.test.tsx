@@ -276,3 +276,10 @@ test("the header says the model and mode a new conversation gets, with none pick
   const header = (screen().split("Conversations").at(-1) ?? "").split("\n")[0]?.trimEnd();
   expect(header).toBe("   new ones start in ~/here · Opus 5.5 · auto");
 });
+
+test("Esc's hint names the conversation it goes back to", async () => {
+  const { app, screen } = view({ here: "astrocode-1", mine: ["first", "second"] });
+  await settle(500);
+  app.unmount();
+  expect(screen().split("Conversations").at(-1)).toContain("esc back to first");
+});
