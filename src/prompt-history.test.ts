@@ -176,3 +176,19 @@ test("with no CLAUDE_CONFIG_DIR it's history.jsonl in ~/.claude", () => {
   expect(JSON.parse(run.stdout.toString())).toEqual(["from claude", "from astrocode"]);
   expect(readFileSync(join(home, ".claude", "history.jsonl"), "utf8").trim().split("\n")).toHaveLength(2);
 });
+
+test("a message with a secret in it stays out of claude's file, as claude keeps it out, but not out of ↑", async () => {
+  write([]);
+  const history = new PromptHistory();
+  await history.load();
+  const secrets = [
+    "!curl -H 'x-api-key: sk-ant-api03-AbCdEfGh1234567890abcdefXYZ' https://api.anthropic.com",
+    "/mcp add api --header 'Authorization: Bearer abcdef0123456789abcdef'",
+    // astrocode puts what you paste in the message, so a key anywhere in it counts as pasted.
+    "deploy with AKIAIOSFODNN7EXAMPLE as the key",
+  ];
+  for (const text of secrets) await history.add(text, HERE, "s1");
+  await history.add("!git status", HERE, "s1");
+  expect(readFileSync(file, "utf8").trim().split("\n").map((one) => JSON.parse(one).display)).toEqual(["!git status"]);
+  expect(history.recall(HERE, "s1")).toEqual([...secrets, "!git status"]);
+});

@@ -7,6 +7,7 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { hasSecret } from "./secrets";
 
 /** A message, with the text its placeholders stand for back in their place. */
 type SavedPrompt = { text: string; timestamp: number; project: string; sessionId?: string };
@@ -47,8 +48,8 @@ export class PromptHistory {
 
   /**
    * Keeps a message for ↑ and Ctrl+R, and adds it to Claude Code's file unless
-   * CLAUDE_CODE_SKIP_PROMPT_HISTORY is set. As in Claude Code, the same message again straight
-   * after itself in a session is kept once, and each one gets a time of its own.
+   * CLAUDE_CODE_SKIP_PROMPT_HISTORY is set or it has a secret in it. As in Claude Code, the same
+   * message again straight after itself in a session is kept once, and each one gets a time of its own.
    */
   add(text: string, project: string, sessionId?: string): Promise<void> {
     const last = this.sent.at(-1);
@@ -56,7 +57,7 @@ export class PromptHistory {
     const prompt = { text, timestamp: Math.max(Date.now(), (last?.timestamp ?? 0) + 1), project, sessionId };
     this.sent.push(prompt);
     this.merge();
-    if (/^(1|true|yes|on)$/i.test(process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY?.trim() ?? "")) return this.writing;
+    if (/^(1|true|yes|on)$/i.test(process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY?.trim() ?? "") || holdsSecret(text)) return this.writing;
     // Read again once it's written, which brings in what `claude` has added since.
     this.writing = this.writing
       .then(() => append(prompt))
@@ -82,13 +83,30 @@ export class PromptHistory {
     return this.texts;
   }
 
-  /** The file's lines in its order, then what's been sent from here that isn't in it yet. */
+  /** The file's lines in its order, with what's been sent from here that isn't in it in its place by time. */
   private merge() {
     const key = (prompt: SavedPrompt) => `${prompt.timestamp}\0${prompt.sessionId ?? ""}`;
     const written = new Set(this.onFile.map(key));
-    this.all = [...this.onFile, ...this.sent.filter((prompt) => !written.has(key(prompt)))];
+    const unwritten = this.sent.filter((prompt) => !written.has(key(prompt)));
+    this.all = [];
+    let next = 0;
+    for (const prompt of this.onFile) {
+      while (next < unwritten.length && unwritten[next]!.timestamp < prompt.timestamp) this.all.push(unwritten[next++]!);
+      this.all.push(prompt);
+    }
+    this.all.push(...unwritten.slice(next));
     this.texts = this.all.map((prompt) => prompt.text);
   }
+}
+
+/**
+ * Whether Claude Code would keep the message out of its file for a secret in a `!` command, a `/`
+ * command or pasted text. astrocode puts what you paste in the message itself, so a secret anywhere
+ * in it counts, where Claude Code lets one you typed into a plain message through.
+ */
+function holdsSecret(text: string) {
+  const command = text.trim().replace(/^!\s*/, "");
+  return hasSecret(text) || (command.startsWith("/") && hasSecret(command.slice(1)));
 }
 
 /** Every message in Claude Code's file, oldest first. Lines not in its shape are skipped, as it skips them. */
