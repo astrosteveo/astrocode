@@ -6,7 +6,7 @@
 import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import { ANYWHERE } from "./focus";
-import { ACTIONS, DEFAULT_KEYMAP, hintKey, hintOf, parseChord, type Action, type Keymap } from "./keys";
+import { ACTIONS, DEFAULT_KEYMAP, hintKey, hintOf, startsChord, type Action, type Keymap } from "./keys";
 import { cellWidth } from "./markdown";
 import { Panel } from "./markdown-view";
 import { PALETTE } from "./theme";
@@ -22,12 +22,14 @@ export type Section = { title: string; rows: Row[] };
 const GAP = 3;
 
 export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean): Section[] {
-  /** Keys of the box's own that no binding has taken from it. */
-  const free = (keys: string[]) => keys.filter((key) => !keymap.has(parseChord(key) ?? key));
-  const own = (does: string, ...keys: string[]): Row[] => {
-    const left = free(keys);
-    return left.length ? [[left.join(", "), does]] : [];
-  };
+  /**
+   * Keys of the box's own, in the keymap's spelling, that no binding has taken from it: the box asks
+   * the keymap first, so a stroke bound, or one that starts a chord, is the binding's.
+   */
+  const free = (keys: string[]) => keys.filter((key) => !key.split(" ").some((stroke) => keymap.has(stroke) || startsChord(keymap, stroke)));
+  const row = (does: string, keys: string[]): Row[] => (keys.length ? [[keys.join(", "), does]] : []);
+  const own = (does: string, ...keys: string[]) => row(does, free(keys).map(hintOf));
+  const send = hintKey(keymap, "chat:submit");
   /**
    * An action's keys: the first, as every hint names it, and any you bound to it. Claude Code's other
    * defaults are the same key spelled another way (Ctrl+- for Ctrl+_), or a chord for terminals
@@ -36,8 +38,7 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean): Sect
   const bound = (action: Action, does: string = ACTIONS[action], ...also: string[]): Row[] => {
     const first = hintKey(keymap, action);
     const added = [...keymap].flatMap(([chord, to]) => (to === action && DEFAULT_KEYMAP.get(chord) !== action ? [hintOf(chord)] : []));
-    const keys = [...new Set([...free(also), ...(first ? [first] : []), ...added])];
-    return keys.length ? [[keys.join(", "), does]] : [];
+    return row(does, [...new Set([...free(also).map(hintOf), ...(first ? [first] : []), ...added])]);
   };
 
   const box: Section = {
@@ -45,15 +46,15 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean): Sect
     rows: [
       ...bound("chat:submit"),
       ...bound("chat:newline", ACTIONS["chat:newline"], "shift+enter"),
-      // Shift+Enter needs the kitty keyboard protocol; these don't.
-      ...own(ACTIONS["chat:newline"], "alt+enter", "\\ enter"),
+      // Shift+Enter needs the kitty keyboard protocol; these don't. `\` before the key that sends is a new line.
+      ...row(ACTIONS["chat:newline"], [...free(["meta+enter"]).map(hintOf), ...(send ? [`\\ ${send}`] : [])]),
       ...bound("chat:sendNow"),
       ...bound("chat:queueSubmit"),
-      ...own("earlier messages", "↑ ↓"),
+      ...own("earlier messages", "up down"),
       ...bound("history:search"),
-      ...own("stop Claude", "esc"),
-      ...own("clear, or rewind", "esc esc"),
-      ...own("conversations", "←"),
+      ...own("stop Claude", "escape"),
+      ...own("clear, or rewind", "escape escape"),
+      ...own("conversations", "left"),
       ...bound("chat:stash"),
       ...bound("chat:externalEditor"),
       ...bound("chat:imagePaste"),
@@ -71,12 +72,12 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean): Sect
     rows: [
       ...own("line start", "ctrl+a"),
       ...own("line end", "ctrl+e"),
-      ...own("word back", "alt+b"),
-      ...own("word on", "alt+f"),
+      ...own("word back", "meta+b"),
+      ...own("word on", "meta+f"),
       ...own("cut to start", "ctrl+u"),
       ...own("cut to end", "ctrl+k"),
       ...own("cut word back", "ctrl+w"),
-      ...own("cut word on", "alt+d"),
+      ...own("cut word on", "meta+d"),
       ...own("put back", "ctrl+y"),
     ],
   };
