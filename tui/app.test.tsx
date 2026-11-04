@@ -252,6 +252,17 @@ test("opening the running call's line opens each call Claude starts after it und
   expect(opened()).toBe(1);
 });
 
+test("following Claude, a command that waits for your OK opens on the command, and on its output once it runs", async () => {
+  const { press, update, screen, row } = await launch({ ...turn([call("a"), running("b", "Build the app")]), busy: true });
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  const asking = { ...turn([call("a"), running("b", "Build the app", { status: "done", result: "built" }), running("c", "Lint the code")]), busy: true };
+  await update({ ...asking, pending: [{ id: "c", toolName: "Bash", input: { command: "make c" } }] });
+  expect(screen()[row(/Lint +the code/) + 2]).toContain("▐Command▌");
+  await update(asking);
+  expect(screen()[row(/Linting +the code/) + 2]).toContain("▐Output▌");
+});
+
 test("a line of several reads, the last of them running, opens on the one running, and follows Claude from there", async () => {
   const read = (id: string, file: string, more: Partial<ToolCall> = {}) => call(id, { name: "Read", input: { file_path: `/p/src/${file}` }, result: "1\tx", ...more });
   const { press, update, screen } = await launch({ ...turn([call("g"), read("r1", "a.ts"), read("r2", "b.ts", { status: "running", result: undefined })]), busy: true });
