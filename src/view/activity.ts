@@ -36,6 +36,8 @@ export type ActivityRow = {
 const GROUPED = new Set(["Read"]);
 const EDITS = new Set(["Edit", "MultiEdit", "NotebookEdit"]);
 const AGENTS = new Set(["Agent", "Task"]);
+/** A call shows how long it ran or has run only past this, in ms: a quicker one's time says nothing. */
+const LONG = 5000;
 
 type Tense = "doing" | "ask" | "done";
 
@@ -141,11 +143,12 @@ function rowOf(calls: ToolCall[], waiting: ReadonlySet<string>, cwd: string, hom
     row.verb = forms.ask;
     row.target = target("ask");
     // An edit asks with the change it would make.
-    row.result = EDITS.has(first.name) || first.name === "Write" ? diffParts(changed(last), false) : [];
+    const change = EDITS.has(first.name) || first.name === "Write" ? changed(last) : undefined;
+    row.result = change ? diffParts(change, false) : [];
   } else if (status === "running" || last.background === "running") {
     row.verb = forms.doing;
     row.target = target("doing");
-    if (status === "running" && !AGENTS.has(first.name)) row.result = last.elapsed ? [{ text: took(last.elapsed * 1000), tone: "quiet" }] : [];
+    if (status === "running" && !AGENTS.has(first.name)) row.result = (last.elapsed ?? 0) * 1000 > LONG ? [{ text: took(last.elapsed! * 1000), tone: "quiet" }] : [];
   } else if (status === "denied" || (status === "stopped" && last.unanswered)) {
     // What it would have done, in the words it asked with.
     row.verb = "Not run";
@@ -156,7 +159,7 @@ function rowOf(calls: ToolCall[], waiting: ReadonlySet<string>, cwd: string, hom
     row.verb = "Stopped";
     row.target = target("doing", forms.doing[0]!.toLowerCase() + forms.doing.slice(1));
     const ms = last.startedAt !== undefined && last.endedAt !== undefined ? last.endedAt - last.startedAt : last.elapsed !== undefined ? last.elapsed * 1000 : undefined;
-    row.result = ms !== undefined && ms >= 1000 ? [{ text: `after ${took(ms)}`, tone: "quiet" }] : [];
+    row.result = ms !== undefined && ms > LONG ? [{ text: `after ${took(ms)}`, tone: "quiet" }] : [];
   } else {
     row.verb = forms.done;
     row.target = target("done");
@@ -197,7 +200,7 @@ function describe(row: ActivityRow, cwd: string, home: string): Verbs {
       row.target = splitPath(shortPath(filePath(call), cwd, home));
       const done = calls.filter((one) => one.status === "done");
       const counts = done.reduce((sum, one) => {
-        const each = changed(one);
+        const each = changed(one) ?? { added: 0, removed: 0 };
         return { added: sum.added + each.added, removed: sum.removed + each.removed };
       }, { added: 0, removed: 0 });
       const created = call.name === "Write" && field(call.output, "type") === "create";
@@ -428,8 +431,11 @@ function firstWords(text: string) {
   );
 }
 
-/** Lines an edit or write added and removed, from Claude Code's patch where it gave one. */
-export function changed(call: ToolCall) {
+/**
+ * Lines an edit or write added and removed, from Claude Code's patch where it gave one, or
+ * undefined for a notebook edit before its result brings the cell's old source.
+ */
+export function changed(call: ToolCall): { added: number; removed: number } | undefined {
   const hunks = field(call.output, "structuredPatch");
   if (Array.isArray(hunks) && hunks.length) {
     let added = 0;
@@ -446,9 +452,18 @@ export function changed(call: ToolCall) {
   const text = (key: string) => (typeof call.input[key] === "string" ? (call.input[key] as string) : "");
   // A file's last newline ends its last line rather than starting another.
   if (call.name === "Write") return { added: text("content").replace(/\n$/, "").split("\n").length, removed: 0 };
-  // Lines each side has that the other doesn't, counted as a multiset.
-  const before = text("old_string").split("\n");
-  const after = text("new_string").split("\n");
+  if (call.name === "NotebookEdit") {
+    const before = field(call.output, "old_source");
+    const after = field(call.output, "new_source");
+    return typeof after === "string" ? lineChanges(typeof before === "string" ? before : "", after) : undefined;
+  }
+  return lineChanges(text("old_string"), text("new_string"));
+}
+
+/** Lines each side has that the other doesn't, counted as a multiset. */
+function lineChanges(old: string, now: string) {
+  const before = old ? old.split("\n") : [];
+  const after = now ? now.split("\n") : [];
   const left = new Map<string, number>();
   for (const line of before) left.set(line, (left.get(line) ?? 0) + 1);
   let added = 0;
