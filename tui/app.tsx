@@ -1658,27 +1658,33 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       </Box>
     </>
   ) : null;
-  const above = decision ? null : overlaid ? (
+  const above = decision ? null : inspected && !fullscreen ? (
+    // In scrollback the inspector sits above the message box, as tall as leaves the box in view. An
+    // overlay stands in its place, and the inspector stays under it, hidden, as you left it.
+    <>
+      {overlaid}
+      <Box display={overlaid ? "none" : "flex"} flexDirection="column">
+        <Inspector
+          call={inspected}
+          place={placeOf(state, inspected.id)}
+          waiting={waiting.has(inspected.id)}
+          width={width}
+          height={Math.max(10, rows - 10)}
+          focused={inspectorKeys}
+          cwd={state.cwd}
+          home={state.home}
+          log={state.agentLogs[inspected.id]}
+          keymap={store.keymap}
+          onFollow={toggleFollow}
+          onClose={() => setInspect(null)}
+          onFocus={() => setInspect((open) => open && { ...open, focus: true })}
+          onMove={moveInspector}
+          onCopy={copied}
+        />
+      </Box>
+    </>
+  ) : overlaid ? (
     overlaid
-  ) : inspected && !fullscreen ? (
-    // In scrollback the inspector sits above the message box, as tall as leaves the box in view.
-    <Inspector
-      call={inspected}
-      place={placeOf(state, inspected.id)}
-      waiting={waiting.has(inspected.id)}
-      width={width}
-      height={Math.max(10, rows - 10)}
-      focused={inspectorKeys}
-      cwd={state.cwd}
-      home={state.home}
-      log={state.agentLogs[inspected.id]}
-      keymap={store.keymap}
-      onFollow={toggleFollow}
-      onClose={() => setInspect(null)}
-      onFocus={() => setInspect((open) => open && { ...open, focus: true })}
-      onMove={moveInspector}
-      onCopy={copied}
-    />
   ) : following ? (
     <FollowDock
       call={followed}

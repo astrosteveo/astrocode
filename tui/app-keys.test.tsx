@@ -13,7 +13,7 @@ import { scratchConfig } from "./scratch-config";
 import { Store } from "./store";
 
 /** Keys as a terminal sends them. */
-const KEYS = { enter: "\r", ctrlL: "\x0c", ctrlO: "\x0f", shiftUp: "\x1b[1;2A", esc: "\x1b", up: "\x1b[A" };
+const KEYS = { enter: "\r", ctrlL: "\x0c", ctrlO: "\x0f", shiftUp: "\x1b[1;2A", esc: "\x1b", up: "\x1b[A", pgDn: "\x1b[6~", tab: "\t" };
 
 /** What Ctrl+L writes in scrollback: the screen and its scrollback cleared, for the conversation to be written again. */
 const CLEARED = "\x1b[2J\x1b[3J\x1b[H";
@@ -242,4 +242,29 @@ test("? in scrollback's inspector lists an opened call's keys, with nothing from
   expect(sheet).toContain("In an opened call");
   expect(sheet).toMatch(/1, 2, … +that tab/);
   expect(sheet).not.toContain("In the box");
+});
+
+test("the key sheet over scrollback's inspector keeps its place: the tab you're on and how far you've scrolled", async () => {
+  const { press, store, ink, written } = app();
+  await settle();
+  const sdk = (message: Record<string, unknown>) => store.emit({ kind: "sdk", message: message as unknown as SDKMessage });
+  const output = Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join("\n");
+  sdk({ type: "assistant", uuid: "a", session_id: "s", parent_tool_use_id: null, message: { id: "m", model: "claude-opus-5-5", role: "assistant", content: [{ type: "tool_use", id: "t", name: "Bash", input: { command: "seq 1 300", description: "Count" } }] } });
+  sdk({ type: "user", uuid: "u", session_id: "s", parent_tool_use_id: null, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: output }] } });
+  await settle();
+  /** What the inspector shows after `keys`: its tab and its first line of output. */
+  const after = async (...keys: string[]) => {
+    const before = written().length;
+    await press(...keys);
+    const shown = stripVTControlCharacters(written().slice(before));
+    return { tab: shown.match(/▐(\w+)▌/)?.[1], first: shown.match(/line \d+/)?.[0] };
+  };
+  await press(KEYS.ctrlO, KEYS.enter);
+  const scrolled = await after(KEYS.pgDn);
+  expect(scrolled.first).not.toBe("line 1");
+  expect(await after("?", KEYS.esc)).toEqual(scrolled);
+  const command = await after(KEYS.tab);
+  expect(command.tab).toBe("Command");
+  expect((await after("?", KEYS.esc)).tab).toBe("Command");
+  ink.unmount();
 });
