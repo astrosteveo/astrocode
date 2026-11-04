@@ -697,6 +697,20 @@ test("Claude's question and an MCP server's form say once, on their title row, h
   }
 });
 
+test("a decision takes the box's place with no bottom edge, as the box has none, so the status bar sits right under it", async () => {
+  const command = { command: "bun test", description: "Run the tests" };
+  const question = { id: "q", questions: [{ question: "Which cache?", header: "Cache", multiSelect: false, options: [{ label: "LRU", description: "least recently used" }, { label: "TTL", description: "time based" }] }] };
+  const form = { id: "e", server: "hello", message: "Your name?", mode: "form" as const, fields: [{ name: "name", label: "Name", type: "string" as const, required: true }] };
+  const asking = turn([call("a"), call("q", { name: "Bash", input: command, status: "running" })]);
+  for (const waiting of [{ pending: [{ id: "q", toolName: "Bash", input: command, description: command.description }] }, { questions: [question] }, { elicitations: [form] }]) {
+    const { screen } = await launch({ ...asking, busy: true, ...waiting }, { columns: 80, rows: 24 });
+    const lines = screen().filter((line, i, all) => i < all.length - 1 || line !== "");
+    expect(lines.at(-1)).toMatch(/ask first/);
+    expect(lines.at(-2)).not.toMatch(/▀/);
+    quit?.();
+  }
+});
+
 test("a decision opening brings the end back into view, so the line that asks sits right above it", async () => {
   const command = { command: "rm -rf build", description: "Clean the build" };
   const asking = turn([call("a"), call("b", { name: "Bash", input: command, status: "running" })]);

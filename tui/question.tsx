@@ -175,7 +175,7 @@ export function QuestionPrompt({ request, width, rows: screenRows, onAnswer }: P
       </Panel>
     ) : null;
   return (
-    <Panel width={width} accent={PALETTE.gold} note={questions.length > 1 ? `${step + 1} of ${questions.length}` : undefined}>
+    <Panel width={width} accent={PALETTE.gold} note={questions.length > 1 ? `${step + 1} of ${questions.length}` : undefined} open>
       {questions.length > 1 ? (
         <Box justifyContent="space-between">
           <Text>

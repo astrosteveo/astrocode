@@ -162,7 +162,7 @@ export function ElicitationPrompt({ request, width, onOpen, onAnswer }: Props) {
   );
   const actionLabel: Record<string, string> = { open: "Open it in the browser", send: "Send", decline: "Decline" };
   return (
-    <Panel width={width} accent={PALETTE.gold} note={request.server}>
+    <Panel width={width} accent={PALETTE.gold} note={request.server} open>
       <Box justifyContent="space-between">
         <Text bold color={PALETTE.star}>
           {request.title ?? (request.mode === "url" ? `${request.server} asks you to open an address` : `${request.server} asks for some details`)}
