@@ -196,8 +196,9 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean, { pro
   const redraw: Section = { title: "Anywhere", rows: bound("chat:clearInput") };
   switch (place) {
     case "box":
-      // Full screen's /help shows this one, so it has the transcript's keys too, for after Ctrl+O.
-      return [box, typed, editing, ...(fullscreen ? [scrolling, transcript, mouse] : []), anywhere];
+      // /help shows this one, so it has the transcript's keys too, for after Ctrl+O: full screen's,
+      // or in scrollback its viewer's.
+      return [box, typed, editing, ...(fullscreen ? [scrolling, transcript, mouse] : [transcript]), anywhere];
     // The transcript is drawn full screen in either layout: in scrollback, its viewer.
     case "transcript":
       return [transcript, mouse, anywhere];

@@ -89,11 +89,13 @@ test("offers only the keys that work where yours are", () => {
   // Every way to start a new line, Alt+Enter for terminals without the kitty keyboard protocol.
   expect(draw("box").join("\n")).toMatch(/shift\+enter, ctrl\+j +new line/);
   expect(draw("box").join("\n")).toMatch(/alt\+enter, \\ enter +new line/);
-  // Full screen scrolls from the box too.
+  // Full screen scrolls from the box too; in scrollback the terminal does, and these are the viewer's.
+  const scrolling = (fullscreen: boolean) => sheetOf("box", DEFAULT_KEYMAP, fullscreen).find((section) => section.title === "Scrolling")?.rows.map(([key]) => key) ?? [];
   for (const key of ["pgup, pgdn", "ctrl+home, ctrl+end", "alt+↑ ↓", "alt+shift+↑ ↓"]) {
-    expect(keysOn("box")).toContain(key.split(", ")[0]!);
-    expect(keysOn("box", DEFAULT_KEYMAP, false)).not.toContain(key.split(", ")[0]!);
+    expect(scrolling(true)).toContain(key);
+    expect(scrolling(false)).not.toContain(key);
   }
+  expect(keysOn("box", DEFAULT_KEYMAP, false)).not.toContain("ctrl+home");
   // The mouse, and the click on ← N needs you, are full screen's.
   expect(draw("box").join("\n")).toMatch(/click ← N needs you +conversations/);
   expect(draw("box", DEFAULT_KEYMAP, { fullscreen: false }).join("\n")).not.toContain("click");
@@ -219,10 +221,12 @@ test("says ↑ in the box takes back what's queued, as it does before it goes ba
   expect(listed("box")).toContain("↑  edit what's queued");
 });
 
-test("the box's sheet in full screen, which /help shows, lists the transcript's keys after the box's, for Ctrl+O to give it yours", () => {
+test("the box's sheet, which /help shows, lists the transcript's keys after the box's, for Ctrl+O to give it yours, in scrollback's viewer too", () => {
   const titles = (fullscreen: boolean) => sheetOf("box", DEFAULT_KEYMAP, fullscreen).map((section) => section.title);
-  expect(titles(true)[0]).toBe("In the box");
-  expect(titles(true)).toContain("In the transcript");
-  // Scrollback's Ctrl+O opens a list of tool calls instead.
-  expect(titles(false)).not.toContain("In the transcript");
+  for (const fullscreen of [true, false]) {
+    expect(titles(fullscreen)[0]).toBe("In the box");
+    expect(titles(fullscreen)).toContain("In the transcript");
+  }
+  // The mouse reaches only full screen and the viewer, never scrollback's box.
+  expect(titles(false)).not.toContain("Mouse");
 });
