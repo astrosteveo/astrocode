@@ -52,6 +52,8 @@ const DEFAULTS: Record<string, Action> = {
   "ctrl+x ctrl+k": "chat:killAgents",
   "shift+tab": "chat:cycleMode",
   "meta+p": "chat:modelPicker",
+  "shift+up": "chat:increaseEffort",
+  "shift+down": "chat:decreaseEffort",
   "meta+t": "chat:thinkingToggle",
   "meta+w": "chat:workflowKeywordToggle",
   enter: "chat:submit",
@@ -209,14 +211,16 @@ export function followKey(keymap: Keymap) {
   return (keyFor(keymap, "chat:followClaude") ?? "meta+l").replace(/\bmeta\b/g, "alt");
 }
 
-/** A binding as it's written in prose: `ctrl+x ctrl+k` reads as Ctrl+X Ctrl+K. */
+const ARROWS: Record<string, string> = { up: "↑", down: "↓", left: "←", right: "→" };
+
+/** A binding as it's written in prose: `ctrl+x ctrl+k` reads as Ctrl+X Ctrl+K, and `shift+up` as Shift+↑. */
 export function keyLabel(chord: string) {
   return chord
     .split(" ")
     .map((stroke) =>
       stroke
         .split("+")
-        .map((part) => (part.length === 1 ? part.toUpperCase() : `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`))
+        .map((part) => ARROWS[part] ?? (part.length === 1 ? part.toUpperCase() : `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`))
         .join("+"),
     )
     .join(" ");

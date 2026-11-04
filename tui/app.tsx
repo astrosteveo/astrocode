@@ -31,7 +31,7 @@ import { copy } from "./clipboard";
 import { ConfigMenu, type ConfigValues } from "./config";
 import { DecisionPrompt } from "./decision";
 import { ElicitationPrompt } from "./elicitation";
-import { EFFORT_NOTES, effortsOf, ULTRACODE_NOTE } from "./effort";
+import { EFFORT_NOTES, effortStep, effortsOf, ULTRACODE_NOTE } from "./effort";
 import { editFile, editText, readInEditor } from "./editor";
 import { FindBar, type Find } from "./find";
 import { focusOf } from "./focus";
@@ -139,7 +139,7 @@ const HELP = [
   "Enter sends. Shift+Enter, Alt+Enter, Ctrl+J, or \\ then Enter starts a new line. Type / for commands; partway through a message, choosing one writes it in.",
   "Esc stops Claude. Esc twice clears the box, and ↑ brings back what it had; on an empty box, Esc twice rewinds to an earlier message (/rewind).",
   "A message sent while Claude works waits above the box until Claude takes it; until then, ↑ in an empty box takes it back to edit.",
-  "Shift+Tab changes the permission mode. Alt+P switches the model and its effort, Alt+T turns thinking off and on, Alt+O turns fast mode on and off. ↑ and ↓ recall earlier messages; Ctrl+R searches them.",
+  "Shift+Tab changes the permission mode. Alt+P switches the model and its effort, Shift+↑ and Shift+↓ raise and lower the effort for this session, Alt+T turns thinking off and on, Alt+O turns fast mode on and off. ↑ and ↓ recall earlier messages; Ctrl+R searches them.",
   "ultrathink in a message asks for deeper reasoning that turn, and ultracode for a workflow of agents; Alt+W keeps the message's ultracode from starting one. /effort ultracode has Claude run a workflow on every task, for this session.",
   "Ctrl+S puts the message aside, and it stays there until Ctrl+S brings it back. Pressed with a message in the box, the two trade places.",
   "Ctrl+_ undoes. Ctrl+K, Ctrl+U, Ctrl+W and Alt+D cut, Ctrl+Y puts back what they cut. Alt+B and Alt+F move by words. Ctrl+L redraws the screen, keeping what you've typed.",
@@ -422,18 +422,18 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     if (layout !== undefined && layout !== fullscreen) onToggleFullscreen();
   };
 
-  /** chat:increaseEffort and chat:decreaseEffort: the next level up or down that the model takes. */
+  /**
+   * Shift+↑ and Shift+↓ (chat:increaseEffort and chat:decreaseEffort): the next level up or down
+   * that the model takes, for this session only, as `claude` steps it.
+   */
   const stepEffort = (by: -1 | 1) => {
     const levels = effortsOf(currentModel(state));
     if (!levels.length) return notice("info", "This model doesn't take an effort level.");
-    // With no level set, Claude Code's default is taken as high, the usual default.
-    const at = state.effort ? levels.indexOf(state.effort) : levels.indexOf("high");
-    const next = levels[Math.max(0, Math.min(levels.length - 1, (at === -1 ? Math.floor(levels.length / 2) : at) + by))];
-    if (!next || next === state.effort) return;
-    session.setEffort(next).then(() => {
-      setToast(`${next} effort`);
-      keep({ effort: next });
-    }, report);
+    const next = effortStep(levels, state.effort, by);
+    if (next) return void session.setEffort(next).then(() => setToast(`${next} effort`), report);
+    if (by === 1 && state.effort !== "max" && levels.includes("max")) {
+      notice("info", `${keyLabel(keyFor(store.keymap, "chat:increaseEffort") ?? "shift+up")} stops below max; /effort max sets it.`);
+    }
   };
 
   /**

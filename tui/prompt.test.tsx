@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { render } from "ink";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
+import type { CommandInfo } from "../src/events";
 import { DEFAULT_KEYMAP } from "./keys";
 import { Prompt } from "./prompt";
 
@@ -19,7 +20,7 @@ const KEYS = {
 };
 
 /** The message box on a fake terminal, with what it asked the app to do. */
-function box(options: { busy?: boolean; history?: string[] } = {}) {
+function box(options: { busy?: boolean; history?: string[]; commands?: CommandInfo[] } = {}) {
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 80, rows: 24 });
   let screen = "";
@@ -40,7 +41,7 @@ function box(options: { busy?: boolean; history?: string[] } = {}) {
       width={80}
       cwd={process.cwd()}
       history={history}
-      commands={[]}
+      commands={options.commands ?? []}
       onSubmit={(text) => void sent.push(text)}
       onSendQueuedNow={call("sendQueuedNow")}
       onInterrupt={call("interrupt")}
@@ -181,4 +182,19 @@ test("Esc while Claude works stops it and keeps what's typed", async () => {
   expect(calls).toEqual(["interrupt", "interrupt"]);
   expect(history).toEqual([]);
   expect(sent).toEqual(["draft"]);
+});
+
+test("Shift+↑ and Shift+↓ step the effort, and leave the box and its history alone, as in claude", async () => {
+  const { press, sent, effort, app } = box({ history: ["older"] });
+  await press("draft", KEYS.shiftUp, KEYS.shiftDown, KEYS.shiftDown, KEYS.enter);
+  app.unmount();
+  expect(effort).toEqual([1, -1, -1]);
+  expect(sent).toEqual(["draft"]);
+});
+
+test("Shift+↑ steps the effort with the / menu open too, where ↑ moves in the menu", async () => {
+  const { press, effort, app } = box({ commands: [{ name: "help", description: "Keys and commands", argumentHint: "" }] });
+  await press("/", KEYS.shiftUp);
+  app.unmount();
+  expect(effort).toEqual([1]);
 });

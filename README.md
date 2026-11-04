@@ -36,6 +36,7 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | Esc | Stop Claude. Twice with text: clear the box, and ↑ brings the text back. Twice on an empty box: rewind to an earlier message |
 | Shift+Tab | Change the permission mode: ask first, accept edits, plan, auto, bypass permissions |
 | Alt+P | Switch the model (↑↓) and its effort (←→) in one picker |
+| Shift+↑, Shift+↓ | Raise or lower the effort a level, for this session. Shift+↑ stops below max, which `/effort max` sets |
 | Alt+T | Turn thinking off or on, on models that can stop thinking. Current models always think, and effort sets how much |
 | Alt+O | Fast mode on or off: Opus with faster output, for this session, where your plan has it |
 | Alt+L | Follow Claude on or off: a dock above the message box that shows each tool call as Claude makes it (see below). After you've looked back at a call, it follows Claude again |

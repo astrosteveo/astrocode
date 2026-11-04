@@ -78,7 +78,7 @@ type Props = {
   onSuspend: () => void;
   /** What keys do: Claude Code's defaults with `~/.claude/keybindings.json` over them. */
   keymap: Keymap;
-  /** chat:increaseEffort and chat:decreaseEffort, which have no key unless keybindings.json gives them one. */
+  /** Shift+↑ and Shift+↓: the effort a level up or down. */
   onStepEffort: (by: -1 | 1) => void;
   /** Alt+T: thinking on or off. */
   onToggleThinking: () => void;
@@ -533,7 +533,8 @@ export function Prompt(props: Props) {
 
       if (active && matches.length > 0) {
         const chosen = matches[Math.min(menu.current.index, matches.length - 1)];
-        if (key.upArrow || key.downArrow) {
+        // Shift+↑ and Shift+↓ step the effort here too, as Claude Code's menu takes only the bare arrows.
+        if (!key.shift && (key.upArrow || key.downArrow)) {
           const step = key.upArrow ? -1 : 1;
           menu.current.index = (menu.current.index + step + matches.length) % matches.length;
           menu.current.moved = true;
