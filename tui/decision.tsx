@@ -4,7 +4,7 @@
 // Claude as the reason; a plan's last row is a comment of its own, saying what to change.
 import { Box, Text, useAnimation, useInput, type DOMElement } from "ink";
 import { existsSync } from "node:fs";
-import { useReducer, useRef, useState } from "react";
+import { useReducer, useRef, useState, type ReactNode } from "react";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { Decision, PermissionRequest } from "../src/events";
 import { duration } from "../src/view/format";
@@ -183,11 +183,10 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
             }}
           >
             <ChoiceRow selected={onField} hovered={hovered === ask.rows.length} width={inner}>
-              <Text>
-                <Text color={onField ? PALETTE.star : undefined}>{`${ask.rows.length + 1}  `}</Text>
+              <Numbered index={ask.rows.length} selected={onField}>
                 {change ? <Text color={PALETTE.star}>{change}</Text> : <Text color={PALETTE.dust} italic>{ask.field}</Text>}
                 {onField ? <Caret /> : null}
-              </Text>
+              </Numbered>
             </ChoiceRow>
           </Box>
         ) : null}
@@ -201,24 +200,36 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
   );
 }
 
-/** A row: its number and label, then its note and key, dim. With its comment open, what you type takes the label's place after the first word. */
+/** A row: its label, then its note and key, dim. With its comment open, what you type takes the label's place after the first word. */
 function Choice({ row, index, selected, comment }: { row: Row; index: number; selected: boolean; comment: string | null }) {
   const color = selected ? PALETTE.star : undefined;
   if (comment !== null && row.amend !== undefined) {
     return (
-      <Text>
-        <Text bold={selected} color={color}>{`${index + 1}  ${row.label}, `}</Text>
+      <Numbered index={index} selected={selected}>
+        <Text bold={selected} color={color}>{`${row.label}, `}</Text>
         {comment ? <Text color={PALETTE.star}>{comment}</Text> : <Text color={PALETTE.dust} italic>{row.amend}</Text>}
         {selected ? <Caret /> : null}
-      </Text>
+      </Numbered>
     );
   }
   return (
-    <Text>
-      <Text bold={selected} color={color}>{`${index + 1}  ${row.label}`}</Text>
+    <Numbered index={index} selected={selected}>
+      <Text bold={selected} color={color}>
+        {row.label}
+      </Text>
       {row.note ? <Text color={PALETTE.haze}>{` ${row.note}`}</Text> : null}
       {row.key ? <Text color={PALETTE.dust}>{` (${row.key})`}</Text> : null}
-    </Text>
+    </Numbered>
+  );
+}
+
+/** A row's number, with what follows it wrapping clear of it. */
+function Numbered({ index, selected, children }: { index: number; selected: boolean; children: ReactNode }) {
+  return (
+    <Box>
+      <Text bold={selected} color={selected ? PALETTE.star : undefined}>{`${index + 1}  `}</Text>
+      <Text>{children}</Text>
+    </Box>
   );
 }
 
