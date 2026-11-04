@@ -90,6 +90,14 @@ export type TaskOutput = { output: string; total_bytes: number; truncated: boole
 /** Thinking turned back on in a Claude Code that started without it: Claude Code's own largest default budget. */
 const THINKING_BUDGET = 31_999;
 
+/**
+ * Claude's thinking comes empty through the SDK unless Claude Code asks the API for its summaries,
+ * which it does in its own terminal only with `showThinkingSummaries`. The flag asks for them and
+ * leaves whether Claude thinks to Claude Code, as your settings say; `thinking: { display }` would
+ * turn it on regardless.
+ */
+const THINKING_SUMMARIES = { "thinking-display": "summarized" };
+
 /** How Claude Code tells Claude you said no to a call, word for word, before what you said instead. */
 const REJECTED = "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file).";
 
@@ -230,10 +238,11 @@ export class AgentSession {
     const inbox = new AsyncQueue<SDKUserMessage>();
     // Assigned right below; canUseTool only runs once the query is under way.
     let run!: Run;
+    const shared = this.shared();
     const q = query({
       prompt: inbox,
       options: {
-        ...this.shared(),
+        ...shared,
         resume: this.sessionId ?? this.resumeFrom,
         resumeSessionAt: this.resumeAt,
         continue: this.sessionId === undefined && this.resumeFrom === undefined && this.continueLast ? true : undefined,
@@ -254,7 +263,7 @@ export class AgentSession {
         promptSuggestions: true,
         // Claude Code echoes every message back as it takes it. That's the only way a message sent
         // from claude.ai or the Claude app over Remote Control reaches astrocode; the rest are ours.
-        extraArgs: { "replay-user-messages": null },
+        extraArgs: { ...shared.extraArgs, "replay-user-messages": null },
         settings: { ...(this.fast ? { fastMode: true } : {}), ...(this.ultracode ? { ultracode: true } : {}) },
         canUseTool: (toolName, input, context) => this.ask(run, toolName, input, context),
         onElicitation: (request, { signal }) => this.elicit(run, request, signal),
@@ -282,6 +291,7 @@ export class AgentSession {
       model: this.model,
       effort: this.effort,
       thinking: this.thinking === false ? { type: "disabled" } : undefined,
+      extraArgs: THINKING_SUMMARIES,
       // Without an explicit mode, Claude Code starts in the mode from your settings, which can
       // skip our prompts. Start in auto, Claude Code's own default, unless you picked another:
       // its classifier allows what's safe and asks through canUseTool about the rest.
@@ -679,10 +689,11 @@ export class AgentSession {
   /**
    * Turns thinking on or off for the rest of the session. A budget of 0 turns it off, and any other
    * turns it back on (adaptive, on models that decide for themselves). Null goes back to how Claude
-   * Code started, which is on unless it started with thinking off.
+   * Code started, which is on unless it started with thinking off. One that started with it off
+   * has no summaries to go back to either, so they're asked for again.
    */
   async setThinking(on: boolean) {
-    await this.run?.query.setMaxThinkingTokens(on ? (this.startedWithoutThinking ? THINKING_BUDGET : null) : 0);
+    await this.run?.query.setMaxThinkingTokens(on ? (this.startedWithoutThinking ? THINKING_BUDGET : null) : 0, on ? "summarized" : undefined);
     this.thinking = on;
     this.options.emit({ kind: "thinking", on });
   }

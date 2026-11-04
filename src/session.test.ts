@@ -113,6 +113,34 @@ test("the conversation asks Claude Code for a next-prompt suggestion after each 
   one.close();
 });
 
+test("Claude Code is asked for its thinking summaries, a keep-warm request too, and again when thinking comes back on", async () => {
+  started = [];
+  const thinking: unknown[][] = [];
+  answers = { setMaxThinkingTokens: async (...args: unknown[]) => thinking.push(args) };
+  try {
+    const one = new AgentSession({ cwd: "/tmp", emit: () => {}, resume: "earlier", thinking: false });
+    one.start();
+    // Only how thinking shows: whether Claude thinks stays Claude Code's to say, from your settings.
+    expect(started.at(-1)).toMatchObject({ thinking: { type: "disabled" }, extraArgs: { "thinking-display": "summarized", "replay-user-messages": null } });
+    void one.warm();
+    expect(started.at(-1)).toMatchObject({ forkSession: true, extraArgs: { "thinking-display": "summarized" } });
+    // Started without thinking, Claude Code has no way to show it until it's asked again.
+    await one.setThinking(true);
+    await one.setThinking(false);
+    expect(thinking).toEqual([
+      [31_999, "summarized"],
+      [0, undefined],
+    ]);
+    one.close();
+  } finally {
+    answers = {};
+  }
+  const fresh = new AgentSession({ cwd: "/tmp", emit: () => {} });
+  fresh.start();
+  expect(started.at(-1)!.thinking).toBeUndefined();
+  fresh.close();
+});
+
 // A turn in a git repository: the session records the working tree before Claude Code has your
 // message, and says what changed just before the turn's result.
 
