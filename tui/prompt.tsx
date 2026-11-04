@@ -72,6 +72,8 @@ type Props = {
   onToggleTodos: () => void;
   /** Esc twice on an empty box, while Claude isn't working. */
   onRewind: () => void;
+  /** Esc twice with text, as in `claude`: the text leaves the box for history, where ↑ finds it. */
+  onClearIntoHistory: (text: string) => void;
   /** Ctrl+Z: astrocode stops until the shell's `fg`. */
   onSuspend: () => void;
   /** What keys do: Claude Code's defaults with `~/.claude/keybindings.json` over them. */
@@ -137,9 +139,11 @@ export function Prompt(props: Props) {
   const files = useRef<string[] | null>(null);
   const area = useRef<DOMElement>(null);
   const menuBox = useRef<DOMElement>(null);
-  const lastEscape = useRef(0);
-  /** A key pressed once, and when, that pressed again soon does more: Ctrl+C or Ctrl+D exits. */
-  const armed = useRef<{ key: "exit"; at: number } | null>(null);
+  /**
+   * A key pressed once, and when, that pressed again soon does more: Esc clears the box or
+   * rewinds, Ctrl+C or Ctrl+D exits.
+   */
+  const armed = useRef<{ key: "escape" | "exit"; at: number } | null>(null);
   /** Earlier texts for Ctrl+_, and whether the last change was typing, which a run of undoes as one. */
   const undo = useRef<{ text: string; cursor: number }[]>([]);
   const lastEdit = useRef<"type" | "edit" | "undo" | "fresh">("edit");
@@ -199,7 +203,7 @@ export function Prompt(props: Props) {
    * Whether this press of `key` is the second within DOUBLE_PRESS_MS. A first press says what a
    * second would do, with `hint`, until the time is up.
    */
-  const pressedTwice = (key: "exit", hint: string | null) => {
+  const pressedTwice = (key: "escape" | "exit", hint: string | null) => {
     const at = Date.now();
     const first = armed.current;
     if (first?.key === key && at - first.at < DOUBLE_PRESS_MS) {
@@ -557,14 +561,12 @@ export function Prompt(props: Props) {
       if (key.ctrl && input === "y") return killed.current ? insert(killed.current) : undefined;
       if (key.escape) {
         if (busy) return props.onInterrupt();
-        if (text) return;
-        const now = Date.now();
-        if (now - lastEscape.current < DOUBLE_PRESS_MS) {
-          lastEscape.current = 0;
-          return props.onRewind();
-        }
-        lastEscape.current = now;
-        return;
+        if (!pressedTwice("escape", text ? "Esc again to clear" : null)) return;
+        if (!text) return props.onRewind();
+        // As `claude` keeps a draft cleared this way, but not one that's only spaces.
+        if (text.trim()) props.onClearIntoHistory(text);
+        recall.current = null;
+        return set("", 0);
       }
       if (key.tab) return;
       if (key.return) {

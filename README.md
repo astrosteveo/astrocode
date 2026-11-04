@@ -33,7 +33,7 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | Shift+Enter, Alt+Enter, Ctrl+J, or `\` then Enter | New line |
 | `/` | Command menu: ↑↓ to choose, Tab to complete, Enter to run |
 | `@` | File menu: type part of a path, then Tab or Enter to put it in your message. A folder opens on what's in it |
-| Esc | Stop Claude. Twice on an empty box: rewind to an earlier message |
+| Esc | Stop Claude. Twice with text: clear the box, and ↑ brings the text back. Twice on an empty box: rewind to an earlier message |
 | Shift+Tab | Change the permission mode: ask first, accept edits, plan, auto, bypass permissions |
 | Alt+P | Switch the model (↑↓) and its effort (←→) in one picker |
 | Alt+T | Turn thinking off or on, on models that can stop thinking. Current models always think, and effort sets how much |
