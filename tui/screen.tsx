@@ -81,7 +81,10 @@ type Props = {
   onLedger?: (inside: boolean) => void;
   /** Esc, q or Ctrl+O, which give your keys back to the box. */
   onLeave: () => void;
-  /** Your keys or a click moved the cursor, which stops an opened call following Claude. */
+  /**
+   * Your keys or a click moved the cursor, or you scrolled the view away from the end, which stops
+   * an opened call following Claude.
+   */
   onCursor: () => void;
   /** `x` on a line: what it stands for, as `onToggle` gets it, to stop while it runs. */
   onStop: (key: string) => void;
@@ -189,6 +192,11 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     setAnchor(held);
   };
   const scrollBy = (lines: number) => scrollTo(now.current.top + lines);
+  /** A scroll of yours, as with the wheel: one that leaves the view short of the end stops following Claude. */
+  const scrollAway = (index: number) => {
+    scrollTo(index);
+    if (!now.current.following) onCursor();
+  };
 
   /** Scrolls the row at `index` into view, and the rows down to `end` as far as they fit with it. */
   const show = (index: number, end = index) => {
@@ -444,7 +452,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
       const lines = Math.floor(held.owed);
       if (lines < 1) return;
       held.owed -= lines;
-      scrollBy(step * lines);
+      scrollAway(now.current.top + step * lines);
       extendTo(pointAt(held.x, step < 0 ? 0 : now.current.view - 1));
     }, EDGE_TICK_MS);
     const time = performance.now();
@@ -474,7 +482,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
 
   const thumbTo = (y: number) => {
     const { view, maxTop, thumb } = now.current;
-    scrollTo(((y - thumb / 2) / Math.max(1, view - thumb)) * maxTop);
+    scrollAway(((y - thumb / 2) / Math.max(1, view - thumb)) * maxTop);
   };
 
   const copy = (selection: Selection) => {
@@ -489,7 +497,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   useMouse(
     (event) => {
       if (event.type === "wheel") {
-        if (!event.handled) scrollBy(event.wheel * WHEEL_LINES);
+        if (!event.handled) scrollAway(now.current.top + event.wheel * WHEEL_LINES);
         return;
       }
       if (event.handled) return;
@@ -603,9 +611,9 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     if (!keys) return;
     const page = Math.max(1, now.current.view - 2);
     if (key.meta && (key.upArrow || key.downArrow)) return jump(key.upArrow ? -1 : 1, key.shift);
-    if (key.pageUp) scrollBy(-page);
-    else if (key.pageDown) scrollBy(page);
-    else if (key.ctrl && key.home) scrollTo(0);
+    if (key.pageUp) scrollAway(now.current.top - page);
+    else if (key.pageDown) scrollAway(now.current.top + page);
+    else if (key.ctrl && key.home) scrollAway(0);
     else if (key.ctrl && key.end) setAnchor(null);
   });
 
@@ -618,7 +626,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     const starts = startsOf(tools);
     const next = by < 0 ? starts.findLast((start) => start < top) : starts.find((start) => start > top);
     if (next === undefined) return by > 0 ? setAnchor(null) : undefined;
-    scrollTo(next);
+    scrollAway(next);
   };
 
   /**
@@ -734,7 +742,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     if (isStop(now.current.transcript.rows[target])) place(target);
     const { top, view, pad } = now.current;
     if (target >= top && target < top + view - pad) return;
-    scrollTo(target - Math.floor(view / 3));
+    scrollAway(target - Math.floor(view / 3));
   }, [target, query, search?.back]);
 
   // A terminal can move or rewrap what's on screen as it resizes, which Ink's line-by-line updates
