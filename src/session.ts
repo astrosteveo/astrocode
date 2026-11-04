@@ -1064,10 +1064,11 @@ export class AgentSession {
       // Where auto mode isn't available, as on some models, Claude Code starts by asking instead.
       // `current_permission_mode` isn't in the SDK's types. A mode picked meanwhile stands.
       const started = MODES.find((one) => one === field(init, "current_permission_mode"));
+      const autoRefused = asked === "auto" && started !== undefined && started !== "auto";
       if (started && this.mode === asked) {
         this.noteMode(started);
         this.options.emit({ kind: "mode", mode: started });
-        if (asked === "auto" && started !== "auto") {
+        if (autoRefused) {
           this.options.emit({ kind: "notice", tone: "info", text: "Auto mode isn't available with this model or account, so Claude asks first. Shift+Tab changes the mode." });
         }
       }
@@ -1083,7 +1084,7 @@ export class AgentSession {
       }
       // Both reports read the settings, which are asked for once.
       const settings = untyped(run.query, "getSettings").catch(() => undefined);
-      await Promise.all([this.reportContext(run), this.reportUltracode(run, settings), this.reportLoaded(run, init.claude_code_version, settings), this.reportModes(run, settings)]);
+      await Promise.all([this.reportContext(run), this.reportUltracode(run, settings), this.reportLoaded(run, init.claude_code_version, settings), this.reportModes(run, settings, autoRefused)]);
     } catch {
       // A failed start is reported by pump(). It loaded nothing, which the start screen waits to hear.
       if (!run.closing) this.options.emit({ kind: "loaded", loaded: {} });
@@ -1114,13 +1115,20 @@ export class AgentSession {
 
   /**
    * Which modes a prompt may offer to switch to. astrocode always lets Claude Code bypass
-   * permissions, so it's your settings that can turn bypass permissions or auto mode off.
+   * permissions, so it's your settings that can turn bypass permissions off. Auto mode is off where
+   * your settings turn it off, at the top or under `permissions` as Claude Code reads them, or where
+   * Claude Code wouldn't start in it (`autoRefused`), as for some models and accounts.
    */
-  private async reportModes(run: Run, asked: Promise<unknown>) {
+  private async reportModes(run: Run, asked: Promise<unknown>, autoRefused: boolean) {
     const effective = field(await asked, "effective");
     if (run.closing || effective === undefined) return;
     const off = (value: unknown) => value === "disable";
-    this.options.emit({ kind: "modes-available", bypass: !off(field(field(effective, "permissions"), "disableBypassPermissionsMode")), auto: !off(field(effective, "disableAutoMode")) });
+    const permissions = field(effective, "permissions");
+    this.options.emit({
+      kind: "modes-available",
+      bypass: !off(field(permissions, "disableBypassPermissionsMode")),
+      auto: !autoRefused && !off(field(effective, "disableAutoMode")) && !off(field(permissions, "disableAutoMode")),
+    });
   }
 
   /**
