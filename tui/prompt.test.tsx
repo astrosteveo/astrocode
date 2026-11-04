@@ -41,6 +41,7 @@ function box(options: { busy?: boolean; history?: string[]; commands?: CommandIn
       width={80}
       cwd={process.cwd()}
       history={history}
+      everywhere={history}
       commands={options.commands ?? []}
       onSubmit={(text) => void sent.push(text)}
       onSendQueuedNow={call("sendQueuedNow")}
