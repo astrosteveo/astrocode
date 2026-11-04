@@ -110,6 +110,9 @@ export function sdkEvent(message: SDKMessage, at?: number): SessionEvent {
 
 export type CommandInfo = { name: string; description: string; argumentHint: string };
 
+/** A file a turn changed, by absolute path, with the lines it added and removed: none for a binary file. */
+export type FileChange = { path: string; added: number; removed: number };
+
 /**
  * Remote Control: the session reachable from claude.ai/code and the Claude app. `url` is the link to
  * it, once Claude Code has said; `detail` says why it failed, or what it's waiting on.
