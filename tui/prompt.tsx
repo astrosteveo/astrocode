@@ -390,6 +390,9 @@ export function Prompt(props: Props) {
     const { text, cursor } = buffer.current;
     switch (action) {
       case "app:interrupt":
+        // From the transcript the box's text isn't what you're working on: Ctrl+C stops Claude, or
+        // counts toward the two presses that exit, and leaves the text alone.
+        if (!active) return props.onCtrlC();
         return text ? set("", 0) : props.onCtrlC();
       case "app:exit":
         return text ? undefined : props.onExit();
