@@ -139,6 +139,8 @@ const ULTRACODE_UNAVAILABLE = "Ultracode isn't available here: it needs dynamic 
 const TOAST_MS = 2000;
 /** As much of a `!` command's output as goes to Claude, its end, as Claude Code cuts its own shell output. */
 const MAX_SHELL_OUTPUT = 30_000;
+/** Tools whose work in a task opens under the call's line, live: a command, and a subagent. */
+const IN_PLACE = new Set(["Bash", "Agent", "Task"]);
 
 type Props = {
   store: Store;
@@ -637,9 +639,17 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
 
   /**
    * Opens a call under its line, with your keys in the transcript. A subagent or a command in the
-   * background opens there too, live; /tasks is the view of it that fills the screen.
+   * background opens there too, live; /tasks is the view of it that fills the screen. A workflow or a
+   * Monitor opens its task view, which alone shows its phases or its output as they come.
    */
   const inspectCall = (id: string) => {
+    const index = state.tools[id];
+    const item = index === undefined ? undefined : state.items[index];
+    const task = item?.kind === "tool" && !IN_PLACE.has(item.call.name) ? runningKeyOf(item, state) : undefined;
+    if (task) {
+      setOverlay({ kind: "task", key: task });
+      return false;
+    }
     setInspect({ id, follow: id === newest?.id && newest.status === "running" });
     toTranscript(true);
     return true;
