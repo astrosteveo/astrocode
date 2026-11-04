@@ -7,7 +7,7 @@ import { ANYWHERE } from "./focus";
 import { ACTIONS, DEFAULT_KEYMAP, hintKey, loadKeymap, type Action, type Keymap } from "./keys";
 import { cellWidth } from "./markdown";
 import { scratchConfig } from "./scratch-config";
-import { KeySheet, sheetOf, type Place } from "./sheet";
+import { KeySheet, sheetOf, type Place, type Prompted } from "./sheet";
 
 // keybindings.json is written to a scratch Claude Code folder, never yours.
 const config = scratchConfig();
@@ -181,13 +181,29 @@ test("a permission prompt's sheet in full screen lists what scrolls the conversa
 });
 
 test("a permission prompt's sheet has its keys as claude's prompt takes them: Tab a comment on No, Shift+Tab and Ctrl+G only where it takes them, Esc cancels", () => {
-  const rows = (prompt?: Parameters<typeof sheetOf>[3]) => sheetOf("decision", DEFAULT_KEYMAP, true, prompt).flatMap((section) => section.rows.map(([key, does]) => `${key}  ${does}`));
+  const rows = (prompt?: Prompted) => sheetOf("decision", DEFAULT_KEYMAP, true, { prompt }).flatMap((section) => section.rows.map(([key, does]) => `${key}  ${does}`));
   expect(rows()).toContain("↑ ↓  choose");
   expect(rows()).toContain("esc, ctrl+c  cancel");
   // Tab doesn't choose: on No it opens a comment, as claude's `Tab to amend` says.
   expect(rows().some((row) => /^(tab|shift\+tab|ctrl\+g)\b|↑ ↓, tab|deny/.test(row))).toBe(false);
   const all = rows({ amend: true, shiftTab: true, plan: true });
   for (const row of ["tab  a comment on No", "shift+tab  yes, for this session", "ctrl+g  the plan in your editor"]) expect(all).toContain(row);
+});
+
+test("an opened ledger's sheet lists its keys first, then the transcript's, and says what [ ] switches there", () => {
+  const ledger = (scopes: boolean) => sheetOf("ledger", DEFAULT_KEYMAP, true, { scopes });
+  const rows = (scopes: boolean) => ledger(scopes).flatMap((section) => section.rows.map(([key, does]) => `${key}  ${does}`));
+  expect(ledger(true)[0]?.title).toBe("In an opened ledger");
+  expect(ledger(true).map((section) => section.title)).toContain("In the transcript");
+  for (const row of ["← →  file before, after", "enter  open or close a diff", "a  every diff, or none", "esc  close the diff, then the ledger"]) expect(rows(true)).toContain(row);
+  // In git [ ] switch what it lists; outside git they go to the ledger before or after, as anywhere in the transcript.
+  expect(rows(true).filter((row) => row.startsWith("[ ]"))).toEqual(["[ ]  this turn, uncommitted, branch"]);
+  expect(rows(false).filter((row) => row.startsWith("[ ]"))).toEqual(["[ ]  ledgers"]);
+  // The transcript's own sheet, and the box's for after Ctrl+O, have [ ] and a click on a ledger's scope.
+  for (const place of ["transcript", "box"] as const) {
+    expect(listed(place)).toContain("[ ]  ledgers");
+    expect(listed(place)).toContain("click a ledger's scope  switch to it");
+  }
 });
 
 test("says ↑ in the box takes back what's queued, as it does before it goes back through earlier messages", () => {
