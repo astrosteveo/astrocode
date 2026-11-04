@@ -73,6 +73,12 @@ const DEFAULTS: Record<string, Action> = {
   "meta+l": "chat:followClaude",
 };
 
+/**
+ * Two presses of a key this close together are a double press: Ctrl+C or Ctrl+D to exit, Esc Esc
+ * to clear the box or rewind. Claude Code 2.1.318 times all three with this, in its binary.
+ */
+export const DOUBLE_PRESS_MS = 800;
+
 /** The contexts of keybindings.json that reach the message box. */
 const CONTEXTS = new Set(["Global", "Chat"]);
 

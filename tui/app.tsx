@@ -147,7 +147,7 @@ const HELP = [
   "Ctrl+V attaches the clipboard's image; a pasted or dropped image file attaches too. Ctrl+G or Ctrl+X Ctrl+E edits the message in $EDITOR.",
   "Ctrl+B moves a command or subagent Claude is waiting on to the background. /tasks lists what runs there and your ! commands: open one to watch it (a subagent shows its transcript, a workflow its phases), and x stops it. Esc stops Claude's turn but not what runs in the background; Ctrl+X Ctrl+K twice stops it all. Ctrl+T shows or hides the to-dos.",
   "Ctrl+Enter or Ctrl+X Ctrl+S sends what you've queued now, with what's typed behind it: Claude reads it in this turn, with what it runs moved to the background, or else stops and takes it next; Ctrl+X Enter sends it to wait for the end of Claude's turn. Ctrl+Z suspends astrocode until the shell's fg.",
-  "Ctrl+O picks a tool call to inspect: its exact command or input, its whole output and what Claude got back, in tabs. In the inspector ← and → move between calls, Tab between tabs, c copies, Esc closes. In full screen Ctrl+O moves your keys to the transcript instead. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
+  "Ctrl+O picks a tool call to inspect: its exact command or input, its whole output and what Claude got back, in tabs. In the inspector ← and → move between calls, Tab between tabs, c copies, Esc closes. In full screen Ctrl+O moves your keys to the transcript instead. Ctrl+C clears the box, stops Claude, or exits when pressed twice. Ctrl+D pressed twice on an empty box exits too; with text, it deletes the character after the cursor.",
   "Alt+L follows Claude: a dock above the message box shows each tool call as Claude makes it. Opening a call yourself pauses it; closing the call, or Alt+L, follows Claude again.",
   "← in an empty box opens the agents view, as `claude agents` does: astrocode's conversations, which carry on while you're away from them, and Claude Code's background sessions. Type a task there and press Enter to start another conversation alongside this one, Ctrl+Enter to start it and open it; Enter on a row opens one, Esc comes back here.",
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
@@ -189,7 +189,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const { write } = useStdout();
   const { columns, rows } = useWindowSize();
   const width = Math.max(24, columns);
-  const [exitArmed, setExitArmed] = useState(false);
+  /** What pressing a key in the message box again soon would do, for the status bar: `Press Ctrl+D again to exit`. */
+  const [armed, setArmed] = useState<string | null>(null);
   const [overlay, setOverlay] = useState<Overlay>(null);
   // The mode last asked for, until Claude Code confirms it, so quick Shift+Tabs keep stepping.
   const [modeWanted, setModeWanted] = useState<PermissionMode | null>(null);
@@ -247,12 +248,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const [, repaint] = useReducer((n: number) => n + 1, 0);
   /** What's pinned under the transcript: the message box, the status bar and what opens above them. */
   const panelBox = useRef<DOMElement>(null);
-
-  useEffect(() => {
-    if (!exitArmed) return;
-    const timer = setTimeout(() => setExitArmed(false), 2000);
-    return () => clearTimeout(timer);
-  }, [exitArmed]);
 
   useEffect(() => {
     if (!stopArmed) return;
@@ -1069,12 +1064,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     if (state.busy) void session.interrupt().catch(report);
   };
 
-  const onCtrlC = () => {
-    if (state.busy) return void session.interrupt().catch(report);
-    if (exitArmed) return exit();
-    setExitArmed(true);
-  };
-
   const close = () => setOverlay(null);
   // A picker's list gets shorter in a short terminal, so the message box and status bar still fit.
   const listRows = Math.max(3, Math.min(8, rows - 16));
@@ -1611,7 +1600,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onSendQueuedNow={sendQueuedNow}
           onInterrupt={interrupt}
           onCycleMode={cycleMode}
-          onCtrlC={onCtrlC}
+          onArmed={setArmed}
           onExit={exit}
           onRedraw={redrawScreen}
           onOpenOutput={openTranscript}
@@ -1656,11 +1645,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           git={git}
           width={width}
           armed={
-            exitArmed
-              ? "Press Ctrl+C again to exit"
-              : stopArmed
-                ? `Press ${keyLabel(keyFor(store.keymap, "chat:killAgents") ?? "ctrl+x ctrl+k")} again to stop what's running (${runningNow})`
-                : null
+            armed ??
+            (stopArmed ? `Press ${keyLabel(keyFor(store.keymap, "chat:killAgents") ?? "ctrl+x ctrl+k")} again to stop what's running (${runningNow})` : null)
           }
           running={runningNow}
           toast={toast}
