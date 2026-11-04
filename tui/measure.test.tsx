@@ -130,3 +130,23 @@ test("the transcript keeps to the measure at every width, in full screen and in 
     }
   }
 });
+
+test("a conversation that fits starts at the top, under the start screen, and its end sits right above a decision", async () => {
+  const { screen } = await launch(turn(), 200, 50);
+  const lines = screen();
+  quit?.();
+  expect(lines[1]).toStartWith("  astrocode");
+  // What's left over is under it, above the box.
+  expect(transcriptOf(lines, 200).at(-1)).toBe("");
+
+  const command = { command: "rm -rf build", description: "Clean the build" };
+  const before = turn();
+  const items: Item[] = [...before.items, { kind: "prompt", key: "p2", text: "and clean up", starts: true }, { kind: "tool", key: "c", call: call("c", "Bash", command, { status: "running" }) }];
+  const asking: State = { ...before, items, tools: { ...before.tools, c: items.length - 1 }, busy: true, pending: [{ id: "c", toolName: "Bash", input: command, description: command.description }] };
+  const decided = await launch(asking, 200, 50);
+  const shown = decided.screen();
+  // The call's own line, under the step's.
+  const asks = shown.findIndex((line) => /^│\s+Clean\s+the build/.test(line));
+  expect(shown[asks + 1]).toMatch(/^▁+$/);
+  expect(shown[1]).toBe("");
+});

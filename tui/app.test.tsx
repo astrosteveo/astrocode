@@ -1551,10 +1551,10 @@ test("the wheel over the key sheet scrolls the sheet, and leaves the conversatio
 test("a key sheet taller than the room above it cuts the start screen short, and never draws its lines over each other", async () => {
   const { press, screen } = await launch(initialState("/p", "/home/u"), { columns: 80, rows: 23 });
   const start = new Set(screen().map((line) => line.trimEnd()));
-  /** The rows above the sheet's top edge, each a row of the start screen as it was before. */
+  /** The rows above the sheet's top edge, less the scrollbar's column, each a row of the start screen as it was before. */
   const above = () => {
     const lines = screen();
-    return lines.slice(0, lines.findIndex((line) => /^▁{20}/.test(line)));
+    return lines.slice(0, lines.findIndex((line) => /^▁{20}/.test(line))).map((line) => [...line].slice(0, 78).join(""));
   };
   await press("?");
   for (const line of above()) expect(start).toContain(line.trimEnd());

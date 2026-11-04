@@ -148,7 +148,7 @@ astrocode's look takes its colors from the Hubble palette, the gold and teal of 
 
 ## Full screen
 
-`astrocode -f`, `ASTROCODE_FULLSCREEN=1` or `/fullscreen` gives astrocode the whole terminal, like vim or htop. It opens on the start screen; from your first message, the conversation scrolls in a viewport of its own, with the message box and status bar pinned under it, and the mouse works:
+`astrocode -f`, `ASTROCODE_FULLSCREEN=1` or `/fullscreen` gives astrocode the whole terminal, like vim or htop. The conversation, under the start screen, is in a viewport of its own, with the message box and status bar pinned under it. It starts at the top while it fits, and once it doesn't, it follows the end; while a prompt waits on you, its end sits right above the prompt. The mouse works:
 
 | Do this | And |
 | :-- | :-- |

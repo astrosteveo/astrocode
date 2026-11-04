@@ -23,7 +23,7 @@ import { PALETTE } from "./theme";
 import { allTarget, fileTarget, isMore, ledgerTarget, scopeTarget } from "./ledger";
 import { moveTarget, tabTarget, targetTab, WHOLE, type Opened } from "./opened";
 import { imageAt, pictureRows, usePictureRows } from "./pictures";
-import { StartScreen, type Start } from "./start";
+import type { Start } from "./start";
 import type { Review } from "./review";
 import { useTranscript, type Row, type Transcript } from "./transcript";
 import { edgeOf } from "./measure";
@@ -166,9 +166,10 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   // left blank, so a row held where it was clicked doesn't move as its output opens below it.
   const wanted = anchored === null ? null : anchored - (anchor?.y ?? 0);
   const top = wanted === null ? maxTop : Math.max(0, Math.min(maxTop, wanted));
-  // A conversation shorter than the screen sits at the bottom, next to the message box, so the
-  // rail runs on into what Claude is doing now.
-  const pad = wanted === null ? Math.max(0, view - total) : Math.max(0, -wanted);
+  // A conversation shorter than the screen starts at the top. While a decision is open its end sits
+  // right above the decision, so the line that asks is next to the answer.
+  const asking = state.pending[0]?.id ?? state.questions[0]?.id ?? state.elicitations[0]?.id;
+  const pad = wanted === null ? (asking === undefined ? 0 : Math.max(0, view - total)) : Math.max(0, -wanted);
   const below = Math.max(0, total - top - (view - pad));
   usePictureRows([...Array<string>(pad).fill(""), ...rows.slice(top, top + view - pad).map((row) => row.text)]);
   const scrollable = total > view;
@@ -670,7 +671,6 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     setSelection(null);
   }, [epoch, sent]);
   // A decision opening brings the end back into view, so the line that asks sits right above it.
-  const asking = state.pending[0]?.id ?? state.questions[0]?.id ?? state.elicitations[0]?.id;
   useEffect(() => {
     if (asking !== undefined) setAnchor(null);
   }, [asking]);
@@ -767,8 +767,6 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   }, [size]);
 
   const cells = selection ? span(transcript, selection) : null;
-  // Before the first message, the start screen, at the top.
-  const welcome = state.items.length === 0 && !state.live;
   // Links, tool calls, commands and the scrollbar answer to a click, and the pointer is a hand over
   // them; over a picture, which a click enlarges, it's a magnifying glass. What a click would open
   // lights up at its first row, a step's line or a card's title, its words in gold, so it's plain
@@ -795,65 +793,57 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
       if (row.hot && !closes(row)) return { key: row.target ?? row.key, shape: "pointer" };
       return null;
     },
-    !welcome,
   );
   const [linkEntry, linkUrl] = hovered?.includes(LINK_KEY) ? hovered.split(LINK_KEY) : [];
   useHover(pill, () => ({ key: "pill", shape: "pointer" }), below > 0 && anchor !== null);
   return (
     <Box flexDirection="column" width={columns} height={height}>
-      {welcome ? (
-        // At its own height, cut short when what's over the box leaves less room, rather than squeezed into it line over line.
-        <Box ref={viewport} flexGrow={1} flexShrink={1} overflow="hidden" alignItems="flex-start">
-          <StartScreen start={start} width={column} />
-        </Box>
-      ) : (
-        <Box ref={viewport} flexDirection="row" flexGrow={1} flexShrink={1} overflow="hidden">
-          <Box flexDirection="column" width={width + 1} flexShrink={0}>
-            {pad > 0 ? <Box height={pad} /> : null}
-            {rows.slice(top, top + view - pad).map((row, i) => {
-              const range = cells ? cellsOn(row.text, top + i, cells[0], cells[1], row.inset) : null;
-              const found = marks.get(top + i);
-              return (
-                <Text key={i} wrap="truncate-end">
-                  {range
-                    ? highlight(row.text, range[0], range[1])
-                    : found
-                      ? markMatches(row.text, found.ranges, found.current)
-                      : drag.current
-                      ? row.text || " "
-                      : focused && top + i === at
-                        ? cursorOn(row.text, row.inset - 1, column)
-                      : linkUrl && row.key === linkEntry
-                        ? litLink(row.text, linkUrl)
-                        : row.hot && (row.head || opensMore(row.target)) && hovered === (row.target ?? row.key)
-                          ? lit(row.text, row.inset)
-                          : row.text || " "}
-                </Text>
-              );
-            })}
-          </Box>
-          <Box flexDirection="column" width={1} flexShrink={0}>
-            {scrollable
-              ? Array.from({ length: view }, (_, i) => (
-                  <Text key={i} color={anchor || drag.current === "scrollbar" ? PALETTE.gold : PALETTE.dust}>
-                    {i >= thumbTop && i < thumbTop + thumb ? "┃" : " "}
-                  </Text>
-                ))
-              : null}
-          </Box>
-          {below > 0 && anchor ? (
-            <Box ref={pill} position="absolute" bottom={0} right={3}>
-              <Text>
-                <Text color={PALETTE.gold}>▐</Text>
-                <Text backgroundColor={PALETTE.gold} color={PALETTE.ink} bold>
-                  {`↓ ${plural(below, "more line")}`}
-                </Text>
-                <Text color={PALETTE.gold}>▌</Text>
+      <Box ref={viewport} flexDirection="row" flexGrow={1} flexShrink={1} overflow="hidden">
+        <Box flexDirection="column" width={width + 1} flexShrink={0}>
+          {pad > 0 ? <Box height={pad} /> : null}
+          {rows.slice(top, top + view - pad).map((row, i) => {
+            const range = cells ? cellsOn(row.text, top + i, cells[0], cells[1], row.inset) : null;
+            const found = marks.get(top + i);
+            return (
+              <Text key={i} wrap="truncate-end">
+                {range
+                  ? highlight(row.text, range[0], range[1])
+                  : found
+                    ? markMatches(row.text, found.ranges, found.current)
+                    : drag.current
+                    ? row.text || " "
+                    : focused && top + i === at
+                      ? cursorOn(row.text, row.inset - 1, column)
+                    : linkUrl && row.key === linkEntry
+                      ? litLink(row.text, linkUrl)
+                      : row.hot && (row.head || opensMore(row.target)) && hovered === (row.target ?? row.key)
+                        ? lit(row.text, row.inset)
+                        : row.text || " "}
               </Text>
-            </Box>
-          ) : null}
+            );
+          })}
         </Box>
-      )}
+        <Box flexDirection="column" width={1} flexShrink={0}>
+          {scrollable
+            ? Array.from({ length: view }, (_, i) => (
+                <Text key={i} color={anchor || drag.current === "scrollbar" ? PALETTE.gold : PALETTE.dust}>
+                  {i >= thumbTop && i < thumbTop + thumb ? "┃" : " "}
+                </Text>
+              ))
+            : null}
+        </Box>
+        {below > 0 && anchor ? (
+          <Box ref={pill} position="absolute" bottom={0} right={3}>
+            <Text>
+              <Text color={PALETTE.gold}>▐</Text>
+              <Text backgroundColor={PALETTE.gold} color={PALETTE.ink} bold>
+                {`↓ ${plural(below, "more line")}`}
+              </Text>
+              <Text color={PALETTE.gold}>▌</Text>
+            </Text>
+          </Box>
+        ) : null}
+      </Box>
       <Box flexDirection="column" flexShrink={0}>
         {children}
       </Box>
