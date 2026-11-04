@@ -278,6 +278,17 @@ test("a command that ended in the background opens on what it printed, not on th
   expect(screen().some((line) => line.includes("It printed nothing"))).toBe(false);
 });
 
+test("a subagent that ended in the background doesn't give the note that started it as its report", async () => {
+  const launched = "Async agent launched successfully.\nagentId: agent-2 (This is an internal ID for your use, do not mention it to the user. Use SendMessage with to: 'agent-2' to continue this agent.)\nThe agent is working in the background. You will be notified automatically when it completes.";
+  const agent = call("s", { name: "Agent", input: { description: "Map the tests", prompt: "Map the tests.", run_in_background: true }, result: launched, background: "completed", taskId: "agent-2" });
+  const state = inBackground([agent], { "agent-2": { id: "agent-2", description: "Map the tests", type: "local_agent", toolUseId: "s", background: true, status: "completed" } });
+  const { press, screen } = await launch({ ...state, agentLogs: { s: [{ text: "❯ Map the tests.", kind: "prompt" }, { text: "The tests live in tui.", kind: "text" }] } });
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  expect(screen().some((line) => line.includes("‹ 2 of 2 ›"))).toBe(true);
+  expect(screen().some((line) => line.includes("Async agent launched"))).toBe(false);
+});
+
 test("x on a running call that can't stop on its own says what stops it", async () => {
   const { press, asked, row } = await launch({ ...turn([call("a", { status: "running", result: undefined })]), busy: true });
   await press(KEYS.ctrlO);
