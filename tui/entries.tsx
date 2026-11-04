@@ -230,7 +230,7 @@ type StepProps = {
   rail: Rail;
   open: boolean;
   width: number;
-  /** The call the inspector shows, whose line is marked. */
+  /** The call opened under its line, whose line is marked. */
   picked?: string;
   pictureRows: number;
   links?: FigureLinks;
@@ -403,7 +403,7 @@ const LIT = new Set<Tone>(["plain", "bright", "quiet", "faint", "code"]);
 /**
  * `  Edited    src/retry.ts            +9 −4  ■■■■□  ›`: the verb, what the calls acted on, and what
  * came of them against the right edge. `again`: the line above has the same verb, which this one
- * leaves out. The line the inspector shows has a gold mark, and its words are lit in gold, as the
+ * leaves out. The line of the call opened has a gold mark, and its words are lit in gold, as the
  * pointer lights a line (`lit()`). A line waiting on you is lit in gold too.
  */
 function ActivityLine({ row, width, picked, again, clickable }: { row: ActivityRow; width: number; picked: boolean; again: boolean; clickable: boolean }) {

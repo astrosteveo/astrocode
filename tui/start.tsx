@@ -37,7 +37,7 @@ export type Start = {
   keys: [key: string, does: string][];
 };
 
-export function startOf(state: State, branch: string | undefined, keymap: Keymap, fullscreen: boolean, now = Date.now()): Start {
+export function startOf(state: State, branch: string | undefined, keymap: Keymap, now = Date.now()): Start {
   const { loaded } = state;
   const model = currentModel(state)?.name ?? (state.model ? modelLabel(state.model) : undefined);
   const effort = state.ultracode ? "ultracode" : state.effort;
@@ -70,8 +70,7 @@ export function startOf(state: State, branch: string | undefined, keymap: Keymap
       ["!", "shell command"],
       ["?", "every key"],
       ...bound("chat:cycleMode"),
-      // In full screen Ctrl+O gives the transcript your keys; in scrollback it still opens the tool output picker.
-      ...bound("app:toggleTranscript", fullscreen ? "transcript" : ACTIONS["app:toggleTranscript"]),
+      ...bound("app:toggleTranscript"),
       ["←", "conversations"],
       ["esc", "stop Claude"],
     ],

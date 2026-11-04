@@ -1,11 +1,12 @@
 // Full screen: the conversation in a viewport that scrolls, with the message box and status bar
-// pinned under it. The wheel, PgUp and PgDn scroll, and the viewport follows the end until you
-// scroll up. Ctrl+O, or a click on a line, gives the transcript your keys: a gold `›` marks the line
-// the cursor is on, ↑ and ↓ move it, and Enter does what a click on the line does. A step's line
-// opens its call under the line, at every width, a command opens, and what's open closes. Esc, q
-// or Ctrl+O gives your keys back to the box. Dragging selects text and copies it, a click on a
-// link opens it, and on a picture enlarges it. Ctrl+F finds text in it, and Alt+↑ and Alt+↓ jump
-// between your messages, with Shift between tool calls and commands.
+// pinned under it. Scrollback's transcript viewer (`viewer.ts`) draws the same. The wheel, PgUp and
+// PgDn scroll, and the viewport follows the end until you scroll up. Ctrl+O, or a click on a line,
+// gives the transcript your keys: a gold `›` marks the line the cursor is on, ↑ and ↓ move it, and
+// Enter does what a click on the line does. A step's line opens its call under the line, at every
+// width, a command opens, and what's open closes. Esc, q or Ctrl+O gives your keys back to the box.
+// Dragging selects text and copies it, a click on a link opens it, and on a picture enlarges it.
+// Ctrl+F finds text in it, and Alt+↑ and Alt+↓ jump between your messages, with Shift between tool
+// calls and commands.
 import { Box, measureElement, Text, useBoxMetrics, useInput, useStdout, type DOMElement, type Key } from "ink";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
@@ -663,7 +664,8 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     if (viewport.current && Math.max(1, measureElement(viewport.current).height) !== view) return;
     const arriving = focused && !hadKeys.current;
     hadKeys.current = focused;
-    if (!focused) return;
+    // Until the transcript is first drawn, as when scrollback's viewer opens, there's no line yet.
+    if (!focused || !transcript.rows.length) return;
     if (at !== null && at >= top && at < top + view - pad) return;
     const index = !arriving && at !== null && at < top ? firstShown() : lastShown();
     if (index === -1) return onLeave();

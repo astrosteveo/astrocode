@@ -26,7 +26,7 @@ const input = (state: State, width: number, opened?: { id: string; tab?: "result
   state,
   width,
   pictureRows: 10,
-  start: startOf(state, undefined, DEFAULT_KEYMAP, true),
+  start: startOf(state, undefined, DEFAULT_KEYMAP),
   expanded: new Set<string>(),
   waiting: new Set<string>(),
   opened,

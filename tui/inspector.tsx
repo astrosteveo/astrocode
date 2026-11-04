@@ -1,11 +1,9 @@
-// The inspector: everything about one tool call, above the message box in scrollback. Its header
-// says what the call did and how it went; its tabs hold the exact command or input, the exact
-// output, and the result as Claude got it, whole. ← and → move between the conversation's calls,
-// Tab between the tabs, ↑↓ PgUp PgDn Home End scroll, c copies what the tab shows, and Esc closes
-// it. Full screen draws the same tabs under the call's own line instead (`opened.tsx`), and Follow
-// Claude's dock shows the end of one (`follow.tsx`).
-import { Box, renderToString, Text, useInput, type DOMElement } from "ink";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+// Everything about one tool call, in tabs: the exact command or input, the exact output, and the
+// result as Claude got it, whole, with what the header says of the call and how it went. An opened
+// call draws them under its own line (`opened.tsx`), and Follow Claude's dock shows the end of one
+// (`follow.tsx`).
+import { renderToString } from "ink";
+import { useEffect, useState, type ReactNode } from "react";
 import wrapAnsi from "wrap-ansi";
 import { activityRows, readLines } from "../src/view/activity";
 import type { AgentLine } from "../src/view/agents";
@@ -16,10 +14,8 @@ import { steps } from "../src/view/steps";
 import { field, plural, subagentReport, toolLabel } from "../src/view/tools";
 import { Diff, editLines } from "./diff";
 import { highlightCode } from "./highlight";
-import { strokeOf, type Keymap } from "./keys";
 import { printable, printableColored } from "./markdown";
-import { fit, Markdown, onPanel } from "./markdown-view";
-import { hit, useHover, useMouse } from "./mouse";
+import { Markdown, onPanel } from "./markdown-view";
 import { PALETTE, sgr } from "./theme";
 import { TodoList } from "./tool-row";
 
@@ -38,28 +34,6 @@ export function placeOf(state: State, id: string): Place {
   const step = found.findIndex((one) => one.calls.some((item) => item.call.id === id));
   return { index: calls.indexOf(id) + 1, count: calls.length, step: step === -1 ? undefined : step + 1, steps: found.length };
 }
-
-type Props = {
-  call: ToolCall;
-  place: Place;
-  /** Waiting on a permission prompt or a question. */
-  waiting: boolean;
-  width: number;
-  height: number;
-  /** It has the keys. A click on it gives them to it. */
-  focused: boolean;
-  cwd: string;
-  home: string;
-  onClose: () => void;
-  onFocus: () => void;
-  onMove: (by: -1 | 1) => void;
-  onCopy: (text: string, what: string) => void;
-  /** A subagent's transcript, as Claude Code forwards it, for an Agent call. */
-  log?: AgentLine[];
-  /** The key that turns following on and off, and what it does, for when the inspector has the keys. */
-  keymap?: Keymap;
-  onFollow?: () => void;
-};
 
 export type TabId = "output" | "command" | "sent" | "input" | "diff" | "content" | "results" | "response" | "report" | "transcript" | "prompt" | "todos" | "answers" | "plan" | "result";
 
@@ -81,9 +55,6 @@ export const LABELS: Record<TabId, string> = {
   result: "Result",
 };
 
-/** Rows the inspector takes besides its body: its top edge, header, tabs, the rules and the keys. */
-const CHROME = 8;
-const WHEEL_LINES = 3;
 /** The most lines of a long result drawn; past that, the tab says how many more there were. */
 const MOST_LINES = 5000;
 
@@ -132,211 +103,6 @@ export function firstTab(call: ToolCall, log: AgentLine[] | undefined, following
 /** Whether a tab opens on its end: a transcript, which grows, and a command's output while following. */
 export function tailsBody(tab: TabId, following: boolean) {
   return tab === "transcript" || (following && tab === "output");
-}
-
-export function Inspector({ call, place, waiting, width, height, focused, cwd, home, onClose, onFocus, onMove, onCopy, log, keymap, onFollow }: Props) {
-  const tabs = tabsOf(call, log);
-  const [picked, setPicked] = useState<{ id: string; tab: TabId } | null>(null);
-  const tab = picked?.id === call.id && tabs.includes(picked.tab) ? picked.tab : firstTab(call, log, false, waiting);
-  const inner = width - 2;
-  // The body's text, less the column of its scrollbar.
-  const room = inner - 1;
-  const body = useBody(call, tab, room, log);
-  const view = Math.max(1, height - CHROME);
-  const total = body?.lines.length ?? 0;
-  const maxTop = Math.max(0, total - view);
-  const [scroll, setScroll] = useState({ key: "", top: 0 });
-  const key = `${call.id}|${tab}`;
-  const top = scroll.key === key ? Math.min(scroll.top, maxTop) : tailsBody(tab, false) ? maxTop : 0;
-  const scrollTo = (next: number) => setScroll({ key, top: Math.max(0, Math.min(maxTop, Math.round(next))) });
-
-  const box = useRef<DOMElement>(null);
-  const tabRefs = useRef<(DOMElement | null)[]>([]);
-  const back = useRef<DOMElement>(null);
-  const forward = useRef<DOMElement>(null);
-  const close = useRef<DOMElement>(null);
-
-  const pick = (next: TabId) => setPicked({ id: call.id, tab: next });
-  const step = (by: number) => pick(tabs[(tabs.indexOf(tab) + by + tabs.length) % tabs.length]!);
-  const copy = () => {
-    if (body?.copy) onCopy(body.copy, LABELS[tab].toLowerCase());
-  };
-
-  useInput(
-    (input, key) => {
-      if (key.eventType === "release") return;
-      if (key.escape || (key.ctrl && input === "c")) return onClose();
-      if (onFollow && keymap?.get(strokeOf(input, key) ?? "") === "chat:followClaude") return onFollow();
-      if (key.leftArrow) return onMove(-1);
-      if (key.rightArrow) return onMove(1);
-      if (key.tab) return step(key.shift ? -1 : 1);
-      if (key.upArrow) return scrollTo(top - 1);
-      if (key.downArrow) return scrollTo(top + 1);
-      if (key.pageUp) return scrollTo(top - Math.max(1, view - 2));
-      if (key.pageDown || input === " ") return scrollTo(top + Math.max(1, view - 2));
-      if (key.home) return scrollTo(0);
-      if (key.end) return scrollTo(maxTop);
-      if (input === "c") return copy();
-      const number = Number(input);
-      if (number >= 1 && number <= tabs.length) return pick(tabs[number - 1]!);
-    },
-    { isActive: focused },
-  );
-
-  useMouse((event) => {
-    const at = hit(box.current, event);
-    if (!at) return;
-    event.handled = true;
-    if (event.type === "wheel") return scrollTo(top + event.wheel * WHEEL_LINES);
-    if (event.type !== "press" || event.button !== "left") return;
-    if (!focused) onFocus();
-    const tabAt = tabRefs.current.findIndex((one) => hit(one, event));
-    if (tabAt !== -1 && tabs[tabAt]) return pick(tabs[tabAt]);
-    if (hit(back.current, event)) return onMove(-1);
-    if (hit(forward.current, event)) return onMove(1);
-    if (hit(close.current, event)) return onClose();
-  });
-  const hovered = useHover(box, (_, __, pointer) => {
-    const tabAt = tabRefs.current.findIndex((one) => hit(one, pointer));
-    if (tabAt !== -1) return { key: `tab${tabAt}`, shape: "pointer" };
-    if (hit(back.current, pointer)) return { key: "back", shape: "pointer" };
-    if (hit(forward.current, pointer)) return { key: "forward", shape: "pointer" };
-    if (hit(close.current, pointer)) return { key: "close", shape: "pointer" };
-    return null;
-  });
-
-  const status = statusOf(call, waiting);
-  const time = call.startedAt !== undefined ? clock(call.startedAt) : "";
-  const about = [place.step !== undefined ? `step ${place.step} of ${place.steps}` : "", time].filter(Boolean).join(" · ");
-  const position = `${place.index} of ${place.count}`;
-  const spent = spentOn(call);
-  const title = titleOf(call, waiting, cwd, home);
-  const pillWidth = status.text.length + 2 + (spent ? spent.length + 2 : 0);
-  const thumb = total > view ? Math.max(1, Math.round((view * view) / total)) : 0;
-  const thumbTop = thumb && maxTop ? Math.round(((view - thumb) * top) / maxTop) : 0;
-  const shown = body?.lines.slice(top, top + view) ?? [];
-
-  return (
-    <Box ref={box} flexDirection="column" width={width} height={height} flexShrink={0}>
-      {/* Gold where it has your keys. */}
-      <Text color={focused ? PALETTE.gold : PALETTE.surface}>{(focused ? "▁" : "▄").repeat(width)}</Text>
-      <Box flexDirection="column" backgroundColor={PALETTE.surface} paddingX={1} width={width} height={height - 1}>
-        <Box justifyContent="space-between" width={inner}>
-          <Text bold color={PALETTE.star} wrap="truncate-end">
-            {title.verb ? `${title.verb} ` : ""}
-            {fit(title.text, inner - pillWidth - 2 - (title.verb ? title.verb.length + 1 : 0), title.path)}
-          </Text>
-          <Text>
-            <Text color={status.color}>▐</Text>
-            <Text bold backgroundColor={status.color} color={PALETTE.ink}>
-              {status.text}
-            </Text>
-            <Text color={status.color}>▌</Text>
-            {spent ? <Text color={PALETTE.dust}>{`  ${spent}`}</Text> : null}
-          </Text>
-        </Box>
-        <Box justifyContent="space-between" width={inner}>
-          <Text wrap="truncate-end">
-            <Text color={PALETTE.teal}>{toolLabel(call.name)}</Text>
-            {about ? <Text color={PALETTE.dust}>{`  ·  ${about}`}</Text> : null}
-          </Text>
-          <Box>
-            <Box ref={back}>
-              <Text color={hovered === "back" ? PALETTE.star : PALETTE.haze}>‹ </Text>
-            </Box>
-            <Text color={PALETTE.dust}>{position}</Text>
-            <Box ref={forward}>
-              <Text color={hovered === "forward" ? PALETTE.star : PALETTE.haze}> ›</Text>
-            </Box>
-          </Box>
-        </Box>
-        <Text> </Text>
-        <Box width={inner}>
-          {tabs.map((one, i) => {
-            const active = one === tab;
-            const over = hovered === `tab${i}`;
-            return (
-              <Box
-                key={one}
-                ref={(element) => {
-                  tabRefs.current[i] = element;
-                }}
-                marginRight={1}
-              >
-                {active ? (
-                  <Text>
-                    <Text color={PALETTE.raised}>▐</Text>
-                    <Text bold backgroundColor={PALETTE.raised} color={PALETTE.star}>
-                      {LABELS[one]}
-                    </Text>
-                    <Text color={PALETTE.raised}>▌</Text>
-                  </Text>
-                ) : (
-                  <Text color={over ? PALETTE.star : PALETTE.haze}>{` ${LABELS[one]} `}</Text>
-                )}
-              </Box>
-            );
-          })}
-        </Box>
-        <Text color={PALETTE.raised}>{"─".repeat(inner)}</Text>
-        <Box flexDirection="row" width={inner} height={view}>
-          <Box flexDirection="column" width={room} height={view}>
-            {body ? (
-              shown.map((line, i) => (
-                <Text key={i} wrap="truncate-end">
-                  {line || " "}
-                </Text>
-              ))
-            ) : (
-              <Text color={PALETTE.dust}>Drawing…</Text>
-            )}
-          </Box>
-          <Box flexDirection="column" width={1} height={view}>
-            {thumb
-              ? Array.from({ length: view }, (_, i) => (
-                  <Text key={i} color={PALETTE.dust}>
-                    {i >= thumbTop && i < thumbTop + thumb ? "┃" : " "}
-                  </Text>
-                ))
-              : null}
-          </Box>
-        </Box>
-        <Text color={PALETTE.raised}>{"─".repeat(inner)}</Text>
-        <Box justifyContent="space-between" width={inner}>
-          {focused ? (
-            <Text wrap="truncate-end">
-              <Keys pairs={[["←→", "calls"], ["tab", "view"], ["↑↓", "scroll"], ["c", "copy"]]} />
-            </Text>
-          ) : (
-            <Text color={PALETTE.dust} wrap="truncate-end">
-              Click here for the keys
-            </Text>
-          )}
-          <Box ref={close}>
-            <Text>
-              <Text color={hovered === "close" ? PALETTE.star : PALETTE.haze}>esc</Text>
-              <Text color={hovered === "close" ? PALETTE.star : PALETTE.dust}> close</Text>
-            </Text>
-          </Box>
-        </Box>
-      </Box>
-    </Box>
-  );
-}
-
-/** Keys and what they do, as a hint line writes them: the key in haze, what it does in dust. */
-export function Keys({ pairs }: { pairs: [string, string][] }) {
-  return (
-    <>
-      {pairs.map(([key, does], i) => (
-        <Text key={key}>
-          {i ? "   " : ""}
-          <Text color={PALETTE.haze}>{key}</Text>
-          <Text color={PALETTE.dust}>{` ${does}`}</Text>
-        </Text>
-      ))}
-    </>
-  );
 }
 
 /**

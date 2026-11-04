@@ -157,7 +157,8 @@ export async function startTerminal(options: TerminalOptions) {
       process.stdin.setRawMode(true);
       // Each layout gets its own screen, which needs kitty's images sent again.
       forgetSent();
-      const mouse = fullscreen ? new Mouse(process.stdin, process.stdout) : null;
+      // In scrollback the mouse stays the terminal's, but for the transcript viewer, which turns it on.
+      const mouse = new Mouse(process.stdin, process.stdout);
       const leave = (to: "layout" | "agents") => {
         leaving = to;
         // Leave nothing of the scrollback layout's live part behind.
@@ -188,9 +189,9 @@ export async function startTerminal(options: TerminalOptions) {
           onRender: afterFrame,
         },
       );
-      mouse?.start();
+      if (fullscreen) mouse.start();
       await app.waitUntilExit();
-      mouse?.stop();
+      mouse.stop();
       if (leaving !== "layout") return leaving ?? "exit";
       fullscreen = !fullscreen;
       if (!fullscreen) redrawScrollback(store);

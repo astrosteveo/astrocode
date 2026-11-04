@@ -32,7 +32,7 @@ function ended(files: FileChange[] = [
 
 const plain = (transcript: Transcript) => transcript.rows.map((row) => stripVTControlCharacters(row.text));
 const draw = (state: State, width: number, { open = [] as string[], review = NO_REVIEW as Review } = {}) =>
-  layout({ state, width, pictureRows: 10, start: startOf(state, undefined, DEFAULT_KEYMAP, true), expanded: new Set(["end", ...open]), waiting: new Set(), review });
+  layout({ state, width, pictureRows: 10, start: startOf(state, undefined, DEFAULT_KEYMAP), expanded: new Set(["end", ...open]), waiting: new Set(), review });
 const withDiff = (review: Partial<Review> = {}): Review => ({ ...NO_REVIEW, diffs: new Map([[diffKey("turn", "end", "/p/src/cache.ts"), patchLines(CACHE)]]), ...review });
 
 test("opens under its closing line at every width: each file and how it changed, then the commands, commits and tokens", () => {

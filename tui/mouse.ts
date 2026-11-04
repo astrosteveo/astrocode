@@ -1,4 +1,4 @@
-// The mouse, in full screen. The terminal reports presses, drags, releases, the wheel and plain
+// The mouse, in full screen and scrollback's transcript viewer. The terminal reports presses, drags, releases, the wheel and plain
 // movement as SGR sequences (`ESC [ < button ; x ; y M`), which are lifted out of stdin before Ink
 // reads it. Components listen with `useMouse`, find what was clicked with `hit`, and learn what the
 // pointer is over with `useHover`, which also sets the pointer's shape where the terminal has one.
@@ -182,7 +182,7 @@ export class Mouse {
 
 const isMotion = (event: MouseEvent | undefined) => event?.type === "move" || event?.type === "drag";
 
-/** The mouse in full screen; null in the terminal's own scrollback, where the mouse stays the terminal's. */
+/** The mouse, which reports only in full screen and scrollback's transcript viewer; elsewhere it stays the terminal's. */
 export const MouseContext = createContext<Mouse | null>(null);
 
 /**
@@ -244,7 +244,7 @@ export function useHover<Key extends string | number>(
   const [hovered, setHovered] = useState<Key | null>(null);
   const owner = useRef({}).current;
   const update = useEffectEvent(() => {
-    // Without the mouse, as in scrollback, nothing is ever under the pointer.
+    // Without the mouse, or before it reports, nothing is ever under the pointer.
     if (!mouse) return;
     const pointer = mouse.where();
     const cell = isActive && pointer ? relative(element.current, pointer) : null;

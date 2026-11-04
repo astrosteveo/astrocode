@@ -33,9 +33,9 @@ const fresh = (more: Partial<State> = {}): State => ({
   ...more,
 });
 
-/** The start screen as plain lines, `width` columns wide, in scrollback unless `fullscreen`. */
-const draw = (state: State, width = 120, keymap: Keymap = DEFAULT_KEYMAP, branch = "feat/cache-clock", fullscreen = false) =>
-  stripVTControlCharacters(renderToString(<StartScreen start={startOf(state, branch, keymap, fullscreen, NOW)} width={width} />, { columns: width })).split("\n");
+/** The start screen as plain lines, `width` columns wide. */
+const draw = (state: State, width = 120, keymap: Keymap = DEFAULT_KEYMAP, branch = "feat/cache-clock") =>
+  stripVTControlCharacters(renderToString(<StartScreen start={startOf(state, branch, keymap, NOW)} width={width} />, { columns: width })).split("\n");
 
 const lineWith = (lines: string[], text: string) => lines.find((line) => line.includes(text));
 
@@ -56,7 +56,7 @@ test("says where you are, what came from Claude Code, the recent sessions here a
   const keys = lines.indexOf(lineWith(lines, "Keys")!);
   expect(lines.slice(keys + 1, keys + 3).map((line) => line.trim().split(/ {2,}/))).toEqual([
     ["/ commands", "@ files", "! shell command", "? every key"],
-    ["shift+tab mode", "ctrl+o tool output", "← conversations", "esc stop Claude"],
+    ["shift+tab mode", "ctrl+o transcript", "← conversations", "esc stop Claude"],
   ]);
   // Nothing is drawn large, and the mirror is gone.
   expect(lines.join("\n")).not.toMatch(/[⬢▄█▀]/);
@@ -72,7 +72,7 @@ test("fits 80 columns with the keys two across, and keeps to the measure at 200"
   expect(narrow.slice(keys + 1, keys + 5).map((line) => line.trim().split(/ {2,}/))).toEqual([
     ["/ commands", "@ files"],
     ["! shell command", "? every key"],
-    ["shift+tab mode", "ctrl+o tool output"],
+    ["shift+tab mode", "ctrl+o transcript"],
     ["← conversations", "esc stop Claude"],
   ]);
 
@@ -122,13 +122,6 @@ test("keeps the folder's name when the rest of where you are fills the line, and
   expect(where(120, "main")).toBe("  ~/Projects/work/clients/retrykit · main · Opus 5.5 xhigh · auto");
 });
 
-test("names Ctrl+O by what it does: the transcript in full screen, and tool output in scrollback", () => {
-  const keys = (fullscreen: boolean) => draw(fresh(), 120, DEFAULT_KEYMAP, "main", fullscreen).join("\n");
-  expect(keys(true)).toContain("ctrl+o transcript");
-  expect(keys(true)).not.toContain("tool output");
-  expect(keys(false)).toContain("ctrl+o tool output");
-});
-
 test("names keys as you've bound them, and your keybindings as loaded", () => {
   const keymap = new Map(DEFAULT_KEYMAP);
   keymap.delete("shift+tab");
@@ -138,7 +131,7 @@ test("names keys as you've bound them, and your keybindings as loaded", () => {
   expect(lines[3]).toBe("  From Claude Code: CLAUDE.md · 8 plugins · 3 MCP servers · 41 skills · your keybindings");
   expect(lines.join("\n")).toContain("alt+m mode");
   // A key bound to nothing isn't offered.
-  expect(lines.join("\n")).not.toContain("tool output");
+  expect(lines.join("\n")).not.toContain("transcript");
 });
 
 test("is ready once Claude Code has said what it loaded and the sessions here are listed", () => {
@@ -248,8 +241,8 @@ test("in scrollback, the start screen is written once, when all it says is known
   expect(lines[first]).toContain("Claude Code 2.1.318 underneath");
   expect(lines[first + 1]).toEndWith(" · auto");
   expect(lines[first + 2]).toContain("From Claude Code: 3 skills");
-  // In scrollback Ctrl+O opens the tool output picker.
-  expect(text).toContain("ctrl+o tool output");
+  // In scrollback too Ctrl+O opens the transcript, in a viewer of its own.
+  expect(text).toContain("ctrl+o transcript");
   expect(text).toContain("Give retries a deadline");
   expect(text.indexOf("Something to say.")).toBeGreaterThan(text.indexOf(`astrocode  ${version}`));
 });
@@ -286,7 +279,7 @@ test("names your keybindings only when keybindings.json was taken", async () => 
   const file = join(root, "keybindings.json");
   const loaded = async (text: string) => {
     writeFileSync(file, text);
-    return startOf(fresh(), undefined, (await loadKeymap()).keymap, false).loaded;
+    return startOf(fresh(), undefined, (await loadKeymap()).keymap).loaded;
   };
   try {
     // A file that's turned down is said to be, and none of it is used.
