@@ -1,0 +1,105 @@
+python3 - <<'EOF'
+p='src/retry.ts'
+s=open(p).read()
+s=s.replace('''  deadlineMs?: number;
+};
+''','''  deadlineMs?: number;
+  /** Time source; tests pass a fake one so they don't really sleep. */
+  clock?: Clock;
+};
+
+export type Clock = {
+  now(): number;
+  sleep(ms: number): Promise<void>;
+};
+
+const systemClock: Clock = {
+  now: () => Date.now(),
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+};
+''')
+s=s.replace('''const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+''','')
+s=s.replace('''  const started = Date.now();''','''  const clock = options.clock ?? systemClock;
+  const started = clock.now();''')
+s=s.replace('''  for (let tries = 0; tries <= options.attempts; tries++) {''','''  for (let tries = 1; tries <= options.attempts; tries++) {''')
+s=s.replace('''      if (options.deadlineMs && Date.now() - started > options.deadlineMs) {
+        throw new RetryError("deadline passed", tries, last);
+      }
+      await sleep(delay);''','''      if (tries === options.attempts) break;
+      if (options.deadlineMs && clock.now() - started > options.deadlineMs) {
+        throw new RetryError("deadline passed", tries, last);
+      }
+      await clock.sleep(delay);''')
+open(p,'w').write(s)
+EOF
+cat > src/retry.test.ts <<'EOF'
+import { expect, test } from "bun:test";
+import { retry, RetryError, type Clock } from "./retry";
+
+/** A clock where sleeping just moves time forward, and records each sleep. */
+function fakeClock() {
+  const sleeps: number[] = [];
+  let time = 0;
+  const clock: Clock = {
+    now: () => time,
+    sleep: async (ms) => {
+      sleeps.push(ms);
+      time += ms;
+    },
+  };
+  return { clock, sleeps };
+}
+
+test("returns the first success", async () => {
+  const { clock, sleeps } = fakeClock();
+  let calls = 0;
+  const value = await retry(async () => {
+    calls++;
+    if (calls < 2) throw new Error("flaky");
+    return "ok";
+  }, { attempts: 3, delayMs: 10, clock });
+  expect(value).toBe("ok");
+  expect(calls).toBe(2);
+  expect(sleeps).toEqual([10]);
+});
+
+test("tries exactly `attempts` times", async () => {
+  const { clock, sleeps } = fakeClock();
+  let calls = 0;
+  const error = await retry(async () => {
+    calls++;
+    throw new Error("down");
+  }, { attempts: 3, delayMs: 10, clock }).catch((e) => e);
+  expect(error).toBeInstanceOf(RetryError);
+  expect(error.tries).toBe(3);
+  expect(calls).toBe(3);
+  // No sleep after the final failure.
+  expect(sleeps).toEqual([10, 20]);
+});
+
+test("backs off by the factor", async () => {
+  const { clock, sleeps } = fakeClock();
+  let calls = 0;
+  await retry(async () => {
+    if (++calls < 4) throw new Error("again");
+    return true;
+  }, { attempts: 5, delayMs: 100, factor: 3, clock });
+  expect(sleeps).toEqual([100, 300, 900]);
+});
+
+test("stops at the deadline", async () => {
+  const { clock } = fakeClock();
+  let calls = 0;
+  const error = await retry(async () => {
+    calls++;
+    throw new Error("slow");
+  }, { attempts: 10, delayMs: 200, deadlineMs: 500, clock }).catch((e) => e);
+  expect(error).toBeInstanceOf(RetryError);
+  expect(error.message).toBe("deadline passed");
+  // Failures at t=0, 200, 600; the third is past 500ms.
+  expect(calls).toBe(3);
+  expect(error.tries).toBe(3);
+});
+EOF

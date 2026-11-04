@@ -1,0 +1,41 @@
+export type RetryOptions = {
+  /** How many times to try in all. */
+  attempts: number;
+  /** Delay before the first retry, in milliseconds. */
+  delayMs: number;
+  /** Multiply the delay by this after each failure. */
+  factor?: number;
+  /** Give up once this many milliseconds have passed since the first try. */
+  deadlineMs?: number;
+};
+
+export class RetryError extends Error {
+  constructor(
+    message: string,
+    readonly tries: number,
+    readonly last: unknown,
+  ) {
+    super(message);
+  }
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function retry<T>(fn: () => Promise<T>, options: RetryOptions): Promise<T> {
+  const started = Date.now();
+  let delay = options.delayMs;
+  let last: unknown;
+  for (let tries = 0; tries <= options.attempts; tries++) {
+    try {
+      return await fn();
+    } catch (error) {
+      last = error;
+      if (options.deadlineMs && Date.now() - started > options.deadlineMs) {
+        throw new RetryError("deadline passed", tries, last);
+      }
+      await sleep(delay);
+      delay = delay * (options.factor ?? 2);
+    }
+  }
+  throw new RetryError(`gave up after ${options.attempts} tries`, options.attempts, last);
+}
