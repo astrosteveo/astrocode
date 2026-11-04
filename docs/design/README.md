@@ -536,6 +536,7 @@ An opened entry is part of the transcript's focus: the cursor moves into it with
 | `[` and `]` move between ledgers | `claude` uses them for scrollback in its viewer; in full screen there's no separate scrollback |
 | Alt+L (Follow Claude) retires | Replaced by opening the running line |
 | In an opened ledger, Alt+↑ and Alt+↓ still go to your message before or after, rather than scrolling the file list as in `claude`'s diff panel (`app:diffFileListUp/Down`) | ← and → move between the ledger's files and Enter opens one in place, so there's no separate list to scroll; Alt+↑↓ keep one meaning everywhere in the transcript |
+| astrocode always asks for Claude's thinking summaries, where `claude` asks only with `showThinkingSummaries` on | The `∴` line is how the transcript shows thinking. Through the SDK, Claude Code doesn't read that setting, and without the request thinking comes empty |
 
 ### How you find things
 
