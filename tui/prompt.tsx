@@ -430,8 +430,10 @@ export function Prompt(props: Props) {
         // From the transcript the box's text isn't what you're working on: Ctrl+C stops Claude, or
         // counts toward the two presses that exit, and leaves the text alone.
         if (!active) return busy ? props.onInterrupt() : exitOnSecond(action);
-        if (text) return set("", 0);
-        return busy ? props.onInterrupt() : exitOnSecond(action);
+        if (busy && !text) return props.onInterrupt();
+        // As in `claude`, clearing the text is the first of the two presses that exit.
+        if (text) set("", 0);
+        return busy ? undefined : exitOnSecond(action);
       case "app:exit":
         return text ? deleteForward() : exitOnSecond(action);
       case "app:toggleTodos":
