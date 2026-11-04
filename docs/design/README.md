@@ -40,7 +40,7 @@ Each principle comes with a test that a screen, or a design decision, passes or 
 | 3 | **One place per question.** The [now line](#the-now-line) says whether Claude is working or waiting, and on what. The ledger says what changed. The status bar says how much is left. | For each of those four questions, hide every region but the one named. The answer is still there, and no other region gives a different one. |
 | 4 | **Say it once.** A state is put in words in one place. Elsewhere it may only be marked, by a color or a glyph. | Search the screen for a state's words ("waiting", "running", "failed"). They appear at most once. |
 | 5 | **Gold means you.** Gold marks only three things: your messages, where your keys are, and whatever waits on you. | Every gold cell in any screenshot is one of the three. |
-| 6 | **Open in place, one way.** Any line that stands for more opens with Enter or a click, under itself, and closes the same way. At 160 columns and up it opens beside the column instead. There is no second way to see the same thing. | For each kind of line (call, step, subagent, ledger file, thinking, picture, `… N more`), Enter and a click open the same content in the same place. |
+| 6 | **Open in place, one way.** Any line that stands for more opens with Enter or a click, under itself, at every width, and closes the same way. Nothing opens in a pane or panel beside the column. There is no second way to see the same thing. | For each kind of line (call, step, subagent, ledger file, thinking, picture, `… N more`), Enter and a click open the same content in the same place. |
 | 7 | **Only live state moves.** The one thing that animates is the running mark: in the gutter of the running step, and on the now line. Text arrives as it streams; nothing else moves. | Record an idle screen, and one waiting on you, for two seconds. Every frame is identical. |
 
 ---
@@ -136,14 +136,14 @@ Top to bottom:
 | | 80×24 | 120×40 | 200×50 |
 | :-- | :-- | :-- | :-- |
 | **Text and results** | To column 78. A result that doesn't fit goes on the next row | To column 112 | To column 112, the measure |
-| **An opened entry** | In place | In place | Beside the column, from column 114 to the edge, with its line marked in the column |
+| **An opened entry** | In place | In place | In place, at the measure |
 | **Diff in a decision** | Unified; long lines wrap | Unified | Side by side, once the panel is 160 or wider |
 | **Status readings** | Running, context, 5h, 7d | Adds model and effort, then branch | All |
 | **Hint line** | Keys that don't fit are left to `?` | All | All |
 
 | 80×24 | 200×50 |
 | :-- | :-- |
-| ![working at 80×24](shots/working-80.png) | ![a subagent opened beside, 200×50](shots/subagent-200.png) |
+| ![working at 80×24](shots/working-80.png) | ![a subagent opened in place, 200×50](shots/subagent-200.png) |
 
 **Status readings by rank:** context, 7d, running, 5h, model and effort, branch and changed files. They drop from the end as the width shrinks ([states](shots/states.png) shows 120 and 80). The mode and `← N needs you` always stay.
 
@@ -240,7 +240,7 @@ Rules:
 ### Subagent
 
 - **While it runs:** `Exploring <task>  N calls · time` in teal, with `└ <its latest call>` under it. The latest call turns gold when it waits for your OK, and its decision names the subagent.
-- **Opened:** with Enter, in place or beside. It has tabs: Calls (its own activity lines, live), Prompt (what Claude asked it) and Report (once it's done).
+- **Opened:** with Enter or a click, under its line. It has tabs: Calls (its own activity lines, streaming in live), Prompt (what Claude asked it) and Report (once it's done). `/tasks` stays for the full-screen view.
 - **Moving it:** Ctrl+B sends it to the background. `x` stops it.
 - **Nesting:** a subagent it starts nests under it, indented two more columns.
 
@@ -258,7 +258,7 @@ The line that closes a turn, and the review surface.
 
 `╰ 1m 40s · 3 files +58 −3 · 7 passed 1 failed · not committed`
 
-- **Order:** time · files changed with totals · tests · commits, pushes and PRs (`committed f535656`, `pushed`, `PR #12`) · `not committed` in ember when files changed and nothing was committed. Tokens move into the inspector.
+- **Order:** time · files changed with totals · tests · commits, pushes and PRs (`committed f535656`, `pushed`, `PR #12`) · `not committed` in ember when files changed and nothing was committed. The turn's tokens show when the ledger is opened.
 - **What counts as a change:** whatever changed in the working tree between the turn's start and its end, edits made through Bash included.
   - At each turn's edge, astrocode records the working tree as a git tree object, built with a temporary index so your own index and stash are untouched. The ledger is the diff between the two trees.
   - Outside git, the edit tools' own diffs count.
@@ -266,7 +266,8 @@ The line that closes a turn, and the review surface.
 - **Stopped:** `╰ stopped after 41s · …`. **Failed** (an API error): `╰ failed: <message> · …`.
 - **Opened** (Enter, a click, or `/diff` for the latest turn), it lists:
   - each file, with `new`, `+N −N` or `deleted`;
-  - then the commands it ran, with their results, and the commits.
+  - then the commands it ran, with their results, and the commits;
+  - and the turn's tokens.
   - Enter on a file opens its diff for that turn under it. `a` opens them all.
 - **Scope:** `[` and `]` switch it between this turn, uncommitted, and the branch against its base, as `claude`'s `/diff` does.
 
@@ -355,18 +356,18 @@ Tab on Yes or No opens a comment field for that answer, as in `claude`. Every de
 
 ### Opened call (what the inspector was)
 
-Enter on a call opens it in place, or beside at 160 columns and up.
+Enter or a click on a call opens it under its line, at every width.
 
 - **Header:** what it did, its result chip (`✓ exit 0`, `✕ exit 1`), its time and `‹ 9 of 10 ›`.
 - **Tabs** depend on the tool, as today: Output, Command, Sent to Claude, Input; Diff; Content; Calls, Prompt and Report for subagents.
 - **Keys:** ← and → move to the call before or after; Tab moves between tabs; `c` copies the tab; `e` opens it in `$EDITOR`. Esc or Enter closes it.
-- **Follow Claude** retires. Opening the running line shows the live call, and at 160 columns and up it stays open beside the column, following each new call until you move the cursor.
+- **Follow Claude** retires. Opening the running line shows the live call under it. While it's open, each new call opens under its own line as it starts, and the one before closes, until you move the cursor.
 
 ### Pictures and diagrams
 
-- **In kitty:** drawn under the `show` call or the fence, with a caption line `<label> · enter enlarges · o opens · b browser`. Enter is the same as a click.
+- **In kitty:** drawn under the `show` call or the fence, with a caption line `<label> · enter enlarges · o opens · b browser`. Enter or a click grows it in line, to the measure and up to the transcript's height; again shrinks it back.
 - **Without kitty:** the line reads `picture: <label> · o opens it`.
-- **`/pictures`** stays: ← and → move between pictures, `o` opens one, `b` opens it in the browser, `c` copies a diagram's source.
+- **`/pictures`** stays, as the only full-screen view of a picture: ← and → move between pictures, `o` opens one, `b` opens it in the browser, `c` copies a diagram's source.
 
 ### Overlays
 
@@ -431,7 +432,7 @@ Your keys are always in exactly one of four places, and that place has the gold 
 | **Decision** | Hairline over the panel | It opens (after half a second) | Answering it |
 | **Overlay** | Hairline over the overlay | Its command or key | Esc, or what it does |
 
-An opened entry beside the column (160 columns and up) is part of the transcript's focus. → or Tab moves into it, and ← or Esc moves back.
+An opened entry is part of the transcript's focus: the cursor moves into it with ↓, as into any lines.
 
 ### Rules that make keys predictable
 
@@ -603,7 +604,7 @@ The whole loop reads top to bottom as cause, fix, evidence. When the turn ends, 
 
 Claude starts an Explore subagent and waits on it:
 - The now line reads `◐ Waiting on Explore · 1m 12s`. The subagent's line counts its calls, with its latest call under it.
-- Enter on that line opens its calls live, beside the column at 200 columns or in place at 120.
+- Enter on that line opens its calls under it, streaming in live, at any width.
 - Ctrl+B sends it to the background; the step's mark becomes `◌` and Claude carries on.
 - When it ends, a `○` notice says so, and its Report tab holds what it wrote.
 
@@ -657,12 +658,12 @@ Small PRs, shipped in this order. Each is usable on its own, and each has the te
 | 10 | `feat: drop the rail, chips and marks that said nothing` | The rail line and its rows, the transcript's start mark, inline-code chips, `›`, the diff meter, step names made from calls, one box edge, the falling-dot row, the plan name, the `shift+tab` hint | Row-budget test: a recorded turn at 120×40 fits in N rows; a palette test that gold is used only by the allowed components |
 | 11 | `feat: fold finished turns and show thinking` | Steps fold to sentences when a turn ends; `∴` summaries | `state` tests; render snapshots |
 | 12 | `feat: one moving mark and a now line that names the call` | `◐◓◑◒` in step with the gutter; no shimmer; retry and compact states | Animation test: idle and waiting frames are identical over time |
-| 13 | `feat: lay out by width` | 110-column measure; beside at 160 and up; results under their line below 100; status readings by rank | Render snapshots at 80×24, 120×40, 200×50 |
+| 13 | `feat: lay out by width` | 110-column measure; results under their line below 100; status readings by rank | Render snapshots at 80×24, 120×40, 200×50 |
 | 14 | `feat: show other conversations that need you` | `← N needs you`; the ← hint; Conversations in Ledger marks | `fleet` and agents-view tests |
 | 15 | `feat: Claude Code's next-prompt suggestions` | Tab or → takes one; needs the SDK to emit them (see open questions) | `prompt` tests with a stubbed suggestion |
 | 16 | `feat: a start screen that says what's next` | The mirror retires; recent sessions, loaded settings, keys | Render test |
 | 17 | `feat: the transcript viewer in scrollback` | Ctrl+O opens a full-screen viewer with the same cursor | Window tests: switching in and out keeps scrollback intact |
-| 18 | `feat: open the running call instead of following it in a panel` | Alt+L and the panel go; opening the running line replaces them, and stays open beside at 160 and up | Keybinding test: `chat:followClaude` reports as retired; open-running-line test |
+| 18 | `feat: open the running call instead of following it in a panel` | Alt+L and the panel go; opening the running line replaces them, and follows each new call under its own line | Keybinding test: `chat:followClaude` reports as retired; open-running-line test |
 
 Every PR keeps `bun test` and `bun run typecheck` passing, is checked in the running app with tmux and the terminal-screenshot skill at 80, 120 and 200 columns, and updates the README's matching section.
 

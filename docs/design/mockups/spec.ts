@@ -174,38 +174,38 @@ export function subagent(W = 200, H = 50) {
     y = t.step(y, "running", "Asking an Explore agent where else the code reads the clock");
     t.cursor(y);
     y = t.act(y, "Exploring", [["Find Date.now and setTimeout uses", { fg: P.bright, bold: true }]], [haze("6 calls · 1m 12s")], P.teal, P.raised);
-    return t.under(y, [haze("Grep "), ["new Date", { fg: P.code }], haze(" in src")]);
+
+    // Opened under its line, at every width: its own calls stream in as it makes them.
+    const x = 4;
+    const right = t.edge;
+    const top = y;
+    t.panel(top, top + 14, false, x, right);
+    const tabs: [string, boolean][] = [["Calls", true], ["Prompt", false], ["Report", false]];
+    let tx = x + 2;
+    for (const [tab, open] of tabs) tx = t.f.put(tx, top + 1, ` ${tab} `, { fg: open ? P.bright : P.haze, bg: open ? P.raised : P.surface, bold: open }) + 1;
+    t.f.right(right - 2, top + 1, "Explore · running", { fg: P.haze, bg: P.surface });
+    const calls: [Mark, string, Span[], Span[]][] = [
+      ["done", "Searched", [["Date.now", { fg: P.code }], haze(" in src")], [haze("4 matches in 2 files")]],
+      ["done", "Searched", [["setTimeout", { fg: P.code }], haze(" in src")], [haze("1 match")]],
+      ["done", "Read", [["src/retry.ts"]], [haze("47 lines")]],
+      ["done", "Read", [["src/cache.ts"]], [haze("28 lines")]],
+      ["done", "Read", [["src/http.ts"]], [haze("17 lines")]],
+      ["running", "Searching", [["new Date", { fg: P.code }], haze(" in src")], []],
+    ];
+    calls.forEach(([mark, verb, target, result], i) => {
+      const row = top + 3 + i;
+      const bg = P.surface;
+      t.f.put(x + 2, row, MARK[mark].ch, { fg: MARK[mark].fg, bg });
+      t.f.put(x + 4, row, verb, { fg: mark === "running" ? P.teal : P.haze, bg });
+      t.f.spans(x + 16, row, target.map(([text, st]) => [text, { fg: P.text, ...st, bg }]));
+      if (result.length) t.f.rightSpans(right - 2, row, on(result, bg));
+    });
+    t.f.put(x + 2, top + 10, "∴ Both Date.now uses in cache.ts are gone; checking for new Date before reporting.", { fg: P.haze, italic: true, bg: P.surface });
+    t.f.put(x + 2, top + 12, "It reports to Claude when it's done; the report opens here.", { fg: P.dust, bg: P.surface });
+    return top + 15;
   });
 
-  // Opened beside the column, on a wide screen; under its line on a narrower one.
-  const x = l.beside;
-  const right = W - 1;
-  l.panel(1, H - 4, true, x, W);
-  l.f.spans(x + 2, 1, on([teal("◐ Explore "), [" Find Date.now and setTimeout uses", { fg: P.bright, bold: true }]], P.surface));
-  l.f.right(right, 1, "running · 6 calls · 1m 12s", { fg: P.haze, bg: P.surface });
-  const tabs: [string, boolean][] = [["Calls", true], ["Prompt", false], ["Report", false]];
-  let tx = x + 2;
-  for (const [tab, open] of tabs) tx = l.f.put(tx, 3, ` ${tab} `, { fg: open ? P.bright : P.haze, bg: open ? P.raised : P.surface, bold: open }) + 1;
-  const calls: [Mark, string, Span[], Span[]][] = [
-    ["done", "Grep", [["Date.now", { fg: P.code }], haze(" in src")], [haze("4 matches in 2 files")]],
-    ["done", "Grep", [["setTimeout", { fg: P.code }], haze(" in src")], [haze("1 match")]],
-    ["done", "Read", [["src/retry.ts"]], [haze("47 lines")]],
-    ["done", "Read", [["src/cache.ts"]], [haze("28 lines")]],
-    ["done", "Read", [["src/http.ts"]], [haze("17 lines")]],
-    ["running", "Grep", [["new Date", { fg: P.code }], haze(" in src")], [haze("1s")]],
-  ];
-  calls.forEach(([mark, verb, target, result], i) => {
-    const y = 5 + i;
-    const bg = P.surface;
-    l.f.put(x + 2, y, MARK[mark].ch, { fg: MARK[mark].fg, bg });
-    l.f.put(x + 4, y, verb, { fg: mark === "running" ? P.teal : P.haze, bg });
-    l.f.spans(x + 11, y, target.map(([s, st]) => [s, { fg: P.text, ...st, bg }]));
-    l.f.rightSpans(right, y, on(result, bg));
-  });
-  l.f.put(x + 2, 12, "∴ Both Date.now uses in cache.ts are gone; checking for new Date before reporting.", { fg: P.haze, italic: true, bg: P.surface });
-  l.f.put(x + 2, 14, "It reports to Claude when it's done; the report opens here.", { fg: P.dust, bg: P.surface });
-  l.hints(H - 6, x + 2, [["←→", "calls"], ["tab", "views"], ["ctrl+b", "background"], ["x", "stop"], ["esc", "close"]], P.surface, W);
-
+  l.hints(H - 5, 2, [["↑↓", "move"], ["tab", "views"], ["enter", "close"], ["ctrl+b", "background"], ["x", "stop"], ["esc", "back to the box"]]);
   l.now([teal("◐ "), teal("Waiting on Explore"), haze(" · 1m 12s · 3.4k tokens")], [["esc", "stop"], ["ctrl+b", "background"]]);
   l.box(false, "Type to queue a message.");
   l.status({ needsYou: 1 });
