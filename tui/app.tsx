@@ -1642,7 +1642,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     setToast(`Copied the ${what}, ${plural(text.split("\n").length, "line")}`);
   };
   const overlaid = picker();
-  const above = question ? (
+  // A decision takes the box's place until you answer it.
+  const decision = question ? (
     <QuestionPrompt key={question.id} request={question} width={width} rows={rows} onAnswer={(answers) => session.answer(question.id, answers)} />
   ) : elicitation ? (
     <ElicitationPrompt
@@ -1667,7 +1668,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       modes={state.modesAvailable}
       onDecide={(answer) => session.decide(request.id, answer)}
     />
-  ) : overlaid ? (
+  ) : null;
+  const above = decision ? null : overlaid ? (
     overlaid
   ) : inspected && !fullscreen ? (
     // In scrollback the inspector sits above the message box, as tall as leaves the box in view.
@@ -1708,8 +1710,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       {/* The message box's own top edge sets it apart; what sits above it needs a row. */}
       <Box marginTop={above || pinned || state.queue.length ? 1 : 0} flexDirection="column">
         {pinned}
-        {above ?? <ModBand session={session} width={width} rows={rows} working={state.busy} />}
+        {above ?? (decision ? null : <ModBand session={session} width={width} rows={rows} working={state.busy} />)}
         <QueuedMessages queue={state.queue} width={width} />
+        {decision}
         <Prompt
           active={boxKeys}
           anywhere={focus === "transcript"}
@@ -1717,7 +1720,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           hint={focus === "transcript" ? transcriptHint(inLedger ? "ledger" : inspected ? "call" : undefined, width - 5, review.git) : undefined}
           fullscreen={fullscreen}
           busy={state.busy}
-          waitingOn={question || elicitation ? "question" : request ? "permission" : undefined}
+          hidden={Boolean(decision)}
           width={width}
           cwd={state.cwd}
           history={sent.history}

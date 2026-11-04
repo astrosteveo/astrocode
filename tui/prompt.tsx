@@ -34,8 +34,8 @@ type Props = {
   /** Full screen, where the menu covers the transcript; in scrollback it makes room for itself. */
   fullscreen: boolean;
   busy: boolean;
-  /** What the box says while a prompt above it has the keys: a question, or a tool call to allow. */
-  waitingOn?: "question" | "permission";
+  /** A decision has the box's place: nothing is drawn, but what's typed stays for after. */
+  hidden?: boolean;
   width: number;
   /** The project, whose files `@` offers. */
   cwd: string;
@@ -675,17 +675,8 @@ export function Prompt(props: Props) {
   const end = next(text, cursor);
   const under = text.slice(cursor, end);
   // An idle, empty box says nothing but, until you've opened the conversations once, that ← does,
-  // while ← is the box's to read; it speaks up while Claude works or waits on you.
-  const placeholder =
-    props.waitingOn === "question"
-      ? "Claude is waiting for your answer above"
-      : props.waitingOn === "permission"
-        ? "Claude is waiting for your OK above"
-        : busy
-          ? "Claude is working. Type to queue a message"
-          : props.hintAgents && active
-            ? "← for conversations"
-            : "";
+  // while ← is the box's to read; it speaks up while Claude works.
+  const placeholder = busy ? "Claude is working. Type to queue a message" : props.hintAgents && active ? "← for conversations" : "";
   const caret = (character: string) =>
     active ? (
       <Text backgroundColor={PALETTE.gold} color={PALETTE.ink}>
@@ -705,6 +696,7 @@ export function Prompt(props: Props) {
     ? chordHint(props.keymap, chord.current.keys)
     : props.hint ?? keywordNote ?? (preview ? `stashed “${preview}”${stashKey ? `  ${stashKey}` : ""}` : undefined);
 
+  if (props.hidden) return null;
   if (search.current) {
     const { query, skip } = search.current;
     const all = query ? found(query) : [];

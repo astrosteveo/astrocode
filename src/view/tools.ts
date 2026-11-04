@@ -72,9 +72,9 @@ export function toolTarget(call: ToolCall, cwd: string, home: string) {
   }
 }
 
-/** A word or two on how the call went: what it returned, at a glance. */
+/** A word or two on how the call went: what it returned, at a glance. Nothing while it waits for you: its gold says so, and the decision under it in words. */
 export function toolSummary(call: ToolCall, waiting: boolean) {
-  if (waiting) return "waiting for you";
+  if (waiting) return "";
   switch (call.status) {
     case "running":
       if (call.name === "Agent" || call.name === "Task") return [agentType(call), call.subagentCalls ? plural(call.subagentCalls, "tool call") : "running"].filter(Boolean).join(" · ");
