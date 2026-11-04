@@ -116,7 +116,7 @@ type Overlay =
   | { kind: "btw"; question: string }
   /** Remote Control's link, its QR code and how it's doing. */
   | { kind: "remote" }
-  /** Finding text in full screen's transcript. */
+  /** Finding text in the transcript. */
   | { kind: "find" }
   /** The conversation's pictures, as large as they go, opened on one of them. */
   | { kind: "picture"; image: ImageAttachment }
@@ -589,6 +589,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const openTranscript = () => {
     if (fullscreen || state.items.length || state.live) toTranscript(true);
   };
+
+  /** Ctrl+F, and / in the transcript: a line to type what to find in it. */
+  const openFind = () => setOverlay({ kind: "find" });
 
   /**
    * Opens a call under its line, with your keys in the transcript. One still running in a task
@@ -1708,7 +1711,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onModelPicker={() => setOverlay({ kind: "model" })}
           onFastMode={toggleFast}
           onStopTasks={stopAllTasks}
-          onFind={fullscreen || viewer.open ? () => setOverlay({ kind: "find" }) : undefined}
+          onFind={fullscreen || viewer.open ? openFind : undefined}
           onFollow={toggleFollow}
           onAgents={onAgents}
           onKeys={() => setOverlay({ kind: "keys", place: "box" })}
@@ -1789,7 +1792,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       onEdit={(text) => void handOver(() => readInEditor(text)).catch(report)}
       onOpen={openAddress}
       onPicture={openPictures}
-      find={overlay?.kind === "find" ? find : null}
+      find={find}
+      finding={overlay?.kind === "find"}
+      onFind={openFind}
       onMatches={setMatchCount}
     >
       {fullscreen ? panel : null}

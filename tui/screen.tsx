@@ -3,10 +3,11 @@
 // PgDn scroll, and the viewport follows the end until you scroll up. Ctrl+O, or a click on a line,
 // gives the transcript your keys: a gold `›` marks the line the cursor is on, ↑ and ↓ move it, and
 // Enter does what a click on the line does. A step's line opens its call under the line, at every
-// width, a command opens, and what's open closes. Esc, q or Ctrl+O gives your keys back to the box.
-// Dragging selects text and copies it, a click on a link opens it, and on a picture enlarges it.
-// Ctrl+F finds text in it, and Alt+↑ and Alt+↓ jump between your messages, with Shift between tool
-// calls and commands.
+// width, a command opens, and what's open closes. `/` finds, `n` and `N` go to the next and previous
+// match, and `v` opens the conversation in $EDITOR, as in `claude`'s viewer. Esc, q or Ctrl+O gives
+// your keys back to the box. Dragging selects text and copies it, a click on a link opens it, and on
+// a picture enlarges it. Ctrl+F finds text in it, and Alt+↑ and Alt+↓ jump between your messages,
+// with Shift between tool calls and commands.
 import { Box, measureElement, Text, useBoxMetrics, useInput, useStdout, type DOMElement, type Key } from "ink";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
@@ -86,21 +87,25 @@ type Props = {
    */
   onToggle: (key: string) => boolean;
   onCopy: (text: string) => void;
-  /** `e` in an opened call: its tab in $EDITOR. */
+  /** `e` in an opened call: its tab in $EDITOR; `v`: the whole conversation there. */
   onEdit: (text: string) => void;
   /** A click on a link. */
   onOpen: (url: string) => void;
   /** A click on a picture. */
   onPicture: (image: ImageAttachment) => void;
-  /** What Ctrl+F is finding, while its bar is open. */
-  find: Find | null;
+  /** What Ctrl+F or `/` finds, kept once its bar closes, for `n` and `N`. */
+  find: Find;
+  /** The find bar is open: its matches are marked, and the one it's on is in view, with the cursor. */
+  finding: boolean;
+  /** `/`: the find bar. */
+  onFind: () => void;
   /** How many matches the transcript has for it. */
   onMatches: (count: number) => void;
   /** What's pinned under the viewport. */
   children: ReactNode;
 };
 
-export function Screen({ state, epoch, start, columns, rows: height, expanded, waiting, opened, reveal, review, keys, focused, keymap, onFocus, onLedger, onLeave, onToggle, onCopy, onEdit, onOpen, onPicture, find: search, onMatches, children }: Props) {
+export function Screen({ state, epoch, start, columns, rows: height, expanded, waiting, opened, reveal, review, keys, focused, keymap, onFocus, onLedger, onLeave, onToggle, onCopy, onEdit, onOpen, onPicture, find: sought, finding, onFind, onMatches, children }: Props) {
   // A column for the scrollbar and one to keep it off the text.
   const width = Math.max(10, columns - 2);
   const viewport = useRef<DOMElement>(null);
@@ -131,6 +136,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   const turns = useMemo(() => new Set(state.items.flatMap((item) => (item.kind === "turn" ? [item.key] : []))), [state.items]);
 
   // Search's matches, top to bottom, and the one it's on, counted back from the newest.
+  const search = finding ? sought : null;
   const query = search?.query ?? "";
   const matches = useMemo(
     () => (query ? rows.flatMap((row, index) => findIn(row.text, query).map(([from, to]) => ({ index, from, to }))) : []),
@@ -230,6 +236,23 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     show(index);
   };
 
+  /** `n` or `N`: the cursor to the next line down, or up, with a match for what was found last, as `less` goes on. */
+  const findNext = (by: -1 | 1) => {
+    const { transcript, at } = now.current;
+    const from = at ?? lastShown();
+    const lines = sought.query ? transcript.rows.flatMap((row, i) => (isStop(row) && findIn(row.text, sought.query).length ? [i] : [])) : [];
+    const next = by < 0 ? lines.findLast((line) => line < from) : lines.find((line) => line > from);
+    if (next === undefined) return;
+    place(next);
+    show(next);
+  };
+
+  /** `v`: the conversation's text, as a drag would copy it, without the start screen. */
+  const conversation = () => {
+    const rows = now.current.transcript.rows.filter((row) => row.key !== "banner");
+    return selectedText(rows, { row: 0, col: 0 }, { row: rows.length - 1, col: Infinity });
+  };
+
   /** PgUp or PgDn: the cursor and the view half a screen up or down, as `claude` pages. */
   const pageCursor = (by: -1 | 1) => {
     const { view, pad } = now.current;
@@ -285,6 +308,9 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     else if (key.escape && ledger !== undefined) backOut(ledger);
     else if (key.escape && open) onToggle(callTarget(open.id));
     else if (key.escape || letter === "q" || keymap.get(strokeOf(input, key) ?? "") === "app:toggleTranscript") onLeave();
+    else if (letter === "/") onFind();
+    else if (letter === "n" || letter === "N") findNext(letter === "n" ? 1 : -1);
+    else if (letter === "v") onEdit(conversation());
     else if (!open) return false;
     else if (key.leftArrow || key.rightArrow) onToggle(moveTarget(key.leftArrow ? -1 : 1));
     else if (key.tab && !key.shift) onToggle(tabTarget(open.tabs[(open.tabs.indexOf(open.tab) + 1) % open.tabs.length]!));
@@ -673,10 +699,12 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     show(index);
   }, [focused, transcript, top, view]);
 
-  // The match search is on stays in view, a third of the way down when it has to move.
+  // The match search is on stays in view, a third of the way down when it has to move, with the
+  // cursor on it, so that's where `n` and `N` go on from and where your keys come back to.
   const target = matches[current]?.index;
   useEffect(() => {
     if (target === undefined) return;
+    if (isStop(now.current.transcript.rows[target])) place(target);
     const { top, view, pad } = now.current;
     if (target >= top && target < top + view - pad) return;
     scrollTo(target - Math.floor(view / 3));
