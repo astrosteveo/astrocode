@@ -232,6 +232,11 @@ test("the box's sheet, which /help shows, lists the transcript's keys after the 
   expect(titles(false)).not.toContain("Mouse");
 });
 
+test("the transcript's keys list x, which stops the subagent or command running on the cursor's line, an opened call's too", () => {
+  for (const place of ["transcript", "opened", "ledger"] as const) expect(listed(place)).toContain("x  stop what runs");
+  for (const fullscreen of [true, false]) expect(listed("box", fullscreen)).toContain("x  stop what runs");
+});
+
 test("the transcript's keys take in claude's viewer keys: / finds, n and N go on to the next and previous match, v opens the conversation in $EDITOR", () => {
   for (const place of ["transcript", "opened", "ledger"] as const) {
     for (const row of ["/  find", "n, N  next, previous", "v  all in $EDITOR"]) expect(listed(place)).toContain(row);
