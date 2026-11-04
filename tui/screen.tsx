@@ -200,14 +200,36 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     return lastShown();
   };
 
-  /** ↑ or ↓: the cursor to the line before or after, with the view following it. */
-  const moveCursor = (by: -1 | 1) => {
+  /**
+   * ↑ or ↓: the cursor to the line before or after, with the view following it; `lines` on, for
+   * PgUp and PgDn, which go as far as there are lines.
+   */
+  const moveCursor = (by: -1 | 1, lines = 1) => {
     const { transcript, at } = now.current;
-    let index = (at ?? lastShown()) + by;
-    while (transcript.rows[index] && !isStop(transcript.rows[index])) index += by;
-    if (!transcript.rows[index]) return;
+    const { rows } = transcript;
+    let index = Math.max(0, Math.min(rows.length - 1, (at ?? lastShown()) + by * lines));
+    while (rows[index] && !isStop(rows[index])) index += by;
+    if (!rows[index] && lines > 1) index = by < 0 ? rows.findIndex(isStop) : rows.findLastIndex(isStop);
+    if (!rows[index]) return;
     place(index);
     show(index);
+  };
+
+  /** PgUp or PgDn: the cursor and the view half a screen up or down, as `claude` pages. */
+  const pageCursor = (by: -1 | 1) => {
+    const { view, pad } = now.current;
+    const half = Math.max(1, Math.floor((view - pad) / 2));
+    scrollBy(by * half);
+    moveCursor(by, half);
+  };
+
+  /** Home or End: the cursor to the first line or the last, and the view to the top or the end, which it then follows. */
+  const endCursor = (by: -1 | 1) => {
+    const { rows } = now.current.transcript;
+    const index = by < 0 ? rows.findIndex(isStop) : rows.findLastIndex(isStop);
+    if (index === -1) return;
+    place(index);
+    scrollTo(by < 0 ? 0 : now.current.maxTop);
   };
 
   /**
@@ -235,6 +257,10 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     // A letter with Ctrl or Alt held is another key: Ctrl+C isn't `c`.
     const letter = key.ctrl || key.meta ? "" : input;
     if ((key.upArrow || key.downArrow) && !key.meta && !key.shift) moveCursor(key.upArrow ? -1 : 1);
+    else if (key.pageUp || key.pageDown) pageCursor(key.pageUp ? -1 : 1);
+    else if (key.home || key.end) endCursor(key.home ? -1 : 1);
+    else if (key.meta && (key.upArrow || key.downArrow)) jumpCursor(key.upArrow ? -1 : 1, key.shift);
+    else if (letter === "{" || letter === "}") jumpCursor(letter === "{" ? -1 : 1, false);
     else if (key.return) enter();
     // Esc backs out one level: what's open closes first.
     else if (key.escape && open) onToggle(callTarget(open.id));
@@ -460,15 +486,39 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
    * with Shift to a tool call or command. Past the last one, it goes back to following the end.
    */
   const jump = (by: -1 | 1, tools: boolean) => {
-    const { transcript, top } = now.current;
-    const starts = state.items.flatMap((item) => {
+    const { top } = now.current;
+    const starts = startsOf(tools);
+    const next = by < 0 ? starts.findLast((start) => start < top) : starts.find((start) => start > top);
+    if (next === undefined) return by > 0 ? setAnchor(null) : undefined;
+    scrollTo(next);
+  };
+
+  /**
+   * `{` and `}`, Alt+↑ and Alt+↓ while the transcript has your keys: the cursor to your message
+   * before or after it, or with Shift to a tool call or command, at the top of the view as `jump`
+   * puts it. Past the last one, it goes to the end.
+   */
+  const jumpCursor = (by: -1 | 1, tools: boolean) => {
+    const { transcript, at } = now.current;
+    const from = at ?? lastShown();
+    const lines = startsOf(tools).flatMap((start) => {
+      const line = transcript.rows.findIndex((row, i) => i >= start && isStop(row));
+      return line === -1 ? [] : [{ start, line }];
+    });
+    const next = by < 0 ? lines.findLast(({ line }) => line < from) : lines.find(({ line }) => line > from);
+    if (!next) return by > 0 ? endCursor(1) : undefined;
+    place(next.line);
+    scrollTo(next.start);
+  };
+
+  /** Where each of your messages starts in the transcript, or with `tools` each tool call and command. */
+  const startsOf = (tools: boolean) => {
+    const { transcript } = now.current;
+    return state.items.flatMap((item) => {
       const wanted = tools ? item.kind === "tool" || item.kind === "shell" : item.kind === "prompt";
       const start = wanted ? transcript.starts.get(item.key) : undefined;
       return start === undefined ? [] : [start];
     });
-    const next = by < 0 ? starts.findLast((start) => start < top) : starts.find((start) => start > top);
-    if (next === undefined) return by > 0 ? setAnchor(null) : undefined;
-    scrollTo(next);
   };
 
   // A new or resumed session starts at the end; so does sending a message.
@@ -637,9 +687,10 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
  * It's drawn there rather than on a row of its own, so the transcript doesn't move as it takes them.
  */
 export function transcriptHint(opened: boolean, room: number) {
+  // Four to six keys, as every hint line has; the rest are for the key sheet.
   const pairs = opened
-    ? ["↑↓ move", "←→ calls", "tab views", "c copy", "e $EDITOR", "enter open or close", "esc close"]
-    : ["↑↓ move", "enter open or close", "esc back to the box"];
+    ? ["↑↓ move", "←→ calls", "tab views", "c copy", "enter open or close", "esc close"]
+    : ["↑↓ move", "enter open or close", "{ } messages", "esc back to the box"];
   let hint = "";
   for (const pair of pairs) {
     const next = hint ? `${hint}   ${pair}` : pair;
