@@ -267,3 +267,12 @@ test("Space on a background session only waiting for a prompt calls it idle, not
     app.unmount();
     expect(screen().split("Conversations").at(-1)).toContain("handed · 5a1b2c3d · Idle");
   }));
+
+test("the header says the model and mode a new conversation gets, with none picked: the one you came from's model, and auto", async () => {
+  const { fleet, app, screen } = view({ here: "astrocode-1", mine: ["first"] });
+  fleet.get("astrocode-1")?.store.emit({ kind: "model", model: "claude-opus-5-5" });
+  await settle(500);
+  app.unmount();
+  const header = (screen().split("Conversations").at(-1) ?? "").split("\n")[0]?.trimEnd();
+  expect(header).toBe("   new ones start in ~/here · Opus 5.5 · auto");
+});

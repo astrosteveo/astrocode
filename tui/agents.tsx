@@ -9,7 +9,7 @@ import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { attaches, groupAgents, leftForAgentView, listAgents, prLabel, projectOf, removeAgent, STATE_LABELS, stopAgent, summary, waitsOnYou, type Agent, type AgentState, type SessionSettings } from "../src/agents";
 import { installedBinary } from "../src/claude";
-import { topLevelEnv } from "../src/session";
+import { DEFAULT_MODE, topLevelEnv } from "../src/session";
 import { ago, modelLabel } from "../src/view/format";
 import type { State } from "../src/view/state";
 import { shortPath } from "../src/view/tools";
@@ -370,8 +370,10 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, onShow, o
       [counts.failed, `${counts.failed} failed`, PALETTE.rose],
     ] as const
   ).filter(([count]) => count > 0);
-  const model = [settings.model && modelLabel(settings.model), settings.effort].filter(Boolean).join(" ");
-  const newSessions = [model, settings.mode && MODE_CHIPS[settings.mode].label].filter(Boolean).join(" · ");
+  // With none picked, a new one gets Claude Code's default model, as the one you came from did.
+  const newModel = settings.model ?? back?.store.getSnapshot().model;
+  const model = [newModel && modelLabel(newModel), settings.effort].filter(Boolean).join(" ");
+  const newSessions = [model, MODE_CHIPS[settings.mode ?? DEFAULT_MODE].label].filter(Boolean).join(" · ");
 
   const peekLines = peek && focused ? peekOf(focused, focusedMine && { name: nameOf(focusedMine), state: focusedMine.store.getSnapshot(), shells: focusedMine.store.shells.size, cwd: focusedMine.cwd }, home) : [];
   const peekRows = peekLines.reduce((sum, line) => sum + Math.max(1, Math.ceil(cellWidth(line.text) / Math.max(1, inner - 10))), 0) + (peekLines.length ? 1 : 0);
