@@ -335,12 +335,16 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     show(next);
   };
 
-  /** Esc in an opened ledger: a file's diff the cursor is in closes, else the ledger, and the cursor goes to the line it was under. */
+  /**
+   * Esc in an opened ledger: a file's diff the cursor is in, or on the line of, closes, else the
+   * ledger, and the cursor goes to the line it was under.
+   */
   const backOut = (ledger: string) => {
     const { transcript, at, top, pad, view } = now.current;
     const row = at === null ? undefined : transcript.rows[at];
-    const inDiff = row && !row.head && row.target !== undefined ? ledgerTarget(row.target) : undefined;
-    const close = inDiff && "path" in inDiff ? fileTarget(inDiff.turn, inDiff.path) : ledger;
+    const of = row?.target !== undefined ? ledgerTarget(row.target) : undefined;
+    const file = of && "path" in of ? fileTarget(of.turn, of.path) : undefined;
+    const close = file && (!row?.head || expanded.has(file)) ? file : ledger;
     const index = transcript.rows.findIndex((one) => one.key === ledger && one.head && (one.target ?? one.key) === close);
     const head = transcript.rows[index];
     if (!head || !onToggle(close)) return;
