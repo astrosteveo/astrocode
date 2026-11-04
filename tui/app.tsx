@@ -1820,9 +1820,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const started = startReady(state);
   const settled = started ? settledSteps(state, settledCount(state.items, waiting)) : 0;
   // What's written for good is arranged on its own, as of a turn that's over, so it can't change later.
-  const written = arrange({ ...state, items: state.items.slice(0, settled), busy: false }, waiting, NONE);
+  const written = arrange({ ...state, items: state.items.slice(0, settled), busy: false }, waiting, NONE, true);
   const entries: ({ kind: "banner"; key: string } | Entry)[] = started ? [{ kind: "banner", key: "banner" }, ...written] : [];
-  const unsettled = started ? arrange(state, waiting, NONE).filter((entry) => entry.index >= settled) : [];
+  const unsettled = started ? arrange(state, waiting, NONE, true).filter((entry) => entry.index >= settled) : [];
   return (
     <>
       <Static key={store.epoch} items={viewer.hold(entries)}>

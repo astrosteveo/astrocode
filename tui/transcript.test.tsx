@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import * as ink from "ink";
 import { stripVTControlCharacters } from "node:util";
 import { initialState, type Item, type State, type ToolCall } from "../src/view/state";
-import { callTarget } from "./entries";
+import { callTarget, STEP_NODES } from "./entries";
 import { DEFAULT_KEYMAP } from "./keys";
 import { cellWidth } from "./markdown";
 import { moveTarget, tabTarget, WHOLE } from "./opened";
@@ -180,4 +180,53 @@ test("Enter on a thinking line opens the whole of it in place, and again closes 
   // A thought of one sentence has nothing more to open.
   const one = shut.rows[at(plain(shut), "∴ The loop runs")]!;
   expect(one.target).toBeUndefined();
+});
+
+test("once the turn is over, its steps fold to their sentences, with the failure kept under the step that failed", () => {
+  const lines = plain(layout(input(fixing(true), 118)));
+  const read = at(lines, "Reading retry and its tests to find the off-by-one");
+  const ran = at(lines, "Running the suite to see the failure first");
+  expect(lines[read]!.startsWith(`${STEP_NODES.done.node} `)).toBe(true);
+  expect(lines[ran]!.startsWith(`${STEP_NODES.failed.node} `)).toBe(true);
+  expect(lines[read]).toContain("0.4s");
+  // No row between folded steps, nor between the message and the first of them.
+  expect(ran).toBe(read + 1);
+  expect(lines[read - 1]).toContain("Fix retry.");
+  // The line that failed and why, under its step; the rest of the turn's calls and its thinking are folded away.
+  expect(lines[ran + 1]).toContain("the tests");
+  expect(lines[ran + 2]).toContain("Expected: 3");
+  expect(at(lines, "src/retry.ts")).toBe(-1);
+  expect(lines.some((line) => line.includes("∴"))).toBe(false);
+  expect(at(lines, "The suite fails as expected")).toBe(ran + 3);
+  expect(at(lines, "3 passed 1 failed")).toBeGreaterThan(ran);
+});
+
+test("Enter on a folded step opens its calls and thinking under its sentence", () => {
+  const shut = layout(input(fixing(true), 118));
+  const read = at(plain(shut), "Reading retry and its tests to find the off-by-one");
+  // A step goes by its first item, here the thinking that led to it.
+  expect(shut.rows[read]).toMatchObject({ hot: true, target: "step:k1" });
+  const open = plain(layout({ ...input(fixing(true), 118), expanded: new Set(["step:k1"]) }));
+  const heading = at(open, "Reading retry and its tests to find the off-by-one");
+  expect(open[heading + 1]).toContain("∴ I should read retry and its tests first.");
+  expect(open[heading + 2]).toContain("src/retry.ts");
+  // The next step stays folded.
+  expect(open[heading + 3]).toContain("Running the suite to see the failure first");
+});
+
+test("a call opened in a folded step opens the step, to go under its line", () => {
+  const opened = layout(input(fixing(true), 118, { id: "r" }));
+  const lines = plain(opened);
+  const line = opened.starts.get("r")!;
+  expect(lines[line]).toContain("src/retry.ts");
+  expect(lines[line + 1]).toContain("‹ 1 of 2 ›");
+});
+
+test("a finished turn, folded, at 80, 120 and 200 columns", () => {
+  const drawn = [78, 118, 198].map((width) => {
+    const lines = plain(layout(input(fixing(true), width)));
+    for (const line of lines) expect(cellWidth(line)).toBeLessThanOrEqual(width);
+    return lines.slice(lines.findIndex((line) => line.includes("Fix retry."))).map((line) => line.trimEnd()).join("\n");
+  });
+  expect(drawn).toMatchSnapshot();
 });

@@ -203,6 +203,20 @@ export function stepSpan(step: Step) {
   return first !== undefined && last > first ? last - first : undefined;
 }
 
+/**
+ * Where the last turn to end closed: what's before it is in turns that are over, which fold.
+ * `replayed`: only a resumed conversation's turns count, as in scrollback, where what's written
+ * stays as it was written.
+ */
+export function foldsBefore(items: Item[], replayed = false) {
+  return items.findLastIndex((item) => item.kind === "turn" && (!replayed || item.replayed === true));
+}
+
+/** Whether the step folds to its sentence: its turn is over (`foldsBefore()`), and nothing of it still runs in the background. */
+export function folds(step: Step, before: number) {
+  return step.end <= before && !step.calls.some(({ call }) => call.background === "running");
+}
+
 /** Whether the step is the last thing in a turn that's still going, so more calls may join it. */
 export function isCurrent(items: Item[], step: Step, busy: boolean) {
   if (!busy) return false;

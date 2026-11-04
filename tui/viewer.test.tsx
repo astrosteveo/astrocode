@@ -158,6 +158,17 @@ function scrollbackOf(out: string) {
 
 const count = (text: string, part: string) => text.split(part).length - 1;
 
+/**
+ * From the turn's closing line, where the viewer opens, ↑ over the reply to the step, which folded
+ * as the turn ended: Enter opens it, and on its first call, Enter opens that under its line.
+ */
+async function openFirstCall(press: (keys: string) => Promise<void>) {
+  for (let i = 0; i < 2; i++) await press(KEYS.up);
+  await press(KEYS.enter);
+  await press(KEYS.down);
+  await press(KEYS.enter);
+}
+
 for (const [name, key] of [
   ["Esc", KEYS.esc],
   ["q", "q"],
@@ -209,6 +220,44 @@ test("what settles while the viewer is open goes into the scrollback once it clo
   expect(count(scrollbackOf(out()), "All quiet in here.")).toBe(1);
 });
 
+/**
+ * `finished()`, with Claude's thinking before its sentence and before its reply, and still going
+ * unless `ended`, or `replayed` from a resumed conversation. Its reply can't be a step's sentence,
+ * so scrollback writes it, and the thinking before it, before the turn ends.
+ */
+function thought({ ended = true, replayed = false } = {}): State {
+  const state = finished();
+  const items = state.items.flatMap((item): Item[] => {
+    if (item.kind === "text" && item.key === "t") return [{ kind: "thinking", key: "k", text: "I'll look around first. Then say what I found." }, item];
+    if (item.kind === "text" && item.key === "r") return [{ kind: "thinking", key: "k2", text: "Nothing else to do." }, { ...item, text: `${item.text}\n\nNothing needed a change.` }];
+    if (item.kind === "turn") return ended ? [{ ...item, replayed }] : [];
+    return [item];
+  });
+  return { ...state, items, busy: !ended, tools: Object.fromEntries(Object.entries(state.tools).map(([id, at]) => [id, at + 1])) };
+}
+
+test("scrollback keeps a turn's steps as it wrote them once the turn ends, and the viewer folds them", async () => {
+  const { out, press, update, row, screen } = await scrollback(thought({ ended: false }));
+  await update(thought());
+  const kept = scrollbackOf(out());
+  // Written once each, for good; the reply was drawn live under them until the turn ended.
+  for (const line of ["∴ I'll look around first.", "Looking around", "Searched  a in src", "∴ Nothing else to do.", "All quiet in here.", "6s · 1 file +2 −1"]) expect(count(kept, line)).toBe(1);
+  expect(kept).not.toContain("Then say what I found.");
+  await press(KEYS.ctrlO);
+  expect(row(/Looking around/)).not.toBe(-1);
+  expect(row(/Searched +a in src/)).toBe(-1);
+  expect(screen().some((line) => line.includes("∴"))).toBe(false);
+});
+
+test("a resumed conversation goes into scrollback with its turns folded", async () => {
+  const { out } = await scrollback(thought({ replayed: true }));
+  const kept = scrollbackOf(out());
+  expect(kept).toContain("Looking around");
+  expect(kept).toContain("All quiet in here.");
+  expect(kept).not.toContain("Searched  a in src");
+  expect(kept).not.toContain("∴");
+});
+
 test("the viewer has full screen's cursor: Enter on the turn's closing line opens its ledger, and Enter on a file there its diff", async () => {
   const { press, screen, row } = await scrollback(finished());
   await press(KEYS.ctrlO);
@@ -231,8 +280,13 @@ test("the viewer has full screen's cursor: Enter on the turn's closing line open
   expect(row(/src\/a\.ts +\+2 −1/)).not.toBe(-1);
   await press(KEYS.esc);
   expect(row(/src\/a\.ts +\+2 −1/)).toBe(-1);
-  // ↑ goes back over the reply to the calls, where Enter opens one under its line.
+  // ↑ goes back over the reply to the step, folded as the turn is over. Enter opens it, and on its
+  // last call, Enter opens that under its line.
   for (let i = 0; i < 2; i++) await press(KEYS.up);
+  expect(cursor()).toBe(row(/Looking around/));
+  expect(row(/Searched +c in src/)).toBe(-1);
+  await press(KEYS.enter);
+  for (let i = 0; i < 3; i++) await press(KEYS.down);
   expect(cursor()).toBe(row(/Searched +c in src/));
   await press(KEYS.enter);
   expect(screen()[row(/Searched +c in src/) + 1]).toContain("‹ 3 of 3 ›");
@@ -275,9 +329,7 @@ test("Ctrl+O after the viewer /diff opened has closed puts the cursor on the las
 test("? on a call opened in the viewer lists full screen's keys for it, then the transcript's and the mouse", async () => {
   const { press, screen } = await scrollback(finished());
   await press(KEYS.ctrlO);
-  // ↑ over the reply to the last call, which Enter opens under its line.
-  for (let i = 0; i < 2; i++) await press(KEYS.up);
-  await press(KEYS.enter);
+  await openFirstCall(press);
   await press("?");
   const sheet = screen().join("\n");
   expect(sheet).toContain("In an opened call");
@@ -294,8 +346,7 @@ test("the key sheet over a call opened in the viewer leaves it on the tab you ch
   // The opened call's row of tabs, where the one it shows is set apart.
   const tab = () => screen().find((line) => /Results/.test(line))?.match(/▐([^▌]+)▌/)?.[1];
   await press(KEYS.ctrlO);
-  for (let i = 0; i < 2; i++) await press(KEYS.up);
-  await press(KEYS.enter);
+  await openFirstCall(press);
   const first = tab();
   await press("\t");
   const chosen = tab();
@@ -346,7 +397,8 @@ test("the mouse works in the viewer, and goes back to the terminal with the scro
   expect(out()).not.toContain(MOUSE_ON);
   await press(KEYS.ctrlO);
   expect(out().indexOf(MOUSE_ON)).toBeGreaterThan(out().indexOf(ENTER));
-  // A click on a call's line opens it under the line, as Enter does.
+  // A click on a line opens it under the line, as Enter does: the step's, folded as the turn is over, then a call's.
+  await click(10, row(/Looking around/));
   await click(10, row(/Ran +the tests/));
   expect(screen()[row(/Ran +the tests/) + 1]).toContain("‹ 2 of 3 ›");
   await press(KEYS.esc);
@@ -388,20 +440,19 @@ test("/ in the viewer finds as claude's does: Enter closes the bar on the match,
   await press(KEYS.ctrlO);
   const cursor = () => screen().findIndex((line) => [...line][1] === "›");
   await press("/");
-  await press("Searched");
+  // Find goes through what's drawn, and the turn's calls are folded into its step's line.
+  await press("around");
   await press(KEYS.enter);
   expect(row(/Find /)).toBe(-1);
-  expect(cursor()).toBe(row(/Searched +c in src/));
+  expect(cursor()).toBe(row(/Looking around/));
   await press("n");
-  expect(cursor()).toBe(row(/Searched +a in src/));
+  expect(cursor()).toBe(row(/look around/));
 });
 
 test("leaving the viewer with a call open closes the call, so it no longer follows Claude where nothing shows it", async () => {
   const { press, screen } = await scrollback(finished());
   await press(KEYS.ctrlO);
-  await press(KEYS.up);
-  await press(KEYS.up);
-  await press(KEYS.enter);
+  await openFirstCall(press);
   expect(screen().join("\n")).toMatch(/‹ \d of 3 ›/);
   await press("q");
   await press(KEYS.ctrlO);

@@ -1,0 +1,36 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`a finished turn, folded, at 80, 120 and 200 columns 1`] = `
+[
+  
+"● The tests in src/retry.test.ts fail. Fix retry.
+✓ Reading retry and its tests to find the off-by-one                   0.4s  ▸
+✗ Running the suite to see the failure first                           2.1s  ▸
+│   Ran       the tests                       ✕ failed · 3 passed, 1 failed  ›
+│             Expected: 3, Received: 4
+◆ The suite fails as expected: retry tries 4 times, not 3.
+│
+╰── 6s · 3 passed 1 failed"
+,
+  
+"● The tests in src/retry.test.ts fail. Fix retry.
+✓ Reading retry and its tests to find the off-by-one                                                           0.4s  ▸
+✗ Running the suite to see the failure first                                                                   2.1s  ▸
+│   Ran       the tests                                                               ✕ failed · 3 passed, 1 failed  ›
+│             Expected: 3, Received: 4
+◆ The suite fails as expected: retry tries 4 times, not 3.
+│
+╰── 6s · 3 passed 1 failed"
+,
+  
+"● The tests in src/retry.test.ts fail. Fix retry.
+✓ Reading retry and its tests to find the off-by-one                                                                                                                                           0.4s  ▸
+✗ Running the suite to see the failure first                                                                                                                                                   2.1s  ▸
+│   Ran       the tests                                                                                                                                               ✕ failed · 3 passed, 1 failed  ›
+│             Expected: 3, Received: 4
+◆ The suite fails as expected: retry tries 4 times, not 3.
+│
+╰── 6s · 3 passed 1 failed"
+,
+]
+`;

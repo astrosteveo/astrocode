@@ -177,6 +177,8 @@ export type StepRow = {
   /** Claude's whole sentence, when there's more of it than the title, shown once the step opens. */
   more?: string;
   status: keyof typeof STEP_NODES;
+  /** Its turn is over: closed, it's its sentence alone, but for the line that failed. */
+  folded: boolean;
   span?: number;
   flow: Flow[];
 };
@@ -203,30 +205,39 @@ type StepProps = {
   clickable?: boolean;
 };
 
-/** The thinking that led to the step, which stands above its sentence, and the rest of what it shows open, under its sentence. */
+/**
+ * The thinking that led to the step, which stands above its sentence until the step folds, and the
+ * rest of what it shows open, under its sentence.
+ */
 function split(step: StepRow) {
-  const lead = step.flow[0]?.kind === "thinking" ? step.flow[0] : undefined;
+  const lead = step.folded || step.flow[0]?.kind !== "thinking" ? undefined : step.flow[0];
   return { lead, under: lead ? step.flow.slice(1) : step.flow };
 }
 
-/** Whether the step has more to show open than closed: Claude's words, thinking, or lines past the most a closed step shows. */
+/** Whether the step has more to show open than closed: its calls once folded, Claude's words, thinking, or lines past the most a closed step shows. */
 export function opens(step: StepRow) {
   const { under } = split(step);
-  return Boolean(step.more) || under.some((one) => one.kind !== "row") || under.length > MOST_ROWS;
+  return step.folded || Boolean(step.more) || under.some((one) => one.kind !== "row") || under.length > MOST_ROWS;
 }
 
-/** Whether a closed step leaves `line` out, among the lines between its first two and its last three. */
-export function leavesOut(step: StepRow, line: ActivityRow) {
+/** The lines a closed step shows: once folded, only the one that failed, if the step did; else its first two and its last three. */
+function closedRows(step: StepRow) {
   const rows = step.flow.filter((one) => one.kind === "row");
-  const at = rows.findIndex((one) => one.row === line);
-  return rows.length > MOST_ROWS && at >= 2 && at < rows.length - 3;
+  if (step.folded) return step.status === "failed" ? rows.slice(-1) : [];
+  return rows.length > MOST_ROWS ? [...rows.slice(0, 2), ...rows.slice(-3)] : rows;
+}
+
+/** Whether a closed step leaves `line` out. */
+export function leavesOut(step: StepRow, line: ActivityRow) {
+  return !closedRows(step).some((one) => one.row === line);
 }
 
 /**
  * A step as an activity log: what Claude set out to do, with how long it took, and under it a line
  * for each thing it did, what that acted on and what came of it. A failure says why under its line,
  * a running subagent shows its latest calls, and pictures a call returned show under it. Open, the
- * step shows Claude's thinking between its calls too, and every line.
+ * step shows Claude's thinking between its calls too, and every line. Once its turn is over it
+ * folds to its sentence, and opens to the rest.
  */
 export function StepView(props: StepProps) {
   return (
@@ -280,7 +291,7 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
     node: (
       <Railed node={node} color={color} rail={lead ? on : rail}>
         <Box justifyContent="space-between" width={inner}>
-          <Text wrap="truncate-end" color={step.made ? PALETTE.haze : PALETTE.star} italic={step.made} bold={live && !step.made}>
+          <Text wrap="truncate-end" color={step.made || step.folded ? PALETTE.haze : PALETTE.star} italic={step.made} bold={live && !step.made}>
             {fit(step.title, inner - cellWidth(tail) - 2, false)}
           </Text>
           <Text color={PALETTE.dust}>{tail}</Text>
@@ -289,16 +300,13 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
       </Railed>
     ),
   });
-  // Closed, a step leaves out its thinking, and the lines between its first two and last three.
+  // Closed, a step leaves out its thinking, and the lines between its first two and last three, or once folded, every line but the one that failed.
   const rows = under.filter((one) => one.kind === "row");
   let shown: Flow[] = under;
   let hidden: ActivityRow[] = [];
   if (!open) {
-    shown = rows;
-    if (rows.length > MOST_ROWS) {
-      hidden = rows.slice(2, -3).map((one) => one.row);
-      shown = [...rows.slice(0, 2), ...rows.slice(-3)];
-    }
+    shown = closedRows(step);
+    if (!step.folded && rows.length > MOST_ROWS) hidden = rows.slice(2, -3).map((one) => one.row);
   }
   /** The verb of the line just drawn: a line that does the same leaves its verb out, so a run of commands reads as one. */
   let verb = "";
