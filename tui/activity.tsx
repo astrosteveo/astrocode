@@ -1,7 +1,7 @@
-// The tip of the rail while Claude works: light falling down the rail into a cell in orbit, what
-// Claude is doing with light passing over the words, the time so far and the tokens written. While
-// a tool runs, it names the call, so you needn't look for it above; while a request is tried again,
-// it says when and why. While it waits on you there's no tip: the decision in the box's place says so.
+// The line over the box while Claude works: a cell in orbit, what Claude is doing with light
+// passing over the words, the time so far and the tokens written. While a tool runs, it names the
+// call, so you needn't look for it above; while a request is tried again, it says when and why.
+// While it waits on you there's no line: the decision in the box's place says so.
 import { Box, Text, useAnimation } from "ink";
 import { compact, duration } from "../src/view/format";
 import type { Retry, State } from "../src/view/state";
@@ -17,12 +17,6 @@ import { mix, PALETTE } from "./theme";
  */
 const ORBIT = ["⣾", "⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽"];
 
-/**
- * The rail's last row, above the orbit: a bar of light falling down it into the orbit, a step every
- * other frame, so the rail reads as still running rather than drawn and done.
- */
-const FALL = ["⠉", "⠒", "⠤", "⣀"];
-
 /** `stop`: the key that stops Claude where your keys are, Esc in the box. */
 export function Activity({ state, width, stop = "esc" }: { state: State; width: number; stop?: string }) {
   const waiting = state.pending.length > 0 || state.questions.length > 0 || state.elicitations.length > 0;
@@ -35,16 +29,13 @@ export function Activity({ state, width, stop = "esc" }: { state: State; width: 
   const hint = `${stop} to stop`;
   const label = fit(describe(state), width - GUTTER - cellWidth(stats) - cellWidth(hint) - 2, false);
   return (
-    <Box flexDirection="column">
-      <Text color={PALETTE.teal}>{FALL[Math.floor(frame / 2) % FALL.length]}</Text>
-      <Box justifyContent="space-between" width={width}>
-        <Text>
-          <Text color={PALETTE.teal}>{(ORBIT[frame % ORBIT.length] ?? "").padEnd(GUTTER)}</Text>
-          <Sweep text={label} frame={frame} />
-          <Text color={PALETTE.haze}>{stats}</Text>
-        </Text>
-        <Text color={PALETTE.dust}>{hint}</Text>
-      </Box>
+    <Box justifyContent="space-between" width={width}>
+      <Text>
+        <Text color={PALETTE.teal}>{(ORBIT[frame % ORBIT.length] ?? "").padEnd(GUTTER)}</Text>
+        <Sweep text={label} frame={frame} />
+        <Text color={PALETTE.haze}>{stats}</Text>
+      </Text>
+      <Text color={PALETTE.dust}>{hint}</Text>
     </Box>
   );
 }

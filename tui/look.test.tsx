@@ -85,3 +85,13 @@ test("under the transcript, the box is its hairline and a row, then the status b
   expect(rows).toHaveLength(3);
   expect(rows[1]).toMatch(/^ ❯/);
 });
+
+test("while Claude works, the line that says what it's doing sits right over the box, with no row of its own above it", async () => {
+  const { frame } = await launch(turn({ busy: true }));
+  const lines = frame();
+  const hairline = lines.findIndex((line) => /^▁{20}/.test(line));
+  expect(chrome(lines)).toHaveLength(3);
+  expect(lines[hairline - 1]).toMatch(/esc to stop/);
+  // Above it is the transcript's end, not a row holding a dot.
+  expect(lines[hairline - 2]).not.toMatch(/^[⠀-⣿]\s*$/);
+});
