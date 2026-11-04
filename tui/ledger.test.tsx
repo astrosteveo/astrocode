@@ -175,3 +175,17 @@ test("printed in scrollback, every file's diff is open, with no scope to switch"
   // A file with no diff read says so.
   expect(text).toContain("Its diff wasn't kept.");
 });
+
+test("opens the diff of a file of a million lines and more, folded", () => {
+  // Past what a call's arguments can hold, so nothing may spread the lines into one.
+  const count = 1_200_000;
+  const huge = Array.from({ length: count }, (_, i) => ({ kind: "added" as const, text: String(i + 1), new: i + 1 }));
+  const state = ended([{ path: "/p/nums.txt", added: count, removed: 0, status: "new" }]);
+  const review = { ...NO_REVIEW, diffs: new Map([[diffKey("turn", "end", "/p/nums.txt"), huge]]) };
+  const lines = plain(draw(state, 118, { open: [fileTarget("end", "/p/nums.txt")], review }));
+  const more = lines.findIndex((line) => line.includes(`⋯ ${count - 20} more lines`));
+  expect(more).toBeGreaterThan(-1);
+  // One gutter, as wide as the last line's number.
+  expect(lines[more - 12]).toMatch(/^ {4} {6}1  \+ 1/);
+  expect(lines[more + 8]).toContain("1200000  + 1200000");
+});
