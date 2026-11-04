@@ -666,7 +666,7 @@ Small PRs, shipped in this order. Each is usable on its own, and each has the te
 | 12 | `feat: one moving mark and a now line that names the call` | `◐◓◑◒` in step with the gutter; no shimmer; retry and compact states | Animation test: idle frames are identical over time, and waiting ones but for the decision's `waiting Ns` |
 | 13 | `feat: lay out by width` | 110-column measure; results under their line below 100; status readings by rank | Render snapshots at 80×24, 120×40, 200×50 |
 | 14 | `feat: show other conversations that need you` | `← N needs you`; the ← hint; Conversations in Ledger marks | `fleet` and agents-view tests |
-| 15 | `feat: Claude Code's next-prompt suggestions` | Tab or → takes one; needs the SDK to emit them (see open questions) | `prompt` tests with a stubbed suggestion |
+| 15 | `feat: Claude Code's next-prompt suggestions` | Tab or → takes one; the SDK's `promptSuggestions` emits them (see open questions) | `prompt` tests with a stubbed suggestion, and `state` tests |
 | 16 | `feat: a start screen that says what's next` | The mirror retires; recent sessions, loaded settings, keys | Render test |
 | 17 | `feat: the transcript viewer in scrollback` | Ctrl+O opens a full-screen viewer with the same cursor | Window tests: switching in and out keeps scrollback intact |
 | 18 | `feat: open the running call instead of following it in a panel` | Alt+L and the panel go; opening the running line replaces them, and follows each new call under its own line | Keybinding test: `chat:followClaude` reports as retired; open-running-line test |
@@ -679,6 +679,6 @@ Every PR keeps `bun test` and `bun run typecheck` passing, is checked in the run
 
 These need checking before their PRs; none blocks the earlier ones.
 
-1. **Prompt suggestions through the SDK.** `claude -p` emits `prompt_suggestion` messages with `--prompt-suggestions` (Claude Code docs, interactive mode). Whether the Agent SDK's streaming mode exposes the same option needs a spike before PR 15.
+1. **Prompt suggestions through the SDK.** Resolved ([#60](https://github.com/astrosteveo/astrocode/issues/60)): the Agent SDK's `promptSuggestions` option (0.3.301) makes Claude Code send at most one `prompt_suggestion` message after a turn's result. Claude Code skips it after some turns: early in a conversation, with a cold cache, after an error, in plan mode, near the usage limit, or when its guess fails its own filters. Its `promptSuggestionEnabled` setting and `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION` still apply.
 2. **`claude`'s plan-approval choices.** Resolved in PR 8: read from `claude` 2.1.318's screen and code, and copied under [Decisions](#decisions). Its MCP prompt was checked live too.
 3. **Per-turn git snapshots** (PR 5) need care with untracked files and large repos. A spike should measure the cost on a big repo before it ships.
