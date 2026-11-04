@@ -87,6 +87,10 @@ async function launch(state: State, { columns = 200, rows = 40, follow = false }
     app.unmount();
     mouse.stop();
   };
+  let exited = false;
+  void app.waitUntilExit().then(() => {
+    exited = true;
+  });
   await settle();
   // Each frame is written whole; the mouse writes its own codes between them.
   const screen = () => stripVTControlCharacters(writes.findLast((one) => one.split("\n").length >= rows - 1) ?? "").split("\n");
@@ -123,10 +127,10 @@ async function launch(state: State, { columns = 200, rows = 40, follow = false }
     const box = lines.findIndex((line) => line.startsWith(" ❯"));
     return /^▁+$/.test(lines[box - 1] ?? "");
   };
-  return { screen, row, press, click, update, cursor, boxKeys, asked, writes };
+  return { screen, row, press, click, update, cursor, boxKeys, asked, writes, exited: () => exited };
 }
 
-const KEYS = { ctrlO: "\x0f", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", ctrlC: "\x03", ctrlL: "\x0c", ctrlA: "\x01", ctrlD: "\x04" };
+const KEYS = { ctrlO: "\x0f", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", ctrlC: "\x03", ctrlL: "\x0c", ctrlA: "\x01", ctrlD: "\x04", shiftUp: "\x1b[1;2A" };
 
 test("at 200 columns a click opens a call under its line, with nothing beside the column, and another closes it", async () => {
   const { screen, row, click } = await launch(THREE);
@@ -515,4 +519,34 @@ test("Ctrl+D in the transcript with text in the box does nothing: it neither del
   await press(KEYS.esc);
   expect(boxKeys()).toBe(true);
   expect(row(/^ ❯ hello/)).not.toBe(-1);
+});
+
+test("Ctrl+D pressed twice in the transcript with the box empty exits", async () => {
+  const { press, row, exited } = await launch(THREE);
+  await press(KEYS.ctrlO);
+  await press(KEYS.ctrlD);
+  expect(row(/Press Ctrl\+D again to exit/)).not.toBe(-1);
+  expect(exited()).toBe(false);
+  await press(KEYS.ctrlD);
+  expect(exited()).toBe(true);
+});
+
+test("Ctrl+C pressed twice in the transcript with Claude idle exits, with what's typed in the box", async () => {
+  const { press, exited } = await launch(THREE);
+  await press("keep me");
+  await press(KEYS.ctrlO);
+  await press(KEYS.ctrlC);
+  expect(exited()).toBe(false);
+  await press(KEYS.ctrlC);
+  expect(exited()).toBe(true);
+});
+
+test("Shift+↑ in the transcript steps the effort and leaves the cursor where it is", async () => {
+  const { press, cursor, asked } = await launch(THREE);
+  await press(KEYS.ctrlO);
+  const at = cursor();
+  expect(at).not.toBe(-1);
+  await press(KEYS.shiftUp);
+  expect(asked).toContain("setEffort");
+  expect(cursor()).toBe(at);
 });
