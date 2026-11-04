@@ -876,11 +876,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const sent = store.prompts.forConversation(state.cwd, session.knownId);
   const submit = (text: string, how: { now?: boolean; later?: boolean; ignoreUltracode?: boolean } = {}) => {
     const { now = false } = how;
-    store.emit({ kind: "sent" });
+    const [command = "", ...rest] = text.trim().split(/\s+/);
+    // Sending uses up Claude Code's suggestion, as in `claude`, but for full screen's /diff: it only
+    // takes you to the ledger, and the spec has the suggestion in the box when Esc gives it back.
+    if (!(fullscreen && command === "/diff")) store.emit({ kind: "sent" });
     void sent.add(text);
     if (text.startsWith("!")) return runCommand(text.slice(1).trim());
     if (text.startsWith("#")) return openMemory(text.slice(1).trim());
-    const [command = "", ...rest] = text.trim().split(/\s+/);
     const argument = rest.join(" ");
     switch (command) {
       case "/exit":

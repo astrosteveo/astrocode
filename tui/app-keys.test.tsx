@@ -25,8 +25,8 @@ const config = scratchConfig();
 beforeEach(config.start);
 afterEach(config.stop);
 
-/** The app in scrollback on a fake terminal, with a session that does nothing but note what it's asked. */
-function app() {
+/** The app in scrollback, or full screen, on a fake terminal, with a session that does nothing but note what it's asked. */
+function app({ fullscreen = false } = {}) {
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 100, rows: 30 });
   let written = "";
@@ -50,7 +50,7 @@ function app() {
     <App
       store={store}
       session={session}
-      fullscreen={false}
+      fullscreen={fullscreen}
       onToggleFullscreen={() => {}}
       onAgents={() => {}}
       fleet={new Fleet()}
@@ -300,4 +300,23 @@ test("anything you send uses up the suggestion, a command astrocode runs itself 
   ink.unmount();
   expect(store.getSnapshot().nextPrompt).toBeUndefined();
   expect(stripVTControlCharacters(written().slice(before))).not.toContain("next one adds two numbers");
+});
+
+test("/diff in full screen keeps the suggestion, for Esc to give the box back with it, as the spec's review of a turn goes", async () => {
+  const { press, store, ink, written } = app({ fullscreen: true });
+  await settle();
+  store.emit({ kind: "prompt", text: "fix it", starts: true });
+  store.emit({ kind: "ledger", files: [{ path: join(process.cwd(), "src/a.ts"), added: 2, removed: 1 }], commits: [], unseen: [] });
+  store.emit({ kind: "sdk", message: { type: "result", subtype: "success", uuid: "r", session_id: "s", duration_ms: 6000, num_turns: 1, is_error: false, result: "done" } as unknown as SDKMessage });
+  store.emit(suggested("merge it"));
+  await settle(300);
+  await press("/diff", KEYS.enter);
+  // Esc closes the ledger, and Esc again gives the box back.
+  await press(KEYS.esc);
+  const before = written().length;
+  await press(KEYS.esc);
+  await store.prompts.written();
+  ink.unmount();
+  expect(store.getSnapshot().nextPrompt).toBe("merge it");
+  expect(stripVTControlCharacters(written().slice(before))).toMatch(/merge it +tab to use/);
 });
