@@ -4,6 +4,7 @@
 // the tool's tabs, and the open tab's first 12 and last 8 lines with `⋯ N lines` between, which
 // opens the rest. Its rows are the transcript's own, so they scroll and select with it.
 import { Box, renderToString, Text } from "ink";
+import type { ReactNode } from "react";
 import type { AgentLine } from "../src/view/agents";
 import type { ToolCall } from "../src/view/state";
 import { plural } from "../src/view/tools";
@@ -59,83 +60,48 @@ export type OpenedRows = {
   copy: string;
 };
 
-/** Each call's rows as drawn, kept until it changes. Calls are replaced, not changed, when they change. */
-const drawn = new WeakMap<ToolCall, { drawnFor: string; rows: OpenedRows }>();
+/**
+ * Each call's rows as drawn, kept until they change: its header and tabs apart from the tab's lines,
+ * so another call starting in the turn, which changes `‹ i of N ›`, draws only the header again.
+ * Calls are replaced, not changed, when they change.
+ */
+const drawn = new WeakMap<ToolCall, { header: { key: string; lines: string[] }; body: { key: string; lines: string[]; folded: boolean; copy: string } }>();
+
+/** Rows of the panel under a call's line, from column OPEN_INSET, with the rail down the left edge as `node` and `through` say. */
+function panelRows(node: string, through: boolean, width: number, children: ReactNode) {
+  const element = (
+    <Railed node={node} color={PALETTE.dust} rail={{ spaced: false, joined: true, through }}>
+      <Box paddingLeft={OPEN_INSET - GUTTER}>
+        <Box flexDirection="column" backgroundColor={PALETTE.surface} paddingX={1} width={width - OPEN_INSET}>
+          {children}
+        </Box>
+      </Box>
+    </Railed>
+  );
+  return renderToString(element, { columns: width }).split("\n");
+}
 
 /** The opened call's rows. Must run outside React's render, since renderToString renders with the same reconciler. */
 export function openedRows({ call, opened, place, waiting, log, width, through, cwd, home }: Input): OpenedRows {
   const tabs = tabsOf(call, log);
   const tab = opened.tab && tabs.includes(opened.tab) ? opened.tab : firstTab(call, log, false, waiting);
-  const drawnFor = `${width}|${tab}|${opened.whole}|${waiting}|${place.index}/${place.count}|${through}|${tab === "transcript" ? log?.length : ""}`;
-  const kept = drawn.get(call);
-  if (kept?.drawnFor === drawnFor) return kept.rows;
-
-  const panel = width - OPEN_INSET;
-  const inner = panel - 2;
-  const body = bodyFor(call, tab, inner, log);
-  const hidden = opened.whole ? 0 : body.lines.length - HEAD - TAIL;
-  // A fold of one line would take as much room as the line.
-  const folded = hidden > 1;
-  const status = statusOf(call, waiting);
-  const spent = spentOn(call);
-  const title = titleOf(call, waiting, cwd, home);
+  const inner = width - OPEN_INSET - 2;
   const position = `‹ ${place.index} of ${place.count} ›`;
-  const right = `▐${status.text}▌${spent ? `  ${spent}` : ""}   ${position}`;
-  const verb = title.verb ? `${title.verb} ` : "";
-  const element = (
-    <Railed node="│" color={PALETTE.dust} rail={{ spaced: false, joined: true, through }}>
-      <Box paddingLeft={OPEN_INSET - GUTTER}>
-        <Box flexDirection="column" backgroundColor={PALETTE.surface} paddingX={1} width={panel}>
-          <Box justifyContent="space-between" width={inner}>
-            <Text bold color={PALETTE.star} wrap="truncate-end">
-              {verb}
-              {fit(title.text, Math.max(1, inner - cellWidth(right) - 2 - cellWidth(verb)), title.path)}
-            </Text>
-            <Text>
-              <Text color={status.color}>▐</Text>
-              <Text bold backgroundColor={status.color} color={PALETTE.ink}>
-                {status.text}
-              </Text>
-              <Text color={status.color}>▌</Text>
-              {spent ? <Text color={PALETTE.dust}>{`  ${spent}`}</Text> : null}
-              <Text color={PALETTE.haze}>{`   ${position}`}</Text>
-            </Text>
-          </Box>
-          <Text wrap="truncate-end">
-            {tabs.map((one) =>
-              one === tab ? (
-                <Text key={one}>
-                  <Text color={PALETTE.raised}>▐</Text>
-                  <Text bold backgroundColor={PALETTE.raised} color={PALETTE.star}>
-                    {LABELS[one]}
-                  </Text>
-                  <Text color={PALETTE.raised}>▌</Text>{" "}
-                </Text>
-              ) : (
-                <Text key={one} color={PALETTE.haze}>{` ${LABELS[one]}  `}</Text>
-              ),
-            )}
-          </Text>
-          {(folded ? body.lines.slice(0, HEAD) : body.lines).map((line, i) => (
-            <Text key={`head${i}`} wrap="truncate-end">
-              {line || " "}
-            </Text>
-          ))}
-          {folded ? <Text color={PALETTE.dust}>{`⋯ ${plural(hidden, "line")}`}</Text> : null}
-          {folded
-            ? body.lines.slice(-TAIL).map((line, i) => (
-                <Text key={`tail${i}`} wrap="truncate-end">
-                  {line || " "}
-                </Text>
-              ))
-            : null}
-        </Box>
-      </Box>
-    </Railed>
-  );
-  const lines = renderToString(element, { columns: width }).split("\n");
+  const kept = drawn.get(call);
+
+  const headerKey = `${width}|${tab}|${tabs.join(",")}|${waiting}|${position}|${through}`;
+  const header =
+    kept?.header.key === headerKey
+      ? kept.header
+      : { key: headerKey, lines: headerRows({ call, tab, tabs, waiting, position, inner, width, through, cwd, home }) };
+
+  const bodyKey = `${width}|${tab}|${opened.whole}|${through}|${tab === "transcript" ? log?.length : ""}`;
+  const body = kept?.body.key === bodyKey ? kept.body : { key: bodyKey, ...bodyRows({ call, tab, whole: opened.whole, log, inner, width, through }) };
+  drawn.set(call, { header, body });
+
+  const lines = [...header.lines, ...body.lines];
   const close = callTarget(call.id);
-  const targets = lines.map((_, i) => (folded && i === 2 + HEAD ? WHOLE : close));
+  const targets = lines.map((_, i) => (body.folded && i === header.lines.length + HEAD ? WHOLE : close));
   // The tabs' names from the panel's padding on, each with a space after it; `‹` and `›` at the right edge.
   let x = OPEN_INSET + 1;
   const tabSpots = tabs.map((one) => {
@@ -148,7 +114,79 @@ export function openedRows({ call, opened, place, waiting, log, width, through, 
     { from: end - position.length, to: end - position.length + 2, target: moveTarget(-1) },
     { from: end - 2, to: end, target: moveTarget(1) },
   ];
-  const rows: OpenedRows = { lines, targets, spots: lines.map((_, i) => (i === 0 ? moves : i === 1 ? tabSpots : undefined)), tabs, tab, copy: body.copy };
-  drawn.set(call, { drawnFor, rows });
-  return rows;
+  return { lines, targets, spots: lines.map((_, i) => (i === 0 ? moves : i === 1 ? tabSpots : undefined)), tabs, tab, copy: body.copy };
+}
+
+/** The tab's lines, its first 12 and last 8 with `⋯ N lines` between unless it's whole, and its text for `c` and `e`. */
+function bodyRows({ call, tab, whole, log, inner, width, through }: Pick<Input, "call" | "log" | "width" | "through"> & { tab: TabId; whole?: boolean; inner: number }) {
+  const { lines: all, copy } = bodyFor(call, tab, inner, log);
+  const hidden = whole ? 0 : all.length - HEAD - TAIL;
+  // A fold of one line would take as much room as the line.
+  const folded = hidden > 1;
+  const shown = folded ? [...all.slice(0, HEAD), null, ...all.slice(-TAIL)] : all;
+  if (!shown.length) return { lines: [], folded, copy };
+  // Under the header, the rail goes on down the left edge only where it runs on past the call.
+  const lines = panelRows(
+    through ? "│" : " ",
+    through,
+    width,
+    shown.map((line, i) =>
+      line === null ? (
+        <Text key={i} color={PALETTE.dust}>{`⋯ ${plural(hidden, "line")}`}</Text>
+      ) : (
+        <Text key={i} wrap="truncate-end">
+          {line || " "}
+        </Text>
+      ),
+    ),
+  );
+  return { lines, folded, copy };
+}
+
+type HeaderInput = Pick<Input, "call" | "waiting" | "width" | "through" | "cwd" | "home"> & { tab: TabId; tabs: TabId[]; position: string; inner: number };
+
+/** The header's row, what the call did, how it went, its time and `‹ i of N ›`, and the tabs' row under it. */
+function headerRows({ call, tab, tabs, waiting, position, inner, width, through, cwd, home }: HeaderInput) {
+  const status = statusOf(call, waiting);
+  const spent = spentOn(call);
+  const title = titleOf(call, waiting, cwd, home);
+  const right = `▐${status.text}▌${spent ? `  ${spent}` : ""}   ${position}`;
+  const verb = title.verb ? `${title.verb} ` : "";
+  return panelRows(
+    "│",
+    through,
+    width,
+    <>
+      <Box justifyContent="space-between" width={inner}>
+        <Text bold color={PALETTE.star} wrap="truncate-end">
+          {verb}
+          {fit(title.text, Math.max(1, inner - cellWidth(right) - 2 - cellWidth(verb)), title.path)}
+        </Text>
+        <Text>
+          <Text color={status.color}>▐</Text>
+          <Text bold backgroundColor={status.color} color={PALETTE.ink}>
+            {status.text}
+          </Text>
+          <Text color={status.color}>▌</Text>
+          {spent ? <Text color={PALETTE.dust}>{`  ${spent}`}</Text> : null}
+          <Text color={PALETTE.haze}>{`   ${position}`}</Text>
+        </Text>
+      </Box>
+      <Text wrap="truncate-end">
+        {tabs.map((one) =>
+          one === tab ? (
+            <Text key={one}>
+              <Text color={PALETTE.raised}>▐</Text>
+              <Text bold backgroundColor={PALETTE.raised} color={PALETTE.star}>
+                {LABELS[one]}
+              </Text>
+              <Text color={PALETTE.raised}>▌</Text>{" "}
+            </Text>
+          ) : (
+            <Text key={one} color={PALETTE.haze}>{` ${LABELS[one]}  `}</Text>
+          ),
+        )}
+      </Text>
+    </>,
+  );
 }

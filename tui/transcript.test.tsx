@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
+import * as ink from "ink";
 import { stripVTControlCharacters } from "node:util";
 import { initialState, type Item, type State, type ToolCall } from "../src/view/state";
 import { callTarget } from "./entries";
@@ -95,4 +96,22 @@ test("a call a closed step leaves out opens the step, to go under its line", () 
   const at = opened.starts.get("c4")!;
   expect(lines[at]).toContain("c4");
   expect(lines[at + 1]).toContain("‹ 5 of 8 ›");
+});
+
+test("a whole tab opened isn't drawn again each time Claude starts another call in the turn", () => {
+  const result = Array.from({ length: 3000 }, (_, i) => `line ${i + 1}`).join("\n");
+  const big = call("a", { name: "Bash", input: { command: "cat big.log", description: "Print the log" }, result });
+  const before = layout(input(turn([big]), 118, { id: "a", whole: true }));
+  const drawn = spyOn(ink, "renderToString");
+  const after = layout(input(turn([big, call("n")]), 118, { id: "a", whole: true }));
+  const tall = drawn.mock.results.filter((one) => String(one.value).split("\n").length > 100);
+  drawn.mockRestore();
+  expect(tall).toHaveLength(0);
+  // What's drawn is as it was, but for the count of the turn's calls.
+  const header = (transcript: Transcript) => plain(transcript).find((line) => line.includes(" of "));
+  expect(header(before)).toContain("‹ 1 of 1 ›");
+  expect(header(after)).toContain("‹ 1 of 2 ›");
+  const body = (transcript: Transcript) => plain(transcript).filter((line) => / line \d+$/.test(line.trimEnd()));
+  expect(body(after)).toEqual(body(before));
+  expect(body(after)).toHaveLength(3000);
 });
