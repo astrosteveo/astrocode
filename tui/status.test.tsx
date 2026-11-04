@@ -139,9 +139,28 @@ test("a click on the count beside a cut armed hint still opens the conversations
 });
 
 /** Each reading by the words it starts with, in the order the bar keeps them in as it narrows. */
-const RANKED = [["context"], ["7d 64%"], ["◌ 2 running"], ["5h 31%"], ["Opus 5.5", "xhigh effort"], ["⎇ feat/cache-clock ±3"]];
+const RANKED = [["context 18%"], ["7d 64%"], ["◌ 2 running"], ["5h 31%"], ["Opus 5.5 xhigh"], ["feat/cache-clock ±3"]];
 /** The same, in the order they're drawn. */
-const DRAWN = ["◌ 2 running", "context", "5h 31%", "7d 64%", "Opus 5.5", "xhigh effort", "⎇ feat/cache-clock ±3"];
+const DRAWN = ["◌ 2 running", "context 18%", "5h 31%", "7d 64%", "Opus 5.5 xhigh", "feat/cache-clock ±3"];
+
+test("draws each reading in as few cells as says it: the context's share, the model with its effort, the branch", () => {
+  const { line, stop } = bar(200, { running: 2 });
+  const shown = line();
+  stop();
+  expect(shown).toContain("◌ 2 running   context 18%   5h 31%   7d 64%   Opus 5.5 xhigh   feat/cache-clock ±3");
+});
+
+test("with another conversation waiting and two things running, keeps what's running at 80 columns, and the model and effort at 120", () => {
+  const at = (columns: number) => {
+    const { line, stop } = bar(columns, { needsYou: 1, running: 2 });
+    const shown = line();
+    stop();
+    return shown;
+  };
+  expect(at(80)).toContain("◌ 2 running   context 18%");
+  expect(at(80).trimEnd()).toEndWith("7d 64%");
+  expect(at(120)).toContain("◌ 2 running   context 18%   5h 31%   7d 64%   Opus 5.5 xhigh");
+});
 
 test("readings drop by rank as the bar narrows, are drawn in their own order, and the mode and the count always stay", () => {
   const kept: Record<number, number> = {};
@@ -172,7 +191,7 @@ test("a click on a reading acts on that reading, drawn out of rank order", async
   await new Promise((resolve) => setTimeout(resolve, 20));
   const shown = line();
   await click(shown.indexOf("Opus 5.5") + 2);
-  await click(shown.indexOf("xhigh effort") + 2);
+  await click(shown.indexOf("xhigh") + 2);
   stop();
   expect(clicked).toEqual(["model", "effort"]);
 });

@@ -24,7 +24,7 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
  ❯
 ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
- ▐ask first▌  shift+tab                context ━━──────── 18%   5h 51%   7d 64%"
+ ▐ask first▌  shift+tab          context 18%   5h 51%   7d 64%   Opus 5.5 xhigh"
 `;
 
 exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 80×24 call opened 1`] = `
@@ -51,7 +51,7 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 ▄▄▄▄ ↑↓ move   ←→ calls   tab views   c copy   enter open or close   esc close ▄
  ❯
 ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
- ▐ask first▌  shift+tab                context ━━──────── 18%   5h 51%   7d 64%"
+ ▐ask first▌  shift+tab          context 18%   5h 51%   7d 64%   Opus 5.5 xhigh"
 `;
 
 exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 80×24 diff opened 1`] = `
@@ -78,7 +78,7 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 ▄▄▄▄▄▄▄▄▄▄ ↑↓ move   enter open or close   ←→ files   a open all   [ ] ledgers ▄
  ❯
 ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
- ▐ask first▌  shift+tab                context ━━──────── 18%   5h 51%   7d 64%"
+ ▐ask first▌  shift+tab          context 18%   5h 51%   7d 64%   Opus 5.5 xhigh"
 `;
 
 exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 120×40 ended 1`] = `
@@ -121,7 +121,7 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
  ❯
 ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
- ▐ask first▌  shift+tab                              context ━━──────── 18%   5h 51%   7d 64%   Opus 5.5   xhigh effort"
+ ▐ask first▌  shift+tab                                                  context 18%   5h 51%   7d 64%   Opus 5.5 xhigh"
 `;
 
 exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 120×40 call opened 1`] = `
@@ -164,7 +164,7 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ ↑↓ move   ←→ calls   tab views   c copy   enter open or close   esc close ▄
  ❯
 ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
- ▐ask first▌  shift+tab                              context ━━──────── 18%   5h 51%   7d 64%   Opus 5.5   xhigh effort"
+ ▐ask first▌  shift+tab                                                  context 18%   5h 51%   7d 64%   Opus 5.5 xhigh"
 `;
 
 exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 120×40 diff opened 1`] = `
@@ -207,7 +207,7 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ ↑↓ move   enter open or close   ←→ files   a open all   [ ] ledgers   esc close ▄
  ❯
 ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
- ▐ask first▌  shift+tab                              context ━━──────── 18%   5h 51%   7d 64%   Opus 5.5   xhigh effort"
+ ▐ask first▌  shift+tab                                                  context 18%   5h 51%   7d 64%   Opus 5.5 xhigh"
 `;
 
 exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 200×50 ended 1`] = `
@@ -260,7 +260,7 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
  ❯
 ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
- ▐ask first▌  shift+tab                                                                                                              context ━━──────── 18%   5h 51%   7d 64%   Opus 5.5   xhigh effort"
+ ▐ask first▌  shift+tab                                                                                                                                  context 18%   5h 51%   7d 64%   Opus 5.5 xhigh"
 `;
 
 exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 200×50 call opened 1`] = `
@@ -313,7 +313,7 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ ↑↓ move   ←→ calls   tab views   c copy   enter open or close   esc close ▄
  ❯
 ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
- ▐ask first▌  shift+tab                                                                                                              context ━━──────── 18%   5h 51%   7d 64%   Opus 5.5   xhigh effort"
+ ▐ask first▌  shift+tab                                                                                                                                  context 18%   5h 51%   7d 64%   Opus 5.5 xhigh"
 `;
 
 exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 200×50 diff opened 1`] = `
@@ -366,5 +366,5 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ ↑↓ move   enter open or close   ←→ files   a open all   [ ] ledgers   esc close ▄
  ❯
 ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
- ▐ask first▌  shift+tab                                                                                                              context ━━──────── 18%   5h 51%   7d 64%   Opus 5.5   xhigh effort"
+ ▐ask first▌  shift+tab                                                                                                                                  context 18%   5h 51%   7d 64%   Opus 5.5 xhigh"
 `;
