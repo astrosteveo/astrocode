@@ -65,6 +65,7 @@ test("counts the audit's Python-heredoc edit, which no edit tool made", async ()
       { path: join(top, "src/retry.ts"), added: 18, removed: 6 },
     ],
     commits: [],
+    unseen: [],
   });
 });
 
@@ -140,6 +141,18 @@ test("doesn't run your clean filters, such as Git LFS's, which write into .git",
   expect(existsSync(marks)).toBe(false);
 });
 
+test("says which of the files the edit tools changed git can't see: ignored, or outside the repository", async () => {
+  const top = repo({ "a.txt": lines(1), ".gitignore": ".env\n" });
+  const elsewhere = folder();
+  const edges = snapshots(top);
+  await edges.start();
+  write(top, ".env", "PORT=2\n");
+  write(top, "a.txt", lines(2));
+  write(elsewhere, ".zshrc", "PATH=x\n");
+  const edited = [join(top, ".env"), join(top, "a.txt"), join(elsewhere, ".zshrc")];
+  expect(await edges.end(edited)).toEqual({ files: [{ path: join(top, "a.txt"), added: 1, removed: 0 }], commits: [], unseen: [join(elsewhere, ".zshrc"), join(top, ".env")] });
+});
+
 test("sees the whole repository from a folder inside it", async () => {
   const top = repo({ "a.txt": lines(1), "src/b.txt": lines(1) });
   const edges = snapshots(join(top, "src"));
@@ -170,7 +183,7 @@ test("names the commits the turn made, not one made before it", async () => {
   write(top, "a.txt", lines(2));
   git(top, "commit", "-q", "-am", "two");
   const made = git(top, "rev-parse", "--short", "HEAD");
-  expect(await edges.end()).toEqual({ files: [{ path: join(top, "a.txt"), added: 1, removed: 0 }], commits: [made] });
+  expect(await edges.end()).toEqual({ files: [{ path: join(top, "a.txt"), added: 1, removed: 0 }], commits: [made], unseen: [] });
 });
 
 test("names a signed commit by its hash when git log shows signatures", async () => {
@@ -239,7 +252,7 @@ test("starts from the repository's first file", async () => {
   const edges = snapshots(top);
   await edges.start();
   write(top, "a.txt", lines(2));
-  expect(await edges.end()).toEqual({ files: [{ path: join(top, "a.txt"), added: 2, removed: 0 }], commits: [] });
+  expect(await edges.end()).toEqual({ files: [{ path: join(top, "a.txt"), added: 2, removed: 0 }], commits: [], unseen: [] });
 });
 
 

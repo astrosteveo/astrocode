@@ -3,28 +3,27 @@
 // `1m 40s · 3 files +58 −3 · 7 passed 1 failed · not committed`.
 //
 // The files are git's, from the working tree at the turn's edges, where the session could record
-// them; else the edit tools' own diffs. The rest comes from the commands' results.
-import type { FileChange } from "../events";
+// them. The edit tools' own diffs count for files git can't see, ignored or outside the repository,
+// and for all of them where there's no git. The rest comes from the commands' results.
+import type { FileChange, Ledger } from "../events";
 import { changed, type Part } from "./activity";
 import { duration } from "./format";
 import { runOfCall, testTotals } from "./runs";
 import type { Item, ToolCall } from "./state";
-import { field, plural } from "./tools";
+import { editedFile, field, plural } from "./tools";
 
 type Turn = Extract<Item, { kind: "turn" }>;
 
 /** What a turn did, as its closing line and its opened list read it. */
 export type TurnWork = Pick<Turn, "files" | "commands" | "tests" | "commits" | "pushed" | "pr">;
 
-const EDITS = new Set(["Edit", "Write", "NotebookEdit", "MultiEdit"]);
-
 /**
  * What the turn now ending did since the turn before it ended, or since the message that started
- * it, as when Claude Code stopped before the turn before it could end. A message you sent while
- * Claude worked, which it took mid-turn, doesn't split the turn. `git` is what git said the turn
- * changed, when the session could record its edges.
+ * it, should the turn before have had no end, as when Claude Code stopped mid-turn. A message you
+ * sent while Claude worked, which it took mid-turn, doesn't split the turn. `git` is what git said
+ * the turn changed, when the session could record its edges.
  */
-export function turnWork(items: Item[], { cwd, home }: { cwd: string; home: string }, git?: { files: FileChange[]; commits: string[] }): TurnWork {
+export function turnWork(items: Item[], { cwd, home }: { cwd: string; home: string }, git?: Ledger): TurnWork {
   const start = items.findLastIndex((item) => item.kind === "turn" || (item.kind === "prompt" && item.starts));
   const edits = new Map<string, FileChange>();
   const commands: string[] = [];
@@ -35,9 +34,9 @@ export function turnWork(items: Item[], { cwd, home }: { cwd: string; home: stri
   for (const item of items.slice(start + 1)) {
     if (item.kind !== "tool") continue;
     const { call } = item;
-    const path = typeof call.input.file_path === "string" ? call.input.file_path : typeof call.input.notebook_path === "string" ? call.input.notebook_path : "";
+    const path = editedFile(call.name, call.input);
     // Files under ~/.claude, such as a plan, aren't the project's, unless the project is there.
-    if (EDITS.has(call.name) && call.status === "done" && path && (!inClaude(path) || inClaude(cwd))) {
+    if (path && call.status === "done" && (!inClaude(path) || inClaude(cwd))) {
       const counts = changed(call) ?? { added: 0, removed: 0 };
       const before = edits.get(path);
       edits.set(path, { path, added: (before?.added ?? 0) + counts.added, removed: (before?.removed ?? 0) + counts.removed });
@@ -56,7 +55,9 @@ export function turnWork(items: Item[], { cwd, home }: { cwd: string; home: stri
     const number = field(pr, "number");
     if (typeof number === "number") work.pr = { number, action: String(field(pr, "action") ?? "") };
   }
-  work.files = git?.files ?? [...edits.values()];
+  const edited = [...edits.values()];
+  // Git's word for the files it sees; the edits' own for the rest.
+  work.files = git ? [...git.files, ...edited.filter((file) => git.unseen.includes(file.path))] : edited;
   work.commands = commands;
   // Without git's word, a commit Claude Code saw is known, but not that there was none.
   work.commits = git?.commits ?? (commits.length ? commits : undefined);
