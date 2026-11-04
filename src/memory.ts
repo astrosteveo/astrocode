@@ -1,8 +1,8 @@
 // Notes you add with `#`: a line in one of the CLAUDE.md files Claude Code reads at the start of
 // every session, in this project or for all of yours.
 import { access, appendFile, mkdir, readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { configDir } from "./claude-dir";
 
 export type MemoryFile = { label: string; note: string; path: string };
 
@@ -10,10 +10,9 @@ export type MemoryFile = { label: string; note: string; path: string };
 export async function memoryFiles(cwd: string): Promise<MemoryFile[]> {
   const nested = join(cwd, ".claude", "CLAUDE.md");
   const project = (await exists(join(cwd, "CLAUDE.md"))) || !(await exists(nested)) ? join(cwd, "CLAUDE.md") : nested;
-  const config = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
   return [
     { label: "Project memory", note: "Shared with everyone working in this project", path: project },
-    { label: "User memory", note: "For you, in every project", path: join(config, "CLAUDE.md") },
+    { label: "User memory", note: "For you, in every project", path: join(configDir(), "CLAUDE.md") },
   ];
 }
 

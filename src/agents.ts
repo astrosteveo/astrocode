@@ -9,6 +9,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { installedClaude } from "./claude";
+import { configDir } from "./claude-dir";
 
 export type AgentState = "working" | "blocked" | "done" | "failed" | "stopped";
 
@@ -53,11 +54,6 @@ export const STATE_LABELS: Record<AgentState, string> = {
 };
 
 const STATES = new Set<string>(Object.keys(STATE_LABELS));
-
-/** Claude Code's folder: `CLAUDE_CONFIG_DIR`, else `~/.claude`. */
-function configDir() {
-  return process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-}
 
 /** Every background session, running or finished, with what its job file says of it. */
 export async function listAgents(): Promise<Agent[]> {

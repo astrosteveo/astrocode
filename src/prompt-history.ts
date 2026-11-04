@@ -5,8 +5,8 @@
 // ms; `project`, the folder; and `sessionId`. astrocode puts what you paste in the message itself,
 // so the lines it adds have no pastedContents.
 import { appendFile, mkdir, readFile, realpath, rmdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { configDir } from "./claude-dir";
 import { hasSecret } from "./secrets";
 
 /** A message, with the text its placeholders stand for back in their place. */
@@ -20,11 +20,6 @@ const RECALL_LIMIT = 100;
 
 /** Claude Code's placeholders for pasted text. `[Image #n]` stays as it is: its history keeps no images. */
 const PLACEHOLDER = /\[(?:Pasted text|\.\.\.Truncated text|✦ Team setup guide) #(\d+)(?: \+\d+ lines)?\.*\]/g;
-
-/** Claude Code's folder: `CLAUDE_CONFIG_DIR`, else `~/.claude`. */
-function configDir() {
-  return process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-}
 
 function historyFile() {
   return join(configDir(), "history.jsonl");
