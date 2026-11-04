@@ -118,6 +118,9 @@ test("a call stopped while it waited on you never ran", () => {
 test("a call stopped as it ran says what it was doing and for how long", () => {
   expect(line(use("b", "Bash", tests), stopped(T + 12_000))).toBe("Stopped | running the test suite | after 12s");
   expect(line(use("r", "Read", read), stopped(T + 50))).toBe("Stopped | reading src/retry.ts | ");
+  // Five seconds or less says nothing worth a number.
+  expect(line(use("b", "Bash", tests), stopped(T + 4000))).toBe("Stopped | running the test suite | ");
+  expect(line(use("b", "Bash", tests), progress("b", 3))).toBe("Running | the test suite | ");
 });
 
 test("searches, subagents and MCP tools follow their state too", () => {
@@ -129,4 +132,12 @@ test("searches, subagents and MCP tools follow their state too", () => {
   expect(line(use("a", "Agent", explore))).toBe("Exploring | Find Date.now and setTimeout uses | ◌ starting");
   expect(line(use("a", "Agent", { ...explore, subagent_type: "general-purpose" }))).toBe("Delegating | general-purpose  Find Date.now and setTimeout uses | ◌ starting");
   expect(line(use("m", "mcp__github__get_issue", { issue_number: 12 }))).toStartWith("Calling | get_issue (github)");
+});
+
+test("a notebook edit doesn't claim no change it can't know", () => {
+  const cell = { notebook_path: "/work/nb.ipynb", cell_id: "c1", new_source: "x = 1\ny = 2" };
+  // While it asks, the cell's old source isn't known, so neither is the size.
+  expect(line(use("n", "NotebookEdit", cell), ask("n", "NotebookEdit", cell))).toBe("Edit | nb.ipynb | ");
+  const done = result("n", "Updated cell c1", { new_source: cell.new_source, old_source: "x = 1", cell_id: "c1", cell_type: "code", language: "python", edit_mode: "replace" });
+  expect(line(use("n", "NotebookEdit", cell), done)).toBe("Edited | nb.ipynb | +1");
 });

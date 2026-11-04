@@ -376,12 +376,14 @@ const LIT = new Set<Tone>(["plain", "bright", "quiet", "faint", "code"]);
  * pointer lights a line (`lit()`). A line waiting on you is lit in gold too.
  */
 function ActivityLine({ row, width, picked, again, clickable }: { row: ActivityRow; width: number; picked: boolean; again: boolean; clickable: boolean }) {
-  const verbColor = VERB_COLORS[row.status] ?? (picked ? PALETTE.gold : PALETTE.dust);
+  // A command running in the background is done as a call, but still running.
+  const going = row.calls.at(-1)?.background === "running" ? "running" : row.status;
+  const verbColor = VERB_COLORS[going] ?? (picked ? PALETTE.gold : PALETTE.dust);
   const lit = picked || row.status === "waiting";
   const color = (tone: Tone) => (lit && LIT.has(tone) ? PALETTE.gold : TONES[tone]);
   const named = row.verb.length >= VERB ? `${row.verb} ` : row.verb.padEnd(VERB);
   // A verb the line above has is left out, unless how the line is going colors it.
-  const verb = again && !VERB_COLORS[row.status] ? " ".repeat(cellWidth(named)) : named;
+  const verb = again && !VERB_COLORS[going] ? " ".repeat(cellWidth(named)) : named;
   const result = row.result.reduce((sum, part) => sum + cellWidth(part.text), 0);
   const bars = row.diff && row.diff.added + row.diff.removed > 0 ? 7 : 0;
   const right = result + bars + (clickable ? 3 : 0);
