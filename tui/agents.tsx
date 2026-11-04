@@ -16,7 +16,7 @@ import { shortPath } from "../src/view/tools";
 import { describe } from "./activity";
 import { ChoiceRow } from "./choice";
 import { lendTerminal } from "./editor";
-import { firstPrompt, titleOf, type Conversation, type Fleet } from "./fleet";
+import { firstPrompt, liveState, titleOf, type Conversation, type Fleet } from "./fleet";
 import { cellWidth } from "./markdown";
 import { fit } from "./markdown-view";
 import { PALETTE } from "./theme";
@@ -27,16 +27,6 @@ const POLL_MS = 2000;
 const ARM_MS = 2000;
 /** The widest the name column gets. */
 const NAME_CELLS = 32;
-
-/** Where one of astrocode's conversations is: working, waiting on you, or idle and free to move to the background. */
-export type LiveState = "working" | "blocked" | "idle";
-
-export function liveState(state: State, shells: number): LiveState {
-  if (state.pending.length || state.questions.length || state.elicitations.length) return "blocked";
-  // What runs in the background, Claude's or yours, would stop with this Claude Code.
-  if (state.busy || state.tasks.length || shells) return "working";
-  return "idle";
-}
 
 /** The state a row shows for one of astrocode's conversations: its live state, or once it's idle, how its last turn ended. */
 export function mineState(state: State, shells: number): AgentState | "idle" {
@@ -445,12 +435,7 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, onShow, o
 function useFleet(fleet: Fleet) {
   const mine = useSyncExternalStore(fleet.subscribe, fleet.getSnapshot);
   const [, redraw] = useState(0);
-  useEffect(() => {
-    const stops = mine.map((one) => one.store.subscribe(() => redraw((n) => n + 1)));
-    return () => {
-      for (const stop of stops) stop();
-    };
-  }, [mine]);
+  useEffect(() => fleet.watch(() => redraw((n) => n + 1)), [fleet]);
   return mine;
 }
 

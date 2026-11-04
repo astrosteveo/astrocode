@@ -39,12 +39,45 @@ export class Fleet<C extends Conversation = Conversation> {
     };
   };
 
+  /** Calls `listener` whenever a conversation joins or leaves, or anything in one changes. */
+  watch = (listener: () => void) => {
+    let stops: (() => void)[] = [];
+    const follow = () => {
+      for (const stop of stops) stop();
+      stops = this.members.map((member) => member.store.subscribe(listener));
+    };
+    follow();
+    const leave = this.subscribe(() => {
+      follow();
+      listener();
+    });
+    return () => {
+      leave();
+      for (const stop of stops) stop();
+    };
+  };
+
   /** The conversations in the order they started, a new array whenever that changes. */
   getSnapshot = () => this.members;
 
   private notify() {
     for (const listener of this.listeners) listener();
   }
+}
+
+/** Where one of astrocode's conversations is: working, waiting on you, or idle and free to move to the background. */
+export type LiveState = "working" | "blocked" | "idle";
+
+export function liveState(state: State, shells: number): LiveState {
+  if (state.pending.length || state.questions.length || state.elicitations.length) return "blocked";
+  // What runs in the background, Claude's or yours, would stop with this Claude Code.
+  if (state.busy || state.tasks.length || shells) return "working";
+  return "idle";
+}
+
+/** How many of `conversations`, but the one whose store is `here`, wait on you: a tool call to allow, a question or a form. */
+export function needsYou(conversations: readonly Conversation[], here: Store) {
+  return conversations.filter((one) => one.store !== here && liveState(one.store.getSnapshot(), one.store.shells.size) === "blocked").length;
 }
 
 /** What it's called: the name Claude Code gave it, else its first message. */
