@@ -1,0 +1,32 @@
+bun test v1.4.4 (38afee6c8)
+
+retry.test.ts:
+1 | import { expect, test } from "bun:test";
+2 | function retry(attempts: number) { let calls = 0; for (let i = 0; i <= attempts; i++) calls++; return calls; }
+3 | test("passes 1", () => expect(1).toBe(1));
+4 | test("passes 2", () => expect(2).toBe(2));
+5 | test("tries exactly attempts times", () => {
+6 |   expect(retry(3)).toBe(3);
+                       ^
+error: expect(received).toBe(expected)
+
+Expected: 3
+Received: 4
+
+      at <anonymous> (/work/bun/retry.test.ts:6:20)
+(fail) tries exactly attempts times [0.13ms]
+4 | test("passes 2", () => expect(2).toBe(2));
+5 | test("tries exactly attempts times", () => {
+6 |   expect(retry(3)).toBe(3);
+7 | });
+8 | test("connects", () => {
+9 |   throw new Error("down");
+                            ^
+error: down
+      at <anonymous> (/work/bun/retry.test.ts:9:25)
+(fail) connects [0.03ms]
+
+ 2 pass
+ 2 fail
+ 3 expect() calls
+Ran 4 tests across 1 file. [8.00ms]

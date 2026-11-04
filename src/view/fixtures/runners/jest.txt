@@ -1,0 +1,21 @@
+FAIL ./retry.spec.cjs
+  ● attempts
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 3
+    Received: 4
+
+      1 | const retry = (n) => n + 1;
+      2 | test("ok", () => expect(retry(1)).toBe(2));
+    > 3 | test("attempts", () => expect(retry(3)).toBe(3));
+        |                                         ^
+      4 |
+
+      at Object.<anonymous> (retry.spec.cjs:3:41)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 1 passed, 2 total
+Snapshots:   0 total
+Time:        0.088 s
+Ran all test suites.

@@ -1,0 +1,5 @@
+--- FAIL: TestAttempts (0.00s)
+    retry_test.go:5: expected 3 calls, got 4
+FAIL
+FAIL	retry	0.001s
+FAIL
