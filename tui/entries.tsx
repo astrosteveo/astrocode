@@ -13,7 +13,6 @@ import { cellWidth } from "./markdown";
 import { fit, Markdown } from "./markdown-view";
 import { ModTree } from "./mod-tree";
 import { OutputBody } from "./output";
-import { ledgerPieces } from "./ledger";
 import { hyperlink } from "./links";
 import { ImageView, isReady } from "./pictures";
 import { GUTTER, LIVE, Railed, type Rail } from "./rail";
@@ -111,28 +110,6 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
         <Railed node="╰─" color={PALETTE.dust} rail={rail}>
           <TurnEnd item={item} />
         </Railed>
-      );
-    case "review":
-      // Every file open, with no scope to switch: scrollback has no keys for it.
-      return (
-        <Box flexDirection="column">
-          <Railed node="╰─" color={PALETTE.dust} rail={rail}>
-            <TurnEnd item={item.turn} />
-          </Railed>
-          {ledgerPieces({
-            turn: item.turn,
-            listed: { files: item.turn.files ?? [] },
-            open: () => true,
-            whole: () => false,
-            diff: (file) => item.diffs[file.path] ?? "gone",
-            commands: item.commands,
-            width: view.width,
-            cwd: view.cwd,
-            home: view.home,
-          }).map((piece) => (
-            <Box key={piece.key}>{piece.node}</Box>
-          ))}
-        </Box>
       );
     case "notice": {
       const { node, color, text } = NOTICE_TONES[item.tone];

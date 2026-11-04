@@ -2,9 +2,8 @@
 // `+N −N` or `deleted` at the edge, then the commands it ran with their results, the commits it
 // made and its tokens. Enter on a file opens its diff for the turn under it, in runs with `⋯ N
 // lines` for what the diff leaves out. In git, `[` and `]` switch what it lists between the turn,
-// what isn't committed, and the branch against its base, as `claude`'s /diff does. Full screen
-// lays it out a piece at a time, so each row knows what Enter or a click on it acts on; scrollback
-// prints it whole for /diff, every file open.
+// what isn't committed, and the branch against its base, as `claude`'s /diff does. The transcript
+// lays it out a piece at a time, so each row knows what Enter or a click on it acts on.
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { FileChange, Trees } from "../src/events";
@@ -79,7 +78,7 @@ export function commandRows(items: Item[], index: number, cwd: string, home: str
 
 type Input = {
   turn: TurnItem;
-  /** What it lists. Unset outside git, where there's only the turn, and in scrollback, which has no keys to switch it. */
+  /** What it lists. Unset outside git, where there's only the turn. */
   scope?: Scope;
   listed: Listed;
   /** Whether a file's diff is open under its line, and whether all of it, rather than its ends. */
