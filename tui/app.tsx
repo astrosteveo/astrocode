@@ -1227,7 +1227,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const picker = () => {
     switch (overlay?.kind) {
       case "keys":
-        return <KeySheet sections={sheetOf(overlay.place, store.keymap, fullscreen, { prompt: overlay.prompt, scopes: review.git })} custom={store.keymap !== DEFAULT_KEYMAP} width={width} rows={Math.max(3, rows - 13)} onClose={close} />;
+        return <KeySheet sections={sheetOf(overlay.place, store.keymap, fullscreen || viewer.open, { prompt: overlay.prompt, scopes: review.git })} custom={store.keymap !== DEFAULT_KEYMAP} width={width} rows={Math.max(3, rows - 13)} onClose={close} />;
       case "picture":
         return (
           <Lightbox
