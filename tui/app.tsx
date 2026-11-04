@@ -623,17 +623,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   };
 
   /**
-   * Opens a call under its line, with your keys in the transcript. One still running in a task
-   * opens that task's view instead.
+   * Opens a call under its line, with your keys in the transcript. A subagent or a command in the
+   * background opens there too, live; /tasks is the view of it that fills the screen.
    */
   const inspectCall = (id: string) => {
-    const index = state.tools[id];
-    const item = index === undefined ? undefined : state.items[index];
-    const task = item ? runningKeyOf(item, state) : undefined;
-    if (task) {
-      setOverlay({ kind: "task", key: task });
-      return false;
-    }
     setInspect({ id });
     toTranscript(true);
     return true;
@@ -650,8 +643,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
    * A click on an entry in full screen: a step's line opens its call under it, as does a call drawn
    * on its own, such as a picture or a plan, and a click on what opened closes it, shows another of
    * its tabs, the whole tab, or the call before or after. Steps, commands of yours and a turn's
-   * closer open or close in place. Something still running, or that ran in the background, opens
-   * its view instead.
+   * closer open or close in place. A command of yours still running opens its view instead.
    */
   const toggleTool = (key: string) => {
     const ledger = ledgerTarget(key);

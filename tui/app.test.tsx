@@ -175,6 +175,31 @@ test("Follow Claude docks above the box at 200 columns, not beside the transcrip
   expect(screen()[line]!.trimEnd().length).toBeGreaterThan(190);
 });
 
+/** A turn whose newest call is a subagent Claude waits on, which Claude Code runs as a task. */
+function exploring(): State {
+  const agent = call("s", { name: "Agent", status: "running", input: { description: "Find the retry code", subagent_type: "Explore", prompt: "Find where retries happen." }, result: undefined });
+  const state = turn([call("a"), agent]);
+  return {
+    ...state,
+    busy: true,
+    taskInfo: { "agent-1": { id: "agent-1", description: "Find the retry code", type: "local_agent", toolUseId: "s", background: false, status: "running" } },
+    agentLogs: { s: [{ text: "❯ Find where retries happen.", kind: "prompt" }, { text: "⬢ Grep  retry", kind: "tool" }] },
+  };
+}
+
+test("a running subagent opens under its line, its calls streaming in, rather than in /tasks", async () => {
+  const { press, screen, row } = await launch(exploring());
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  const lines = screen();
+  const at = lines.findIndex((line) => line.includes("‹ 2 of 2 ›"));
+  expect(at).toBeGreaterThan(0);
+  expect(lines[at + 1]).toMatch(/▐Calls▌ +Prompt +Input/);
+  expect(lines[at + 1]).not.toContain("Report");
+  expect(row(/⬢ Grep +retry/)).toBeGreaterThan(at);
+  expect(row(/Running · enter opens one|Find the retry code.*subagent/)).toBe(-1);
+});
+
 test("full screen opens on the start screen, which names Ctrl+O by the transcript it gives your keys to", async () => {
   const { screen } = await launch(initialState("/p", "/home/u"));
   expect(screen().join("\n")).toContain("ctrl+o transcript");
