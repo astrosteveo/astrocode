@@ -715,7 +715,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   /**
    * /diff: the latest turn's ledger, opened. In full screen your keys and the cursor go to it. In
    * scrollback, which has no cursor to give them to, it's printed whole at the end, each file's diff
-   * under its line.
+   * under its line, once Claude is done: printed sooner, it would land inside the turn running.
    */
   const openDiff = () => {
     const index = state.items.findLastIndex((item) => item.kind === "turn");
@@ -727,6 +727,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       setReveal({ key: turn.key });
       return;
     }
+    if (state.busy) return notice("info", "Claude is working. Run /diff again once it's done to print the latest turn's ledger.");
     const calls = callsOf(state.items, index);
     const files = (turn.files ?? []).filter((file) => !file.big && !file.binary);
     void Promise.all(files.map(async (file) => [file.path, await turnDiff(session, turn, file, calls)] as const)).then((read) => {
