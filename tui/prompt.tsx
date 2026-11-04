@@ -14,6 +14,7 @@ import type { CommandInfo, ImageAttachment } from "../src/events";
 import { argumentMatches } from "./arguments";
 import { ChoiceRow } from "./choice";
 import { baseName, fileMatches, projectFiles } from "./files";
+import { ANYWHERE } from "./focus";
 import { cellWidth, takeCells } from "./markdown";
 import { fit, Panel } from "./markdown-view";
 import { clipboardImage, imageLabel, pastedImageFile } from "./images";
@@ -26,6 +27,8 @@ import { PALETTE } from "./theme";
 type Props = {
   /** Off while a prompt or picker above has the keyboard. */
   active: boolean;
+  /** The transcript has your keys, but those that work anywhere, such as Ctrl+C and Shift+Tab, still do what they do here. */
+  anywhere?: boolean;
   /** Full screen, where the menu covers the transcript; in scrollback it makes room for itself. */
   fullscreen: boolean;
   busy: boolean;
@@ -446,8 +449,9 @@ export function Prompt(props: Props) {
     (input, key) => {
       if (key.eventType === "release") return;
       const { text, cursor } = buffer.current;
+      const act = (action: Action) => (active || ANYWHERE.has(action) ? perform(action) : undefined);
 
-      if (search.current) {
+      if (active && search.current) {
         const open = search.current;
         if (props.keymap.get(strokeOf(input, key) ?? "") === "history:search") {
           if (open.skip + 1 < found(open.query).length) open.skip += 1;
@@ -478,13 +482,13 @@ export function Prompt(props: Props) {
         if (Date.now() - at < CHORD_MS) {
           const chordKeys = pressed ? `${keys} ${pressed}` : "";
           const action = props.keymap.get(chordKeys);
-          if (action) return perform(action);
+          if (action) return act(action);
           if (chordKeys && startsChord(props.keymap, chordKeys)) return arm(chordKeys);
           return;
         }
       }
 
-      if (matches.length > 0) {
+      if (active && matches.length > 0) {
         const chosen = matches[Math.min(menu.current.index, matches.length - 1)];
         if (key.upArrow || key.downArrow) {
           const step = key.upArrow ? -1 : 1;
@@ -503,12 +507,13 @@ export function Prompt(props: Props) {
 
       if (pressed) {
         const action = props.keymap.get(pressed);
-        if (action) return perform(action);
+        if (action) return act(action);
         if (startsChord(props.keymap, pressed)) return arm(pressed);
       }
       if (key.ctrl && input === "z") return props.onSuspend();
       // Full screen's own keys: Ctrl+F finds in the transcript, and Alt+↑ and Alt+↓ move through it.
       if (key.ctrl && input === "f" && props.onFind) return props.onFind();
+      if (!active) return;
       if (props.fullscreen && key.meta && (key.upArrow || key.downArrow)) return;
       if (key.ctrl && input === "y") return killed.current ? insert(killed.current) : undefined;
       if (key.escape) {
@@ -564,7 +569,7 @@ export function Prompt(props: Props) {
       if (key.ctrl || key.meta || !input) return;
       insert(input);
     },
-    { isActive: active },
+    { isActive: active || Boolean(props.anywhere) },
   );
 
   useMouse(

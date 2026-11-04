@@ -65,7 +65,7 @@ type Props = {
   keymap: Keymap;
   /** A click on a line, which gives the transcript your keys. */
   onFocus: () => void;
-  /** Esc, q, Ctrl+C or Ctrl+O, which give your keys back to the box. */
+  /** Esc, q or Ctrl+O, which give your keys back to the box. */
   onLeave: () => void;
   /**
    * A click on an entry, or on what a line of it stands for, such as a step's line for a call. True
@@ -218,19 +218,24 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     setAnchor({ key: held.key, line: held.line, y: Math.max(0, Math.min(at - top + pad, view - 4)) });
   };
 
-  /** The transcript's own keys, while it has yours. True for one of them. */
+  /**
+   * The transcript's own keys, while it has yours. True for one of them. The keys that work anywhere,
+   * Ctrl+C and Shift+Tab among them, are the box's, which still gets them.
+   */
   const transcriptKey = (input: string, key: Key) => {
     const open = now.current.transcript.opened;
+    // A letter with Ctrl or Alt held is another key: Ctrl+C isn't `c`.
+    const letter = key.ctrl || key.meta ? "" : input;
     if ((key.upArrow || key.downArrow) && !key.meta && !key.shift) moveCursor(key.upArrow ? -1 : 1);
     else if (key.return) enter();
     // Esc backs out one level: what's open closes first.
     else if (key.escape && open) onToggle(callTarget(open.id));
-    else if (key.escape || input === "q" || (key.ctrl && input === "c") || keymap.get(strokeOf(input, key) ?? "") === "app:toggleTranscript") onLeave();
+    else if (key.escape || letter === "q" || keymap.get(strokeOf(input, key) ?? "") === "app:toggleTranscript") onLeave();
     else if (!open) return false;
     else if (key.leftArrow || key.rightArrow) onToggle(moveTarget(key.leftArrow ? -1 : 1));
-    else if (key.tab) onToggle(tabTarget(open.tabs[(open.tabs.indexOf(open.tab) + (key.shift ? -1 : 1) + open.tabs.length) % open.tabs.length]!));
-    else if (input === "c" || input === "e") {
-      if (open.copy) (input === "c" ? onCopy : onEdit)(open.copy);
+    else if (key.tab && !key.shift) onToggle(tabTarget(open.tabs[(open.tabs.indexOf(open.tab) + 1) % open.tabs.length]!));
+    else if (letter === "c" || letter === "e") {
+      if (open.copy) (letter === "c" ? onCopy : onEdit)(open.copy);
     } else return false;
     return true;
   };

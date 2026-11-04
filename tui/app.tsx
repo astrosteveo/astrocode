@@ -1583,6 +1583,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         <QueuedMessages queue={state.queue} width={width} />
         <Prompt
           active={focus === "box"}
+          anywhere={focus === "transcript"}
           fullscreen={fullscreen}
           busy={state.busy}
           waitingOn={question || elicitation ? "question" : request ? "permission" : undefined}
