@@ -440,13 +440,27 @@ test("/ in the viewer finds as claude's does: Enter closes the bar on the match,
   await press(KEYS.ctrlO);
   const cursor = () => screen().findIndex((line) => [...line][1] === "›");
   await press("/");
-  // Find goes through what's drawn, and the turn's calls are folded into its step's line.
-  await press("around");
+  // Find goes through the calls of the turn's step too, which opens to show them.
+  await press("Searched");
+  expect(row(/Searched +c in src/)).not.toBe(-1);
   await press(KEYS.enter);
   expect(row(/Find /)).toBe(-1);
-  expect(cursor()).toBe(row(/Looking around/));
+  // The step stays open, with the cursor on the match, and n goes on through it.
+  expect(cursor()).toBe(row(/Searched +c in src/));
   await press("n");
-  expect(cursor()).toBe(row(/look around/));
+  expect(cursor()).toBe(row(/Searched +a in src/));
+});
+
+test("/ in the viewer, then Esc, folds back the step find opened", async () => {
+  const { press, row } = await scrollback(finished());
+  await press(KEYS.ctrlO);
+  await press("/");
+  await press("Searched");
+  expect(row(/Searched +c in src/)).not.toBe(-1);
+  await press(KEYS.esc);
+  expect(row(/Find /)).toBe(-1);
+  expect(row(/Searched +c in src/)).toBe(-1);
+  expect(row(/Looking around/)).not.toBe(-1);
 });
 
 test("leaving the viewer with a call open closes the call, so it no longer follows Claude where nothing shows it", async () => {

@@ -13,6 +13,7 @@ import { OPEN_INSET, openedRows, type Opened, type OpenedRows, type Spot } from 
 import { imagesOf, isReady, wantPictures } from "./pictures";
 import { GUTTER } from "./rail";
 import { diffKey, listedIn, NO_REVIEW, scopeOf, type Review } from "./review";
+import { findIn } from "./selection";
 import { StartScreen, type Start } from "./start";
 
 /** A line of the transcript: its text with color codes, and the entry it belongs to. */
@@ -42,6 +43,8 @@ export type Transcript = {
   starts: Map<string, number>;
   /** The call opened under its line: its tabs, the one shown, and that tab's text. */
   opened?: { id: string; tabs: OpenedRows["tabs"]; tab: OpenedRows["tab"]; copy: string };
+  /** The closed steps drawn open for `query`, by key. */
+  unfolded: string[];
 };
 
 export type TranscriptInput = {
@@ -59,9 +62,11 @@ export type TranscriptInput = {
   opened?: Opened;
   /** What the opened ledgers list, and the diffs read for them. */
   review?: Review;
+  /** What the find bar looks for: a closed step that leaves some of it out is drawn open, so find goes through all of it. */
+  query?: string;
 };
 
-const EMPTY: Transcript = { rows: [], starts: new Map() };
+const EMPTY: Transcript = { rows: [], starts: new Map(), unfolded: [] };
 
 /** How long the width has to hold still before the transcript is drawn again for it. */
 const RESIZE_SETTLE_MS = 80;
@@ -72,6 +77,9 @@ const START = {};
 /** A step's lines are kept by its first item, under an owner of their own, since the item has lines of its own too. */
 const stepRows = new WeakMap<Item, object>();
 const stepOwner = (first: Item) => stepRows.get(first) ?? stepRows.set(first, {}).get(first)!;
+/** A closed step's lines drawn open, for what find looks for, kept apart from its closed ones so neither is drawn again for the other. */
+const probeRows = new WeakMap<Item, object>();
+const probeOwner = (first: Item) => probeRows.get(first) ?? probeRows.set(first, {}).get(first)!;
 const drawnSteps = new WeakMap<object, { drawnFor: string; lines: string[]; targets: (string | undefined)[]; pieces: string[]; heads: boolean[]; spots: (Spot[] | undefined)[] }>();
 /** An opened ledger's lines are kept by its turn's item, under an owner of their own, as a step's are. */
 const ledgerRows = new WeakMap<Item, object>();
@@ -116,9 +124,11 @@ function drawStep(owner: object, drawnFor: string, width: number, pieces: () => 
 }
 
 /** The whole transcript. Must run outside React's render, since renderToString renders with the same reconciler. */
-export function layout({ state, width, pictureRows, start, expanded, waiting, opened, review = NO_REVIEW }: TranscriptInput): Transcript {
+export function layout({ state, width, pictureRows, start, expanded, waiting, opened, review = NO_REVIEW, query }: TranscriptInput): Transcript {
   const rows: Row[] = [];
   const starts = new Map<string, number>();
+  const unfolded: string[] = [];
+  const matches = (lines: string[]) => lines.reduce((n, line) => n + findIn(line, query!).length, 0);
   const view = { cwd: state.cwd, home: state.home, width, pictureRows };
   wantPictures(state.items, width - GUTTER, pictureRows);
   let shown: Transcript["opened"];
@@ -190,9 +200,19 @@ export function layout({ state, width, pictureRows, start, expanded, waiting, op
       const mine = found?.kind === "row" ? found.row : undefined;
       const open = entry.open || (mine !== undefined && leavesOut(row, mine));
       const picked = mine && opened?.id;
-      const drawn = drawStep(stepOwner(entry.first), `${width}|${pictureRows}|${open}|${picked}|${railed}|${signature(row)}`, width, () =>
-        stepPieces({ step: row, rail, open, width, picked, pictureRows, links: "screen", cwd: state.cwd, home: state.home }),
-      );
+      const signed = signature(row);
+      const drawAs = (owner: object, open: boolean) =>
+        drawStep(owner, `${width}|${pictureRows}|${open}|${picked}|${railed}|${signed}`, width, () =>
+          stepPieces({ step: row, rail, open, width, picked, pictureRows, links: "screen", cwd: state.cwd, home: state.home }),
+        );
+      let drawn = drawAs(stepOwner(entry.first), open);
+      if (!open && query) {
+        const whole = drawAs(probeOwner(entry.first), true);
+        if (matches(whole.lines) > matches(drawn.lines)) {
+          drawn = whole;
+          unfolded.push(entry.key);
+        }
+      }
       // The opened call goes under its line and what's drawn under that: why it failed, a subagent's calls, pictures.
       const under = mine ? new Set([`row:${mine.calls[0]!.id}`, `why:${mine.calls[0]!.id}`, `agent:${mine.calls[0]!.id}`, ...mine.calls.map((call) => `pictures:${call.id}`)]) : null;
       const after = under ? drawn.pieces.findLastIndex((piece) => under.has(piece)) + 1 : drawn.lines.length;
@@ -239,7 +259,7 @@ export function layout({ state, width, pictureRows, start, expanded, waiting, op
   }
   const live = state.live;
   if (live) add("live", draw(live, `${width}`, width, () => <LiveView live={live} width={width} />), 1, GUTTER);
-  return { rows, starts, opened: shown };
+  return { rows, starts, opened: shown, unfolded };
 }
 
 /** What a step's lines are drawn from, so they're drawn again only when that changes. */
@@ -292,7 +312,7 @@ export function useTranscript(input: TranscriptInput) {
     return () => {
       stale = true;
     };
-  }, [input.state.items, input.state.live, input.state.cwd, input.width, input.pictureRows, start, input.expanded, opened?.id, opened?.tab, opened?.whole, opened?.output?.text, log, waiting, input.review?.version, input.review?.git]);
+  }, [input.state.items, input.state.live, input.state.cwd, input.width, input.pictureRows, start, input.expanded, opened?.id, opened?.tab, opened?.whole, opened?.output?.text, log, waiting, input.review?.version, input.review?.git, input.query]);
 
   useEffect(
     () => () => {

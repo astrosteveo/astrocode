@@ -106,8 +106,8 @@ type Props = {
   finding: boolean;
   /** `/`: the find bar, with what puts the cursor and the view back as they were, for its Esc. */
   onFind: (restore: () => void) => void;
-  /** How many matches the transcript has for it. */
-  onMatches: (count: number) => void;
+  /** How many matches the transcript has for it, and the closed steps it opened to show them, by key. */
+  onMatches: (count: number, unfolded: string[]) => void;
   /** What's pinned under the viewport. */
   children: ReactNode;
 };
@@ -119,7 +119,10 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   const pill = useRef<DOMElement>(null);
   const metrics = useBoxMetrics(viewport);
   const view = Math.max(1, metrics.hasMeasured ? metrics.height : height - 6);
-  const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), start, expanded, waiting, opened, review });
+  // Search's query, while its bar is open: what's kept for `n` and `N` opens nothing.
+  const search = finding ? sought : null;
+  const query = search?.query ?? "";
+  const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), start, expanded, waiting, opened, review, query });
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   /** The row the cursor is on, kept while your keys are elsewhere. */
   const [cursor, setCursor] = useState<Anchor | null>(null);
@@ -143,8 +146,6 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   const turns = useMemo(() => new Set(state.items.flatMap((item) => (item.kind === "turn" ? [item.key] : []))), [state.items]);
 
   // Search's matches, top to bottom, and the one it's on, counted back from the newest.
-  const search = finding ? sought : null;
-  const query = search?.query ?? "";
   const matches = useMemo(() => (query ? matchesIn(rows, query) : []), [rows, query]);
   const current = matches.length ? matches.length - 1 - ((search?.back ?? 0) % matches.length) : -1;
   const marks = useMemo(() => {
@@ -157,7 +158,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     });
     return byRow;
   }, [matches, current]);
-  useEffect(() => onMatches(matches.length), [matches.length]);
+  useEffect(() => onMatches(matches.length, transcript.unfolded), [matches.length, transcript.unfolded]);
   const maxTop = Math.max(0, total - view);
   const anchored = anchor ? find(transcript, anchor) : null;
   // Where the anchored row would put the top of the viewport. Above the first row, that's room

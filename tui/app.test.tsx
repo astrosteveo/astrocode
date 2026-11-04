@@ -1185,6 +1185,27 @@ test("/ in the transcript finds as claude's viewer does: Enter keeps the match, 
   expect(row(/Find +in the conversation/)).not.toBe(-1);
 });
 
+test("/ finds the calls of finished turns, folded into their steps' lines: the steps it finds them in open, and stay open once Enter takes the match", async () => {
+  const ended = (n: string, id: string): Item[] => [
+    { kind: "prompt", key: `p${n}`, text: `look around ${n}` },
+    { kind: "text", key: `t${n}`, text: `Looking around ${n}.` },
+    { kind: "tool", key: id, call: call(id) },
+    { kind: "turn", key: `end${n}`, outcome: "finished", durationMs: 2000, tokens: 100 },
+  ];
+  const items = [...ended("1", "a"), ...ended("2", "c")];
+  const { press, cursor, row } = await launch({ ...initialState("/p", "/home/u"), items, tools: { a: 2, c: 6 } });
+  expect(row(/Searched +a in src/)).toBe(-1);
+  await press(KEYS.ctrlO);
+  await press("/");
+  await press("Searched");
+  expect(row(/2 of 2/)).not.toBe(-1);
+  await press(KEYS.enter);
+  expect(cursor()).toBe(row(/Searched +c in src/));
+  // n goes on to the other turn's call, in a step find opened too.
+  await press("n");
+  expect(cursor()).toBe(row(/Searched +a in src/));
+});
+
 test("Esc in the / bar puts the cursor and the view back where they were, and n and N keep to what was found before", async () => {
   // Enough of a conversation that its start is out of view from its end.
   const long: State = { ...THREE, items: [...THREE.items, ...Array.from({ length: 40 }, (_, i): Item => ({ kind: "text", key: `f${i}`, text: `Filler ${i}.` }))] };

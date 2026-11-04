@@ -198,6 +198,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   /** What Ctrl+F finds, kept when its bar closes so it opens again on the same words, and how many matches there are. */
   const [find, setFind] = useState<Find>({ query: "", back: 0 });
   const [matchCount, setMatchCount] = useState(0);
+  /** The steps find opened to show its matches, which stay open once you take what it found. */
+  const unfolded = useRef<string[]>([]);
   /** Text for the message box, such as a rewound message or one edited in $EDITOR. */
   const [prefill, setPrefill] = useState<{ text: string } | null>(null);
   /** The pinned to-dos: shown while some are left (auto), or as Ctrl+T or /config last set. */
@@ -1453,7 +1455,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
               cancel();
             }
           : undefined;
-        return <FindBar find={find} count={matchCount} width={width} onChange={setFind} onClose={close} onCancel={onCancel} />;
+        const onClose = () => {
+          const keep = unfolded.current;
+          if (keep.length) setExpanded((open) => new Set([...open, ...keep]));
+          close();
+        };
+        return <FindBar find={find} count={matchCount} width={width} onChange={setFind} onClose={onClose} onCancel={onCancel} />;
       }
       case "plugins":
         return (
@@ -1806,7 +1813,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       find={find}
       finding={overlay?.kind === "find"}
       onFind={slashFind}
-      onMatches={setMatchCount}
+      onMatches={(count, steps) => {
+        setMatchCount(count);
+        unfolded.current = steps;
+      }}
     >
       {fullscreen ? panel : null}
     </Screen>

@@ -320,3 +320,13 @@ test("in a turn Claude started on its own, the row between its thinking and the 
   expect(yours[led - 1]!.trim()).toBe("│");
   expect(at(yours, "Reading retry and its tests")).toBe(led + 2);
 });
+
+test("what find looks for opens a folded step that holds it out of view, and only that one", () => {
+  const found = layout({ ...input(fixing(true), 118), query: "retry.ts" });
+  const lines = plain(found);
+  expect(found.unfolded).toEqual(["step:k1"]);
+  expect(at(lines, "src/retry.ts")).toBe(at(lines, "Reading retry and its tests") + 2);
+  // A match the folded step shows already, in its sentence, leaves it folded.
+  expect(layout({ ...input(fixing(true), 118), query: "Running the suite" }).unfolded).toEqual([]);
+  expect(layout(input(fixing(true), 118)).unfolded).toEqual([]);
+});
