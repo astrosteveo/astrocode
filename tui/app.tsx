@@ -116,8 +116,8 @@ type Overlay =
   | { kind: "btw"; question: string }
   /** Remote Control's link, its QR code and how it's doing. */
   | { kind: "remote" }
-  /** Finding text in the transcript. */
-  | { kind: "find" }
+  /** Finding text in the transcript; `/` there gives what its Esc does, as `claude`'s cancels. */
+  | { kind: "find"; cancel?: () => void }
   /** The conversation's pictures, as large as they go, opened on one of them. */
   | { kind: "picture"; image: ImageAttachment }
   /** Every key, for what had your keys when `?` or /help opened it: a decision by its request's id, with the keys it takes. */
@@ -590,8 +590,24 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     if (fullscreen || state.items.length || state.live) toTranscript(true);
   };
 
-  /** Ctrl+F, and / in the transcript: a line to type what to find in it. */
+  /** Ctrl+F: a line to type what to find in the transcript. */
   const openFind = () => setOverlay({ kind: "find" });
+
+  /**
+   * `/` in the transcript: the same line, empty, as `claude`'s. Esc puts back the view and what was
+   * found before, for `n` and `N`.
+   */
+  const slashFind = (restore: () => void) => {
+    const before = find;
+    setFind({ query: "", back: 0 });
+    setOverlay({
+      kind: "find",
+      cancel: () => {
+        setFind(before);
+        restore();
+      },
+    });
+  };
 
   /**
    * Opens a call under its line, with your keys in the transcript. One still running in a task
@@ -1427,8 +1443,16 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
             }}
           />
         );
-      case "find":
-        return <FindBar find={find} count={matchCount} width={width} onChange={setFind} onClose={close} />;
+      case "find": {
+        const { cancel } = overlay;
+        const onCancel = cancel
+          ? () => {
+              close();
+              cancel();
+            }
+          : undefined;
+        return <FindBar find={find} count={matchCount} width={width} onChange={setFind} onClose={close} onCancel={onCancel} />;
+      }
       case "plugins":
         return (
           <PluginManager
@@ -1794,7 +1818,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       onPicture={openPictures}
       find={find}
       finding={overlay?.kind === "find"}
-      onFind={openFind}
+      onFind={slashFind}
       onMatches={setMatchCount}
     >
       {fullscreen ? panel : null}

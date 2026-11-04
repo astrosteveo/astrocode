@@ -4,10 +4,10 @@
 // gives the transcript your keys: a gold `›` marks the line the cursor is on, ↑ and ↓ move it, and
 // Enter does what a click on the line does. A step's line opens its call under the line, at every
 // width, a command opens, and what's open closes. `/` finds, `n` and `N` go to the next and previous
-// match, and `v` opens the conversation in $EDITOR, as in `claude`'s viewer. Esc, q or Ctrl+O gives
-// your keys back to the box. Dragging selects text and copies it, a click on a link opens it, and on
-// a picture enlarges it. Ctrl+F finds text in it, and Alt+↑ and Alt+↓ jump between your messages,
-// with Shift between tool calls and commands.
+// match, round past the ends, and `v` opens the conversation in $EDITOR, as in `claude`'s viewer.
+// Esc, q or Ctrl+O gives your keys back to the box. Dragging selects text and copies it, a click on
+// a link opens it, and on a picture enlarges it. Ctrl+F finds text in it too, and Alt+↑ and Alt+↓
+// jump between your messages, with Shift between tool calls and commands.
 import { Box, measureElement, Text, useBoxMetrics, useInput, useStdout, type DOMElement, type Key } from "ink";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
@@ -97,8 +97,8 @@ type Props = {
   find: Find;
   /** The find bar is open: its matches are marked, and the one it's on is in view, with the cursor. */
   finding: boolean;
-  /** `/`: the find bar. */
-  onFind: () => void;
+  /** `/`: the find bar, with what puts the cursor and the view back as they were, for its Esc. */
+  onFind: (restore: () => void) => void;
   /** How many matches the transcript has for it. */
   onMatches: (count: number) => void;
   /** What's pinned under the viewport. */
@@ -138,10 +138,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   // Search's matches, top to bottom, and the one it's on, counted back from the newest.
   const search = finding ? sought : null;
   const query = search?.query ?? "";
-  const matches = useMemo(
-    () => (query ? rows.flatMap((row, index) => findIn(row.text, query).map(([from, to]) => ({ index, from, to }))) : []),
-    [rows, query],
-  );
+  const matches = useMemo(() => (query ? matchesIn(rows, query) : []), [rows, query]);
   const current = matches.length ? matches.length - 1 - ((search?.back ?? 0) % matches.length) : -1;
   const marks = useMemo(() => {
     const byRow = new Map<number, { ranges: [number, number][]; current: number }>();
@@ -236,12 +233,16 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     show(index);
   };
 
-  /** `n` or `N`: the cursor to the next line down, or up, with a match for what was found last, as `less` goes on. */
+  /**
+   * `n` or `N`: the cursor to the next line down, or up, with a match for what was found last, and
+   * from the last round to the first, or the other way, as `claude` goes on.
+   */
   const findNext = (by: -1 | 1) => {
     const { transcript, at } = now.current;
+    if (!sought.query) return;
     const from = at ?? lastShown();
-    const lines = sought.query ? transcript.rows.flatMap((row, i) => (isStop(row) && findIn(row.text, sought.query).length ? [i] : [])) : [];
-    const next = by < 0 ? lines.findLast((line) => line < from) : lines.find((line) => line > from);
+    const lines = [...new Set(matchesIn(transcript.rows, sought.query).map((match) => match.index))].filter((line) => isStop(transcript.rows[line]));
+    const next = by < 0 ? (lines.findLast((line) => line < from) ?? lines.at(-1)) : (lines.find((line) => line > from) ?? lines[0]);
     if (next === undefined) return;
     place(next);
     show(next);
@@ -308,8 +309,13 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     else if (key.escape && ledger !== undefined) backOut(ledger);
     else if (key.escape && open) onToggle(callTarget(open.id));
     else if (key.escape || letter === "q" || keymap.get(strokeOf(input, key) ?? "") === "app:toggleTranscript") onLeave();
-    else if (letter === "/") onFind();
-    else if (letter === "n" || letter === "N") findNext(letter === "n" ? 1 : -1);
+    else if (letter === "/") {
+      const back = { anchor, cursor };
+      onFind(() => {
+        setAnchor(back.anchor);
+        setCursor(back.cursor);
+      });
+    } else if (letter === "n" || letter === "N") findNext(letter === "n" ? 1 : -1);
     else if (letter === "v") onEdit(conversation());
     else if (!open) return false;
     else if (key.leftArrow || key.rightArrow) onToggle(moveTarget(key.leftArrow ? -1 : 1));
@@ -838,6 +844,11 @@ export function transcriptHint(opened: "call" | "ledger" | undefined, room: numb
     hint = next;
   }
   return hint;
+}
+
+/** Where `query` is found in `rows`, top to bottom: each match's row and its columns there. */
+function matchesIn(rows: Row[], query: string) {
+  return rows.flatMap((row, index) => findIn(row.text, query).map(([from, to]) => ({ index, from, to })));
 }
 
 /** A line the cursor stops on: one with something past the rail. */

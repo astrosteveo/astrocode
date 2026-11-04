@@ -818,7 +818,10 @@ test("{ and }, Alt+↑ and Alt+↓ move the cursor to your message before or aft
   expect(cursor()).toBe(row(/Searched +c13 in src/));
 });
 
-test("/ in the transcript finds, with the cursor on the match, and n and N go on to the next and previous line that has it, as claude's viewer does", async () => {
+/** The find bar's row, or -1: what it finds, then how many matches or none, or its placeholder. */
+const findBar = (row: (text: RegExp) => number) => row(/Find .*(in the conversation|\d of \d|no matches)/);
+
+test("/ in the transcript finds as claude's viewer does: Enter keeps the match, with the cursor on it, and n and N go on to the next and previous line that has it, round past the ends", async () => {
   const { press, cursor, row, boxKeys } = await launch(THREE);
   await press(KEYS.ctrlO);
   await press(KEYS.up);
@@ -828,17 +831,52 @@ test("/ in the transcript finds, with the cursor on the match, and n and N go on
   expect(row(/Find +in the conversation/)).not.toBe(-1);
   await press("Searched");
   // The bar starts on the newest match, and the cursor goes with it.
-  expect(row(/1 of 2|2 of 2/)).not.toBe(-1);
-  await press(KEYS.esc);
+  expect(row(/2 of 2/)).not.toBe(-1);
+  // Enter accepts: the bar closes, and the transcript has your keys again, its cursor on the match.
+  await press(KEYS.enter);
+  expect(findBar(row)).toBe(-1);
   expect(boxKeys()).toBe(false);
   expect(cursor()).toBe(row(/Searched +c in src/));
-  await press("N");
-  expect(cursor()).toBe(row(/Searched +a in src/));
-  // Past the first match there's none further up, so the cursor stays.
-  await press("N");
+  // n goes down, and from the last match round to the first; N goes up, and round the other way.
+  await press("n");
   expect(cursor()).toBe(row(/Searched +a in src/));
   await press("n");
   expect(cursor()).toBe(row(/Searched +c in src/));
+  await press("N");
+  expect(cursor()).toBe(row(/Searched +a in src/));
+  await press("N");
+  expect(cursor()).toBe(row(/Searched +c in src/));
+  // The next / starts empty, so what's typed is a new search.
+  await press("/");
+  expect(row(/Find +in the conversation/)).not.toBe(-1);
+});
+
+test("Esc in the / bar puts the cursor and the view back where they were, and n and N keep to what was found before", async () => {
+  // Enough of a conversation that its start is out of view from its end.
+  const long: State = { ...THREE, items: [...THREE.items, ...Array.from({ length: 40 }, (_, i): Item => ({ kind: "text", key: `f${i}`, text: `Filler ${i}.` }))] };
+  const { press, cursor, row } = await launch(long, { rows: 24 });
+  await press(KEYS.ctrlO);
+  expect(cursor()).toBe(row(/Filler 39\./));
+  await press("/");
+  await press("look around");
+  expect(row(/look around/)).not.toBe(-1);
+  await press(KEYS.esc);
+  expect(findBar(row)).toBe(-1);
+  expect(row(/look around/)).toBe(-1);
+  expect(cursor()).toBe(row(/Filler 39\./));
+  // Nothing was found before, so n has nothing to go to.
+  await press("n");
+  expect(cursor()).toBe(row(/Filler 39\./));
+  await press("/");
+  await press("Searched");
+  await press(KEYS.enter);
+  expect(cursor()).toBe(row(/Searched +c in src/));
+  await press("/");
+  await press("Filler 3");
+  await press(KEYS.esc);
+  expect(cursor()).toBe(row(/Searched +c in src/));
+  await press("N");
+  expect(cursor()).toBe(row(/Searched +a in src/));
 });
 
 test("v in the transcript opens the whole conversation in $EDITOR, as claude's viewer does", async () => {
