@@ -398,6 +398,29 @@ test("Enter on a line of several calls closes the one of them that's open", asyn
   expect(opened()).toBeUndefined();
 });
 
+test("Enter on a turn's closing line lists what it changed and its tokens, and Enter again closes it", async () => {
+  const ended: State = {
+    ...initialState("/p", "/home/u"),
+    items: [
+      { kind: "prompt", key: "p", text: "fix it" },
+      { kind: "text", key: "t", text: "Fixed." },
+      { kind: "turn", key: "end", outcome: "finished", durationMs: 6000, tokens: 1200, files: [{ path: "/p/src/a.ts", added: 2, removed: 1 }], commands: ["bun test"] },
+    ],
+  };
+  const { press, cursor, row } = await launch(ended);
+  await press(KEYS.ctrlO);
+  expect(cursor()).toBe(row(/6s · 1 file \+2 −1/));
+  await press(KEYS.enter);
+  expect(row(/changed +src\/a\.ts \+2 −1/)).toBeGreaterThan(cursor());
+  expect(row(/ran +\$ bun test/)).toBeGreaterThan(cursor());
+  // The closing line holds still as the list opens under it, so the cursor goes down to the tokens.
+  for (let i = 0; i < 3; i++) await press(KEYS.down);
+  expect(cursor()).toBe(row(/1\.2k tokens/));
+  await press(KEYS.enter);
+  expect(row(/changed +src\/a\.ts/)).toBe(-1);
+  expect(cursor()).toBe(row(/6s · 1 file \+2 −1/));
+});
+
 test("PgUp and PgDn move the cursor half a screen, Home and End to the top and the end, which the view follows again", async () => {
   const { press, cursor, row, screen } = await launch(long(), { rows: 24 });
   await press(KEYS.ctrlO);
