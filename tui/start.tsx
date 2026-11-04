@@ -37,14 +37,14 @@ export type Start = {
   keys: [key: string, does: string][];
 };
 
-export function startOf(state: State, branch: string | undefined, keymap: Keymap, now = Date.now()): Start {
+export function startOf(state: State, branch: string | undefined, keymap: Keymap, fullscreen: boolean, now = Date.now()): Start {
   const { loaded } = state;
   const model = currentModel(state)?.name ?? (state.model ? modelLabel(state.model) : undefined);
   const effort = state.ultracode ? "ultracode" : state.effort;
   const count = (n: number | undefined, what: string) => (n ? [plural(n, what)] : []);
-  const bound = (action: Action): [string, string][] => {
+  const bound = (action: Action, does: string = ACTIONS[action]): [string, string][] => {
     const key = hintKey(keymap, action);
-    return key ? [[key, ACTIONS[action]]] : [];
+    return key ? [[key, does]] : [];
   };
   return {
     engine: loaded?.version,
@@ -70,7 +70,8 @@ export function startOf(state: State, branch: string | undefined, keymap: Keymap
       ["!", "shell command"],
       ["/help", "keys and commands"],
       ...bound("chat:cycleMode"),
-      ...bound("app:toggleTranscript"),
+      // In full screen Ctrl+O gives the transcript your keys; in scrollback it still opens the tool output picker.
+      ...bound("app:toggleTranscript", fullscreen ? "transcript" : ACTIONS["app:toggleTranscript"]),
       ["←", "conversations"],
       ["esc", "stop Claude"],
     ],
