@@ -7,6 +7,7 @@ import { stripVTControlCharacters } from "node:util";
 import type { AgentSession } from "../src/session";
 import { saved, settingsPath } from "../src/settings";
 import { App } from "./app";
+import { Background, Fleet } from "./fleet";
 import { scratchConfig } from "./scratch-config";
 import { Store } from "./store";
 
@@ -43,12 +44,25 @@ function app() {
       };
     },
   });
-  const ink = render(<App store={store} session={session} fullscreen={false} onToggleFullscreen={() => {}} onAgents={() => {}} />, {
-    stdin: stdin as unknown as NodeJS.ReadStream,
-    stdout: stdout as unknown as NodeJS.WriteStream,
-    exitOnCtrlC: false,
-    patchConsole: false,
-  });
+  // No conversations besides this one, and no background sessions: never the real `claude agents`.
+  const ink = render(
+    <App
+      store={store}
+      session={session}
+      fullscreen={false}
+      onToggleFullscreen={() => {}}
+      onAgents={() => {}}
+      fleet={new Fleet()}
+      backgroundSessions={new Background(async () => [])}
+      agentsHint={Promise.resolve(false)}
+    />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  );
   /** Each key on its own, as typed. */
   const press = async (...keys: string[]) => {
     for (const key of keys) {

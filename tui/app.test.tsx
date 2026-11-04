@@ -8,6 +8,7 @@ import type { AgentSession } from "../src/session";
 import { saved } from "../src/settings";
 import { initialState, type Item, type State, type ToolCall } from "../src/view/state";
 import { App } from "./app";
+import { Background, Fleet } from "./fleet";
 import { Mouse, MouseContext, MULTI_CLICK_MS } from "./mouse";
 import { scratchConfig } from "./scratch-config";
 import { Store } from "./store";
@@ -79,7 +80,17 @@ async function launch(state: State, { columns = 200, rows = 40, follow = false }
   mouse.start();
   const app = render(
     <MouseContext.Provider value={mouse}>
-      <App store={store} session={session} fullscreen onToggleFullscreen={() => {}} onAgents={() => {}} />
+      {/* No conversations besides this one, and no background sessions: never the real `claude agents`. */}
+      <App
+        store={store}
+        session={session}
+        fullscreen
+        onToggleFullscreen={() => {}}
+        onAgents={() => {}}
+        fleet={new Fleet()}
+        backgroundSessions={new Background(async () => [])}
+        agentsHint={Promise.resolve(false)}
+      />
     </MouseContext.Provider>,
     { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, exitOnCtrlC: false, patchConsole: false, debug: true },
   );
