@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
-import type { AgentSession } from "../src/session";
+import type { AgentSession, TaskOutput } from "../src/session";
 import { saved } from "../src/settings";
 import { initialState, type Item, type State, type ToolCall } from "../src/view/state";
 import { App } from "./app";
@@ -41,11 +41,12 @@ afterEach(async () => {
 });
 
 /**
- * astrocode in full screen on a fake terminal, over `state`, with a session that does nothing and the
- * mouse on. `screen()` is the last frame drawn, a row per line, without its colors; `update()` puts
- * another state in its place.
+ * astrocode in full screen (or with `fullscreen: false` in scrollback) on a fake terminal, over
+ * `state`, with a session that does nothing but answer `taskOutput` as `output` says and what
+ * `session` answers, and the mouse on. `screen()` is the last frame drawn, a row per line, without
+ * its colors; `update()` puts another state in its place.
  */
-async function launch(state: State, { columns = 200, rows = 40, session: answers = {} as Record<string, (...args: unknown[]) => Promise<unknown>> } = {}) {
+async function launch(state: State, { columns = 200, rows = 40, fullscreen = true, output = (_id: string): TaskOutput | null => null, session: answers = {} as Record<string, (...args: unknown[]) => Promise<unknown>> } = {}) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns, rows });
   const writes: string[] = [];
   stdout.on("data", (chunk: Buffer) => writes.push(chunk.toString()));
@@ -60,8 +61,9 @@ async function launch(state: State, { columns = 200, rows = 40, session: answers
       listeners.delete(listener);
     };
   };
-  /** What the app asked of the session, by method. */
+  /** What the app asked of the session, by method, and with what. */
   const asked: string[] = [];
+  const calls: { name: string; args: unknown[] }[] = [];
   const session = new Proxy(
     {},
     {
@@ -72,6 +74,8 @@ async function launch(state: State, { columns = 200, rows = 40, session: answers
             ? undefined
             : (...args: unknown[]) => {
                 asked.push(String(name));
+                calls.push({ name: String(name), args });
+                if (name === "taskOutput") return Promise.resolve(output(String(args[0])));
                 return answers[String(name)]?.(...args) ?? Promise.resolve(null);
               },
     },
@@ -84,7 +88,7 @@ async function launch(state: State, { columns = 200, rows = 40, session: answers
       <App
         store={store}
         session={session}
-        fullscreen
+        fullscreen={fullscreen}
         onToggleFullscreen={() => {}}
         onAgents={() => {}}
         fleet={new Fleet()}
@@ -143,7 +147,7 @@ async function launch(state: State, { columns = 200, rows = 40, session: answers
     const box = lines.findIndex((line) => line.startsWith(" ❯"));
     return /^▁+$/.test(lines[box - 1] ?? "");
   };
-  return { screen, row, press, click, wheel, update, cursor, boxKeys, asked, writes, exited: () => exited };
+  return { screen, row, press, click, wheel, update, cursor, boxKeys, asked, calls, writes, exited: () => exited };
 }
 
 const KEYS = { ctrlO: "\x0f", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", ctrlC: "\x03", ctrlL: "\x0c", ctrlA: "\x01", ctrlD: "\x04", shiftUp: "\x1b[1;2A" };
@@ -198,26 +202,26 @@ test("x stops the running subagent or command under the cursor, opened or not, a
     tools: Object.fromEntries(items.flatMap((item, i) => (item.kind === "tool" ? [[item.call.id, i]] : []))),
     taskInfo: { ...state.taskInfo, "bash-1": { id: "bash-1", description: "Wait for the build", type: "local_bash", toolUseId: "w", background: true, status: "running" } },
   };
-  const { press, asked, row, cursor } = await launch(both);
-  const stopped = () => asked.filter((name) => name === "stopTask").length;
+  const { press, calls, row, cursor } = await launch(both);
+  const stopped = () => calls.filter((one) => one.name === "stopTask").map((one) => one.args[0]);
   await press(KEYS.ctrlO);
   await press("x");
-  expect(stopped()).toBe(1);
+  expect(stopped()).toEqual(["agent-1"]);
   // Opened, from inside it.
   await press(KEYS.enter);
   await press(KEYS.down);
   await press("x");
-  expect(stopped()).toBe(2);
+  expect(stopped()).toEqual(["agent-1", "agent-1"]);
   // A finished call has nothing to stop; a command in the background does.
   await press(KEYS.esc);
   await press(KEYS.up);
   expect(cursor()).toBe(row(/Searched +a in src/));
   await press("x");
-  expect(stopped()).toBe(2);
+  expect(stopped()).toHaveLength(2);
   await press(KEYS.up);
   expect(cursor()).toBe(row(/Waiting +for the build/));
   await press("x");
-  expect(stopped()).toBe(3);
+  expect(stopped()).toEqual(["agent-1", "agent-1", "bash-1"]);
 });
 
 test("x on a running call that can't stop on its own says what stops it", async () => {
