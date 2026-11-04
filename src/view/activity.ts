@@ -19,8 +19,13 @@ export type Tone = "plain" | "bright" | "quiet" | "faint" | "code" | "added" | "
 export type Part = { text: string; tone: Tone };
 
 export type ActivityRow = {
-  /** The calls the line stands for, in order. A click on the line inspects the first. */
+  /** The calls the line stands for, in order. */
   calls: ToolCall[];
+  /**
+   * The call a click on the line opens, by id: the one waiting for your OK, else the last still
+   * running, which Claude is on, else the first.
+   */
+  opens: string;
   verb: string;
   target: Part[];
   /** The target is a path, or paths, which keep their ends when cut to fit. */
@@ -131,7 +136,8 @@ function rowOf(calls: ToolCall[], waiting: ReadonlySet<string>, cwd: string, hom
     const one = waiting.has(call.id) ? "waiting" : call.status;
     return RANK[one] > RANK[worst] ? one : worst;
   }, "done");
-  const row: ActivityRow = { calls, verb: "", target: [], path: false, result: [], status };
+  const opens = (calls.find((call) => waiting.has(call.id)) ?? calls.findLast((call) => call.status === "running") ?? first).id;
+  const row: ActivityRow = { calls, opens, verb: "", target: [], path: false, result: [], status };
   const forms = describe(row, cwd, home);
   const last = calls.at(-1)!;
   /** The target in a tense, after `verb` where one leads it. */

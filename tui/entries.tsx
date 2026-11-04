@@ -182,12 +182,9 @@ export type StepRow = {
 /** A piece of a step as full screen lays it out: what it draws, and what a click on it acts on. */
 export type Piece = { key: string; target?: string; node: ReactNode };
 
-/** What a click on an activity line acts on: the call it stands for (`lineCall()`), to inspect. */
+/** What a click on an activity line acts on: the call it opens (`ActivityRow.opens`). */
 export const callTarget = (id: string) => `call:${id}`;
 export const targetCall = (target: string) => (target.startsWith("call:") ? target.slice(5) : undefined);
-
-/** The call a line of several stands for: while it runs, the last of them, which Claude is on; else the first. */
-export const lineCall = (row: ActivityRow) => (row.status === "running" || row.status === "waiting" ? row.calls.at(-1)! : row.calls[0]!);
 
 type StepProps = {
   step: StepRow;
@@ -301,7 +298,7 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
     }
     const { row } = one;
     const id = row.calls[0]!.id;
-    const target = callTarget(lineCall(row).id);
+    const target = callTarget(row.opens);
     // A closed step's line for what it leaves out goes after its first two lines.
     if (hidden.length && i === 2) {
       verb = "";

@@ -650,7 +650,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       setOverlay({ kind: "task", key: task });
       return false;
     }
-    setInspect({ id, follow: id === newest?.id && newest.status === "running" });
+    // A call Claude is on, as it runs or waits for you, follows Claude.
+    setInspect({ id, follow: item?.kind === "tool" && item.call.status === "running" });
     toTranscript(true);
     return true;
   };
