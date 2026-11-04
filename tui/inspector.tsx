@@ -206,7 +206,7 @@ export function Inspector({ call, place, waiting, width, height, focused, over =
   const position = `${place.index} of ${place.count}`;
   const ms = call.startedAt !== undefined && call.endedAt !== undefined ? call.endedAt - call.startedAt : call.elapsed ? call.elapsed * 1000 : undefined;
   const spent = timed(ms) ? took(ms) : "";
-  const title = titleOf(call, cwd, home);
+  const title = titleOf(call, waiting, cwd, home);
   const pillWidth = status.text.length + 2 + (spent ? spent.length + 2 : 0);
   const thumb = total > view ? Math.max(1, Math.round((view * view) / total)) : 0;
   const thumbTop = thumb && maxTop ? Math.round(((view - thumb) * top) / maxTop) : 0;
@@ -341,12 +341,12 @@ function Keys({ pairs }: { pairs: [string, string][] }) {
 
 /**
  * What the header calls the call: Claude's description of a command or subagent, else its activity
- * line, whose path keeps its end when it's cut to fit.
+ * line, whose path keeps its end when it's cut to fit. `waiting`: it waits for your OK, so its verb asks.
  */
-export function titleOf(call: ToolCall, cwd: string, home: string): { verb?: string; text: string; path: boolean } {
+export function titleOf(call: ToolCall, waiting: boolean, cwd: string, home: string): { verb?: string; text: string; path: boolean } {
   const description = typeof call.input.description === "string" ? call.input.description.trim() : "";
   if ((call.name === "Bash" || call.name === "Agent" || call.name === "Task") && description) return { text: description, path: false };
-  const row = activityRows([call], new Set(), cwd, home)[0];
+  const row = activityRows([call], new Set(waiting ? [call.id] : []), cwd, home)[0];
   return row ? { verb: row.verb, text: row.target.map((part) => part.text).join("").trim(), path: row.path } : { text: toolLabel(call.name), path: false };
 }
 
