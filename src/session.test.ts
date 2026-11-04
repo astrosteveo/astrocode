@@ -145,6 +145,19 @@ test("records the working tree before Claude Code has your message, and says wha
   expect(events.find((event) => event.kind === "ledger")).toMatchObject({ files: [{ path: join(top, "a.txt"), added: 1, removed: 0 }], commits: [] });
 });
 
+test("tells the view which files the edit tools changed that git can't see", async () => {
+  const { top, one, events } = inRepo();
+  writeFileSync(join(top, ".gitignore"), ".env\n");
+  answer = (_, out) => {
+    writeFileSync(join(top, ".env"), "PORT=2\n");
+    out.push({ ...assistant(""), message: { id: randomUUID(), model: "x", role: "assistant", content: [{ type: "tool_use", id: "e", name: "Write", input: { file_path: join(top, ".env"), content: "PORT=2\n" } }] } });
+    out.push(result());
+  };
+  one.send("set the port");
+  await until(() => kinds(events).includes("sdk:result"));
+  expect(events.find((event) => event.kind === "ledger")).toMatchObject({ unseen: [join(top, ".env")] });
+});
+
 test("counts a message you sent mid-turn in the turn it joined", async () => {
   const { top, one, events } = inRepo();
   // The first message starts work and the second ends it, as Claude Code takes a queued message mid-turn.

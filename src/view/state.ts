@@ -11,7 +11,7 @@ import type {
   SDKPartialAssistantMessage,
   SDKResultMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { CommandInfo, ElicitationRequest, FileChange, ImageAttachment, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, RemoteControl, SessionEvent } from "../events";
+import type { CommandInfo, ElicitationRequest, FileChange, ImageAttachment, Ledger, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, RemoteControl, SessionEvent } from "../events";
 import { AGENT_LINES, agentLines, type AgentLine } from "./agents";
 import { compact, duration } from "./format";
 import { turnWork } from "./ledger";
@@ -280,7 +280,7 @@ export type State = {
   /** Output tokens of this turn's finished messages. */
   turnTokens: number;
   /** What git says the turn now ending changed, from its edges, until its result closes it. */
-  ledger?: { files: FileChange[]; commits: string[] };
+  ledger?: Ledger;
   seq: number;
 };
 
@@ -353,7 +353,7 @@ export function reduce(state: State, event: ViewEvent): State {
     case "sdk":
       return applySdk(state, event.message, event.images, event.at);
     case "ledger":
-      return { ...state, ledger: { files: event.files, commits: event.commits } };
+      return { ...state, ledger: { files: event.files, commits: event.commits, unseen: event.unseen } };
     case "permission": {
       const next = { ...state, pending: [...state.pending.filter((p) => p.id !== event.request.id), event.request] };
       // A subagent's prompt marks its call on the Agent call it runs under, and for a nested one the

@@ -74,8 +74,8 @@ const answered = (id: string, content: string, output?: unknown, error = false) 
   sdk({ type: "user", uuid: `u-${id}`, session_id: "s", parent_tool_use_id: null, message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content, is_error: error }] }, ...(output !== undefined && { tool_use_result: output }) }, T + 1000);
 const ended = (ms = 6000) => sdk({ type: "result", subtype: "success", uuid: "r", session_id: "s", duration_ms: ms, num_turns: 3, is_error: false, result: "done" }, T + ms);
 const lastTurn = (state: State) => state.items.findLast((item) => item.kind === "turn");
-/** What the session's snapshots said the turn changed in git. */
-const git = (files: FileChange[], commits: string[] = []): SessionEvent => ({ kind: "ledger", files, commits });
+/** What the session's snapshots said the turn changed in git, and which of the edits' files git can't see. */
+const git = (files: FileChange[], commits: string[] = [], unseen: string[] = []): SessionEvent => ({ kind: "ledger", files, commits, unseen });
 
 test("lists a command that failed among those the turn ran", () => {
   const state = [
@@ -233,6 +233,34 @@ test("says what the turn pushed and the pull request it opened, as Claude Code r
     ended(),
   ].reduce(reduce, start());
   expect(closing(state)).toBe("6s · pushed · PR #12");
+});
+
+test("counts the edits' own diffs for files git can't see, ignored or outside the repository", () => {
+  const patch = [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-PORT=1", "+PORT=2"] }];
+  const state = [
+    { kind: "prompt", text: "change the port" } as const,
+    call("e", "Edit", { file_path: "/work/.env", old_string: "PORT=1", new_string: "PORT=2" }),
+    answered("e", "Updated", { filePath: "/work/.env", structuredPatch: patch }),
+    call("z", "Edit", { file_path: "/home/.zshrc", old_string: "PORT=1", new_string: "PORT=2" }),
+    answered("z", "Updated", { filePath: "/home/.zshrc", structuredPatch: patch }),
+    git([{ path: "/work/a.ts", added: 1, removed: 0 }], [], ["/work/.env", "/home/.zshrc"]),
+    ended(),
+  ].reduce(reduce, start());
+  expect(closing(state)).toBe("6s · 3 files +3 −2 · not committed");
+});
+
+test("takes git's word over the edits' for a file it sees, as one an edit changed and a command put back", () => {
+  const patch = [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-a", "+b"] }];
+  const state = [
+    { kind: "prompt", text: "try it" } as const,
+    call("e", "Edit", { file_path: "/work/a.ts", old_string: "a", new_string: "b" }),
+    answered("e", "Updated", { filePath: "/work/a.ts", structuredPatch: patch }),
+    call("c", "Bash", { command: "git checkout -- a.ts" }),
+    answered("c", "", { stdout: "", stderr: "", interrupted: false }),
+    git([]),
+    ended(),
+  ].reduce(reduce, start());
+  expect(closing(state)).toBe("6s");
 });
 
 test("keeps git's word for one turn only", () => {

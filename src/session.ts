@@ -41,7 +41,7 @@ import {
 import { AsyncQueue } from "./queue";
 import { SHOW_SERVER, SHOW_TOOL } from "./show";
 import { Snapshots } from "./snapshots";
-import { field } from "./view/tools";
+import { editedFile, field } from "./view/tools";
 
 export type SessionOptions = {
   /** The project Claude works in. */
@@ -188,6 +188,8 @@ export class AgentSession {
   private snapshots: Snapshots;
   /** A turn is under way: from the message that starts it, or the first word of one Claude starts itself, to its result. */
   private turning = false;
+  /** The files the turn's edit tools changed, of which git may not see some. */
+  private edited = new Set<string>();
 
   constructor(private readonly options: SessionOptions) {
     this.model = options.model;
@@ -341,6 +343,7 @@ export class AgentSession {
     const mentions = mentionsIn(text, images);
     const starts = !this.turning;
     this.turning = true;
+    if (starts) this.edited.clear();
     this.options.emit({ kind: "prompt", text, uuid, images: Object.fromEntries(mentions.map(({ n, image }) => [n, image])), at: Date.now(), later: how.later, starts });
     const run = this.run;
     // Typed by a person: Claude Code acts on what only you can ask for, such as the ultracode
@@ -965,10 +968,17 @@ export class AgentSession {
         const at = Date.now();
         // A turn Claude starts by itself counts what it changed from where the last one ended.
         if ((message.type === "assistant" || message.type === "stream_event") && !message.parent_tool_use_id) this.turning = true;
+        if (message.type === "assistant" && !message.parent_tool_use_id) {
+          for (const block of message.message.content) {
+            const path = block.type === "tool_use" ? editedFile(block.name, block.input as Record<string, unknown>) : undefined;
+            if (path) this.edited.add(path);
+          }
+        }
         if (message.type === "result" && this.turning) {
           this.turning = false;
           // Before the result, so the turn's closing line is whole when it's drawn: scrollback can't redraw it.
-          const ledger = await this.snapshots.end();
+          const ledger = await this.snapshots.end([...this.edited]);
+          this.edited.clear();
           if (ledger) this.options.emit({ kind: "ledger", ...ledger });
         }
         this.options.emit(sdkEvent(message, at));

@@ -14,6 +14,15 @@ export function toolLabel(name: string) {
   return `${rest.join("__")} (${server})`;
 }
 
+const EDITS = new Set(["Edit", "Write", "NotebookEdit", "MultiEdit"]);
+
+/** The file an edit tool's call changes, by the path it was given; undefined for any other tool. */
+export function editedFile(name: string, input: Record<string, unknown>) {
+  if (!EDITS.has(name)) return undefined;
+  const path = input.file_path ?? input.notebook_path;
+  return typeof path === "string" && path ? path : undefined;
+}
+
 /** What the call acts on, in one line: Bash's command, Read's path, a search's pattern. */
 export function toolTarget(call: ToolCall, cwd: string, home: string) {
   const text = (key: string) => {

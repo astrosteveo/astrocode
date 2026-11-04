@@ -114,6 +114,13 @@ export type CommandInfo = { name: string; description: string; argumentHint: str
 export type FileChange = { path: string; added: number; removed: number };
 
 /**
+ * What a turn changed in a git repository: the files that differ between the working tree at its
+ * start and at its end, and the commits made on HEAD since it started, oldest first. `unseen`: the
+ * files the edit tools changed that git can't see, being ignored or outside the repository.
+ */
+export type Ledger = { files: FileChange[]; commits: string[]; unseen: string[] };
+
+/**
  * Remote Control: the session reachable from claude.ai/code and the Claude app. `url` is the link to
  * it, once Claude Code has said; `detail` says why it failed, or what it's waiting on.
  */
@@ -146,12 +153,8 @@ export type SessionEvent =
    * which times tool calls, live or replayed.
    */
   | { kind: "sdk"; message: SDKMessage; images?: Record<string, ImageAttachment[]>; at?: number }
-  /**
-   * What the turn now ending changed, from git: the files that differ between the working tree at
-   * its start and at its end, and the commits made on HEAD since it started, oldest first. Sent just
-   * before the turn's result, and only in a git repository.
-   */
-  | { kind: "ledger"; files: FileChange[]; commits: string[] }
+  /** What the turn now ending changed, from git. Sent just before the turn's result, and only in a git repository. */
+  | ({ kind: "ledger" } & Ledger)
   | { kind: "permission"; request: PermissionRequest }
   | { kind: "question"; request: QuestionRequest }
   | { kind: "elicitation"; request: ElicitationRequest }

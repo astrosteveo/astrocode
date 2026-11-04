@@ -9,10 +9,10 @@
 // A file over 10 MB isn't read: a stub of its size and mtime stands in for it, so a turn that writes
 // one still counts it. Files under ~/.claude don't count, unless the repository is in it.
 import { rmSync } from "node:fs";
-import { copyFile, lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, relative } from "node:path";
-import type { FileChange } from "./events";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import type { FileChange, Ledger } from "./events";
 
 /** Files bigger than this aren't hashed, so an edge never reads a build's output or a dataset whole. */
 const BIG = 10 * 1024 * 1024;
@@ -30,9 +30,6 @@ const folders = new Set<string>();
 process.on("exit", () => {
   for (const folder of folders) rmSync(folder, { recursive: true, force: true });
 });
-
-/** What a turn changed in a git repository: the files, and the commits made on HEAD, oldest first. */
-export type Ledger = { files: FileChange[]; commits: string[] };
 
 /** The working tree as a tree at one edge, with HEAD then, if there was one, and when the edge started. */
 type Edge = { tree: string; head?: string; at: number };
@@ -69,22 +66,24 @@ export class Snapshots {
 
   /**
    * What the turn changed since it started, recording the tree it ends at, which a turn Claude
-   * starts by itself counts from. Null outside git, or when an edge failed or ran out of time.
+   * starts by itself counts from, and which of the files the edit tools changed, `edited`, git
+   * can't see. Null outside git, or when an edge failed or ran out of time.
    */
-  end(): Promise<Ledger | null> {
+  end(edited: string[] = []): Promise<Ledger | null> {
     return this.serial(async (signal) => {
       const from = this.last;
       this.last = await this.edge(signal);
       const repo = this.repo;
       if (!from || !this.last || !repo) return null;
-      const [numstat, log] = await Promise.all([
+      const [numstat, log, unseen] = await Promise.all([
         git(repo, ["diff-tree", "-r", "--numstat", "-z", from.tree, this.last.tree], signal),
         // Commits made since the turn started: a pull or a switch brings older ones, which don't count.
         // rev-list, not log, which your log settings, such as log.showSignature, would add lines to.
         git(repo, ["rev-list", "--abbrev-commit", `--since=@${Math.floor(from.at / 1000)}`, "HEAD", ...(from.head ? [`^${from.head}`] : [])], signal),
+        unseenOf(repo, edited, signal),
       ]);
       if (numstat === null) return null;
-      return { files: numstats(numstat, repo.top), commits: (log ?? "").split("\n").filter(Boolean).reverse() };
+      return { files: numstats(numstat, repo.top), commits: (log ?? "").split("\n").filter(Boolean).reverse(), unseen };
     }, null);
   }
 
@@ -217,6 +216,20 @@ async function unfiltered(top: string): Promise<Record<string, string>> {
     env[`GIT_CONFIG_VALUE_${given + i}`] = value!;
   });
   return settings.length ? env : {};
+}
+
+/** Of `paths`, those git can't see: outside the repository, or ignored. A path through a symlink counts where it leads. */
+async function unseenOf(repo: Repo, paths: string[], signal: AbortSignal) {
+  const outside: string[] = [];
+  const inside = new Map<string, string>();
+  for (const path of paths) {
+    const where = relative(repo.top, join(await realpath(dirname(path)).catch(() => dirname(path)), basename(path)));
+    if (where === ".." || where.startsWith(`..${sep}`) || isAbsolute(where)) outside.push(path);
+    else inside.set(where, path);
+  }
+  // Exits 1 when none is ignored.
+  const ignored = inside.size ? await git(repo, ["check-ignore", "-z", "--stdin"], signal, [...inside.keys()].map((where) => `${where}\0`).join("")) : null;
+  return [...outside, ...(ignored ?? "").split("\0").flatMap((where) => inside.get(where) ?? [])];
 }
 
 /** What git printed, or null when it failed, or ran past the edge's deadline and was stopped. */
