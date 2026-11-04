@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "ink";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import type { AgentSession } from "../src/session";
@@ -10,7 +11,7 @@ import { scratchConfig } from "./scratch-config";
 import { Store } from "./store";
 
 /** Keys as a terminal sends them. */
-const KEYS = { enter: "\r", ctrlL: "\x0c", shiftUp: "\x1b[1;2A" };
+const KEYS = { enter: "\r", ctrlL: "\x0c", shiftUp: "\x1b[1;2A", esc: "\x1b", up: "\x1b[A" };
 
 /** What Ctrl+L writes in scrollback: the screen and its scrollback cleared, for the conversation to be written again. */
 const CLEARED = "\x1b[2J\x1b[3J\x1b[H";
@@ -103,4 +104,22 @@ test("Shift+↑ steps the effort for this session only, as claude does", async (
   ink.unmount();
   expect(asked).toContain("setEffort");
   expect(existsSync(settingsPath())).toBe(false);
+});
+
+test("Esc Esc clears the box into Claude Code's prompt history, where ↑ finds it at once", async () => {
+  const { press, store, ink, written } = app();
+  await settle();
+  await press("draft to keep", KEYS.esc);
+  const armed = written().length;
+  await press(KEYS.esc);
+  // The box has emptied, so the draft drawn next can only be ↑ bringing it back.
+  expect(stripVTControlCharacters(written().slice(armed))).not.toContain("draft to keep");
+  const cleared = written().length;
+  await press(KEYS.up);
+  const recalled = stripVTControlCharacters(written().slice(cleared));
+  await store.prompts.written();
+  ink.unmount();
+  expect(recalled).toContain("draft to keep");
+  const file = readFileSync(join(config.folder(), "claude", "history.jsonl"), "utf8");
+  expect(file).toContain('"display":"draft to keep"');
 });
