@@ -9,6 +9,7 @@ import { timed, took } from "../src/view/format";
 import { ledgerLine } from "../src/view/ledger";
 import { runOfCall, runOfShell } from "../src/view/runs";
 import type { Item, Live } from "../src/view/state";
+import { firstSentence } from "../src/view/steps";
 import { cellWidth } from "./markdown";
 import { fit, Markdown } from "./markdown-view";
 import { ModTree } from "./mod-tree";
@@ -77,8 +78,8 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
       );
     case "thinking":
       return (
-        <Railed node="∴" color={PALETTE.haze} rail={rail}>
-          <Markdown text={item.text} width={inner.width} voice="thinking" />
+        <Railed node="∴" color={PALETTE.dust} rail={rail}>
+          <Thought text={item.text} open={expanded} width={inner.width} />
         </Railed>
       );
     case "tool": {
@@ -164,7 +165,8 @@ const MOST_ROWS = 6;
 /** Thinking, Claude's words and progress lines between a step's calls, and the calls as activity lines, in order. */
 export type Flow =
   | { kind: "row"; row: ActivityRow }
-  | { kind: "thinking"; key: string; text: string }
+  /** `open`: all of it shows, not just its first sentence. */
+  | { kind: "thinking"; key: string; text: string; open: boolean }
   | { kind: "notice"; key: string; text: string; tone: "info" | "warning" | "error" };
 
 export type StepRow = {
@@ -201,9 +203,16 @@ type StepProps = {
   clickable?: boolean;
 };
 
+/** The thinking that led to the step, which stands above its sentence, and the rest of what it shows open, under its sentence. */
+function split(step: StepRow) {
+  const lead = step.flow[0]?.kind === "thinking" ? step.flow[0] : undefined;
+  return { lead, under: lead ? step.flow.slice(1) : step.flow };
+}
+
 /** Whether the step has more to show open than closed: Claude's words, thinking, or lines past the most a closed step shows. */
 export function opens(step: StepRow) {
-  return Boolean(step.more) || step.flow.some((one) => one.kind !== "row") || step.flow.length > MOST_ROWS;
+  const { under } = split(step);
+  return Boolean(step.more) || under.some((one) => one.kind !== "row") || under.length > MOST_ROWS;
 }
 
 /** Whether a closed step leaves `line` out, among the lines between its first two and its last three. */
@@ -248,26 +257,41 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
       </Railed>
     ),
   });
-  const pieces: Piece[] = [
-    {
-      key: "title",
-      target: openable ? step.key : undefined,
-      node: (
-        <Railed node={node} color={color} rail={rail}>
-          <Box justifyContent="space-between" width={inner}>
-            <Text wrap="truncate-end" color={step.made ? PALETTE.haze : PALETTE.star} italic={step.made} bold={live && !step.made}>
-              {fit(step.title, inner - cellWidth(tail) - 2, false)}
-            </Text>
-            <Text color={PALETTE.dust}>{tail}</Text>
-          </Box>
-          {open && step.more ? <Markdown text={step.more} width={inner} /> : null}
-        </Railed>
-      ),
-    },
-  ];
+  /** A thought opens when there's more to it than its first sentence. */
+  const thoughtTarget = (one: { key: string; text: string }) => (firstSentence(one.text).more ? one.key : undefined);
+  const { lead, under } = split(step);
+  const pieces: Piece[] = lead
+    ? [
+        {
+          key: lead.key,
+          target: thoughtTarget(lead),
+          node: (
+            <Railed node="∴" color={PALETTE.dust} rail={rail}>
+              <Thought text={lead.text} open={lead.open} width={inner} />
+            </Railed>
+          ),
+        },
+        { key: "gap", node: <Text color={PALETTE.dust}>│</Text> },
+      ]
+    : [];
+  pieces.push({
+    key: "title",
+    target: openable ? step.key : undefined,
+    node: (
+      <Railed node={node} color={color} rail={lead ? on : rail}>
+        <Box justifyContent="space-between" width={inner}>
+          <Text wrap="truncate-end" color={step.made ? PALETTE.haze : PALETTE.star} italic={step.made} bold={live && !step.made}>
+            {fit(step.title, inner - cellWidth(tail) - 2, false)}
+          </Text>
+          <Text color={PALETTE.dust}>{tail}</Text>
+        </Box>
+        {open && step.more ? <Markdown text={step.more} width={inner} /> : null}
+      </Railed>
+    ),
+  });
   // Closed, a step leaves out its thinking, and the lines between its first two and last three.
-  const rows = step.flow.filter((one) => one.kind === "row");
-  let shown: Flow[] = step.flow;
+  const rows = under.filter((one) => one.kind === "row");
+  let shown: Flow[] = under;
   let hidden: ActivityRow[] = [];
   if (!open) {
     shown = rows;
@@ -285,9 +309,10 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
         railed(
           one.key,
           <Box paddingLeft={INDENT}>
-            <Text color={PALETTE.haze}>∴ </Text>
-            <Markdown text={one.text} width={inner - INDENT - 2} voice="thinking" />
+            <Text color={PALETTE.dust}>∴ </Text>
+            <Thought text={one.text} open={one.open} width={inner - INDENT - 2} />
           </Box>,
+          thoughtTarget(one),
         ),
       );
       return;
@@ -353,6 +378,11 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
     }
   });
   return pieces;
+}
+
+/** Claude's thinking: its first sentence, or once opened, all of it. */
+function Thought({ text, open, width }: { text: string; open: boolean; width: number }) {
+  return <Markdown text={open ? text : firstSentence(text).text} width={width} voice="thinking" />;
 }
 
 /** Verbs colored by how their line is going: waiting on you, running, or never run or stopped. */

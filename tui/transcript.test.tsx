@@ -118,3 +118,66 @@ test("a whole tab opened isn't drawn again each time Claude starts another call 
   expect(body(after)).toEqual(body(before));
   expect(body(after)).toHaveLength(3000);
 });
+
+const BUN_FAILED = [
+  "src/retry.test.ts:",
+  "error: expect(received).toBe(expected)",
+  "",
+  "Expected: 3",
+  "Received: 4",
+  "",
+  "(fail) tries exactly `attempts` times [151.19ms]",
+  "",
+  " 3 pass",
+  " 1 fail",
+  "Ran 4 tests across 1 file. [2.07s]",
+].join("\n");
+
+/**
+ * A turn of two steps, each led by Claude's thinking, and the reply. The second step's run of the
+ * tests failed. `ended` closes the turn with its ledger, else Claude is still at it.
+ */
+function fixing(ended: boolean): State {
+  const steps = [
+    call("r", { name: "Read", input: { file_path: "/p/src/retry.ts" }, result: "1\tx", startedAt: 0, endedAt: 400 }),
+    call("b", { name: "Bash", input: { command: "bun test", description: "Run the tests" }, status: "error", result: BUN_FAILED, startedAt: 1000, endedAt: 3100 }),
+  ];
+  const items: Item[] = [
+    { kind: "prompt", key: "p", text: "The tests in src/retry.test.ts fail. Fix retry." },
+    { kind: "thinking", key: "k1", text: "I should read retry and its tests first. Then run the suite, so the failure is on record." },
+    { kind: "text", key: "s1", text: "Reading retry and its tests to find the off-by-one.", at: 0 },
+    { kind: "tool", key: "r", call: steps[0]! },
+    { kind: "thinking", key: "k2", text: "The loop runs attempts + 1 times." },
+    { kind: "text", key: "s2", text: "Running the suite to see the failure first.", at: 1000 },
+    { kind: "tool", key: "b", call: steps[1]! },
+    { kind: "thinking", key: "k3", text: "The failure is on record. Time to say so." },
+    { kind: "text", key: "reply", text: "The suite fails as expected: retry tries 4 times, not 3." },
+    ...(ended ? [{ kind: "turn" as const, key: "end", outcome: "finished" as const, durationMs: 6000, tokens: 1200, commands: ["bun test"], tests: { passed: 3, failed: 1 } }] : []),
+  ];
+  return { ...initialState("/p", "/home/u"), items, busy: !ended, tools: { r: 3, b: 6 } };
+}
+
+const at = (lines: string[], text: string) => lines.findIndex((line) => line.includes(text));
+
+test("while Claude works, its thinking stands above the step it led to, as its first sentence, and the step shows its calls", () => {
+  const lines = plain(layout(input(fixing(false), 118)));
+  expect(at(lines, "∴ I should read retry and its tests first.")).toBeGreaterThan(-1);
+  expect(at(lines, "Then run the suite")).toBe(-1);
+  expect(at(lines, "∴ I should read")).toBeLessThan(at(lines, "Reading retry and its tests"));
+  expect(at(lines, "∴ The loop runs")).toBeLessThan(at(lines, "Running the suite to see"));
+  expect(at(lines, "src/retry.ts")).toBeGreaterThan(at(lines, "Reading retry and its tests"));
+  // Thinking that led to the reply stands above the reply.
+  expect(at(lines, "∴ The failure is on record.")).toBeLessThan(at(lines, "The suite fails as expected"));
+});
+
+test("Enter on a thinking line opens the whole of it in place, and again closes it", () => {
+  const shut = layout(input(fixing(false), 118));
+  const row = shut.rows[at(plain(shut), "∴ I should read")]!;
+  expect(row).toMatchObject({ hot: true, target: "k1" });
+  const open = plain(layout({ ...input(fixing(false), 118), expanded: new Set(["k1"]) }));
+  expect(at(open, "Then run the suite")).toBeGreaterThanOrEqual(at(open, "∴ I should read"));
+  expect(at(open, "Then run the suite")).toBeLessThan(at(open, "Reading retry and its tests"));
+  // A thought of one sentence has nothing more to open.
+  const one = shut.rows[at(plain(shut), "∴ The loop runs")]!;
+  expect(one.target).toBeUndefined();
+});

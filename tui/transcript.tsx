@@ -4,6 +4,7 @@
 import { renderToString } from "ink";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Item, State, ToolCall } from "../src/view/state";
+import { firstSentence } from "../src/view/steps";
 import { arrange } from "./arrange";
 import { callTarget, ItemView, leavesOut, LiveView, opensByDefault, stepPieces, type Piece, type StepRow } from "./entries";
 import { placeOf } from "./inspector";
@@ -225,8 +226,8 @@ export function layout({ state, width, pictureRows, start, expanded, waiting, op
     }
     const { item } = entry;
     const isWaiting = item.kind === "tool" && waiting.has(item.call.id);
-    // A turn's ledger opens to list what it did, and in git what else changed.
-    const opens = item.kind === "tool" || item.kind === "shell" || (item.kind === "turn" && opensLedger(item, review.git));
+    // A turn's ledger opens to list what it did, and in git what else changed; thinking, to all of it.
+    const opens = item.kind === "tool" || item.kind === "shell" || (item.kind === "turn" && opensLedger(item, review.git)) || (item.kind === "thinking" && firstSentence(item.text).more);
     const isOpen = opens && opensByDefault(item) !== expanded.has(item.key);
     const pictures = imagesOf(item).length ? pictureRows : "";
     const lines = draw(item, `${width}|${pictures}|${isWaiting}|${isOpen}|${railed}`, width, () => (

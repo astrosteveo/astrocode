@@ -84,6 +84,18 @@ const FILLER = /^(now|next|first|then|so|okay|ok|alright|good|great|right|done|p
 /** Where the first sentence of `text` ends: after its stop, or at the end. */
 const SENTENCE_END = /[.!?](\s+(?=[A-Z("'“`*])|$)/;
 
+/**
+ * The first sentence of Claude's thinking, which its `∴` line says until it's opened, and whether
+ * there's more to open. A summary may start with a heading of its own, which then is its first.
+ */
+export function firstSentence(text: string) {
+  const trimmed = text.trim();
+  const paragraph = trimmed.split(/\n\s*\n/)[0]!;
+  const end = paragraph.search(SENTENCE_END);
+  const first = end === -1 ? paragraph : paragraph.slice(0, end + 1);
+  return { text: first.replace(/\s+/g, " "), more: first.length < trimmed.length };
+}
+
 /** What Claude wrote after the sentence that titles its step, which the step shows once open. */
 export function restOf(text: string) {
   const trimmed = text.trim();

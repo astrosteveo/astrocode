@@ -12,7 +12,7 @@ export type Entry =
   | { kind: "step"; key: string; row: StepRow; open: boolean; rail: Rail; index: number; end: number; first: Item };
 
 /** A step's row as it's drawn, from the step and how its calls went. One Claude is still working in shows as running. */
-function stepRow(step: Step, state: State, waiting: ReadonlySet<string>, current: boolean): StepRow {
+function stepRow(step: Step, state: State, waiting: ReadonlySet<string>, toggled: ReadonlySet<string>, current: boolean): StepRow {
   const title = stepTitle(step, state.cwd, state.home);
   const more = step.title ? restOf(step.title.text) || undefined : undefined;
   const status = stepStatus(step, waiting);
@@ -23,16 +23,17 @@ function stepRow(step: Step, state: State, waiting: ReadonlySet<string>, current
     more,
     status: current && status === "done" ? "running" : status,
     span: stepSpan(step),
-    flow: flowOf(step, state, waiting),
+    flow: flowOf(step, state, waiting, toggled),
   };
 }
 
 /**
  * The step's members in order: each run of calls as activity lines, and the thinking and progress
  * lines between the runs, which show once the step opens. Calls group into a line only within a
- * run, so a step's lines are the same open or closed.
+ * run, so a step's lines are the same open or closed. A stretch of thinking is one line, open if
+ * it's in `toggled`.
  */
-function flowOf(step: Step, state: State, waiting: ReadonlySet<string>): Flow[] {
+function flowOf(step: Step, state: State, waiting: ReadonlySet<string>, toggled: ReadonlySet<string>): Flow[] {
   const flow: Flow[] = [];
   let run: ToolItem[] = [];
   const rows = (calls: ToolItem[]): Flow[] => activityRows(calls.map((one) => one.call), waiting, state.cwd, state.home).map((row) => ({ kind: "row", row }));
@@ -43,7 +44,9 @@ function flowOf(step: Step, state: State, waiting: ReadonlySet<string>): Flow[] 
     }
     flow.push(...rows(run));
     run = [];
-    if (member.kind === "thinking") flow.push({ kind: "thinking", key: member.key, text: member.text });
+    const last = flow.at(-1);
+    if (member.kind === "thinking" && last?.kind === "thinking") flow[flow.length - 1] = { ...last, text: `${last.text}\n\n${member.text}` };
+    else if (member.kind === "thinking") flow.push({ kind: "thinking", key: member.key, text: member.text, open: toggled.has(member.key) });
     else if (member.kind === "notice") flow.push({ kind: "notice", key: member.key, text: member.text, tone: member.tone });
   }
   flow.push(...rows(run));
@@ -51,8 +54,8 @@ function flowOf(step: Step, state: State, waiting: ReadonlySet<string>): Flow[] 
 }
 
 /**
- * The entries for `state.items`. `toggled` holds the steps opened by a click, by key: a step starts
- * closed, its lines capped and its thinking left out.
+ * The entries for `state.items`. `toggled` holds the steps and thinking opened by a click, by key:
+ * a step starts closed, its lines capped and the thinking between them left out.
  */
 export function arrange(state: State, waiting: ReadonlySet<string>, toggled: ReadonlySet<string>): Entry[] {
   const placed = rails(state.items);
@@ -62,7 +65,7 @@ export function arrange(state: State, waiting: ReadonlySet<string>, toggled: Rea
     const item = state.items[i]!;
     const step = found.get(i);
     if (step) {
-      const row = stepRow(step, state, waiting, isCurrent(state.items, step, state.busy));
+      const row = stepRow(step, state, waiting, toggled, isCurrent(state.items, step, state.busy));
       entries.push({ kind: "step", key: step.key, row, open: toggled.has(step.key), rail: placed[i]!, index: i, end: step.end, first: item });
       i = step.end - 1;
       continue;
