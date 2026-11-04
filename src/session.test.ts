@@ -5,12 +5,15 @@ import { AsyncQueue } from "./queue";
 
 /** What a stand-in Claude Code was sent, in order: each message's text, and each control request. */
 let sent: unknown[] = [];
+/** The options each stand-in Claude Code was started with. */
+let started: Record<string, unknown>[] = [];
 
 // A stand-in Claude Code, in place of the SDK's query: it queues every message, as Claude Code does
 // while Claude works, and keeps what it was sent. It never finishes starting, so it's asked nothing else.
 mock.module("@anthropic-ai/claude-agent-sdk", () => ({
   ...sdk,
-  query: ({ prompt }: { prompt: AsyncIterable<SDKUserMessage> }) => {
+  query: ({ prompt, options }: { prompt: AsyncIterable<SDKUserMessage>; options: Record<string, unknown> }) => {
+    started.push(options);
     const out = new AsyncQueue<unknown>();
     void (async () => {
       for await (const message of prompt) {
@@ -24,7 +27,8 @@ mock.module("@anthropic-ai/claude-agent-sdk", () => ({
         return { response: { still_queued: [], send_now: "stopped" } };
       },
       initializationResult: () => new Promise(() => {}),
-      close: () => out.close(),
+      // The queue's own close: this one takes its place on the object.
+      close: AsyncQueue.prototype.close.bind(out),
     });
   },
 }));
@@ -56,4 +60,25 @@ test("what's queued goes now with nothing typed", async () => {
   await settle();
   await one.sendQueuedNow();
   expect(sent).toEqual(["queued", { subtype: "interrupt", send_now: true }]);
+});
+
+test("a new conversation's id is known before Claude Code says it, so its first message is kept with it", () => {
+  started = [];
+  const one = new AgentSession({ cwd: "/tmp", emit: () => {} });
+  const first = one.knownId;
+  expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  one.start();
+  expect(started.at(-1)).toMatchObject({ sessionId: first, resume: undefined });
+  // /clear starts another conversation, with an id of its own.
+  one.reset();
+  expect(one.knownId).not.toBe(first);
+  one.start();
+  expect(started.at(-1)).toMatchObject({ sessionId: one.knownId, resume: undefined });
+  one.close();
+  // A conversation picked up again keeps its id, and Claude Code isn't given another.
+  const resumed = new AgentSession({ cwd: "/tmp", emit: () => {}, resume: "earlier" });
+  expect(resumed.knownId).toBe("earlier");
+  resumed.start();
+  expect(started.at(-1)).toMatchObject({ sessionId: undefined, resume: "earlier" });
+  resumed.close();
 });
