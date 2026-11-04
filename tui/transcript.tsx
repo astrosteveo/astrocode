@@ -6,7 +6,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Item, State, ToolCall } from "../src/view/state";
 import { Banner } from "./banner";
 import { arrange } from "./arrange";
-import { ItemView, LiveView, opensByDefault, stepPieces, turnWork, type Piece, type StepRow } from "./entries";
+import { ItemView, leavesOut, LiveView, opensByDefault, stepPieces, turnWork, type Piece, type StepRow } from "./entries";
+import { placeOf } from "./inspector";
+import { OPEN_INSET, openedRows, type Opened, type OpenedRows, type Spot } from "./opened";
 import { imagesOf, isReady, wantPictures } from "./pictures";
 import { GUTTER } from "./rail";
 
@@ -23,6 +25,8 @@ export type Row = {
   hot: boolean;
   /** What a click on the row acts on, where it isn't the entry: a call a step's line stands for, or the step. */
   target?: string;
+  /** Cells that a click acts on in a way of their own, such as an opened call's tabs. */
+  spots?: Spot[];
   /** The entry is open, with its whole output under its first row. */
   open: boolean;
   /** Cells the rail takes at the start of the row, which a selection leaves out. */
@@ -33,6 +37,8 @@ export type Transcript = {
   rows: Row[];
   /** Where each entry starts in `rows`, and each tool call's line in a step, by its item's key. */
   starts: Map<string, number>;
+  /** The call opened under its line: its tabs, the one shown, and that tab's text. */
+  opened?: { id: string; tabs: OpenedRows["tabs"]; tab: OpenedRows["tab"]; copy: string };
 };
 
 export type TranscriptInput = {
@@ -45,8 +51,8 @@ export type TranscriptInput = {
   expanded: ReadonlySet<string>;
   /** Tool calls waiting on a permission prompt or a question, by call id. */
   waiting: ReadonlySet<string>;
-  /** The call the inspector shows, whose line is marked. */
-  picked?: string;
+  /** The call opened under its line, whose line is marked. */
+  opened?: Opened;
 };
 
 const EMPTY: Transcript = { rows: [], starts: new Map() };
@@ -94,11 +100,29 @@ function drawStep(owner: object, drawnFor: string, width: number, pieces: () => 
 }
 
 /** The whole transcript. Must run outside React's render, since renderToString renders with the same reconciler. */
-export function layout({ state, width, pictureRows, branch, expanded, waiting, picked }: TranscriptInput): Transcript {
+export function layout({ state, width, pictureRows, branch, expanded, waiting, opened }: TranscriptInput): Transcript {
   const rows: Row[] = [];
   const starts = new Map<string, number>();
   const view = { cwd: state.cwd, home: state.home, width, pictureRows };
   wantPictures(state.items, width - GUTTER, pictureRows);
+  let shown: Transcript["opened"];
+
+  /** The opened call's rows, under the line `call` stands for in the entry `key`, numbered on from `line`. */
+  const openUnder = (key: string, call: ToolCall, line: number, through: boolean) => {
+    const drawn = openedRows({
+      call,
+      opened: opened!,
+      place: placeOf(state, call.id),
+      waiting: waiting.has(call.id),
+      log: state.agentLogs[call.id],
+      width,
+      through,
+      cwd: state.cwd,
+      home: state.home,
+    });
+    shown = { id: call.id, tabs: drawn.tabs, tab: drawn.tab, copy: drawn.copy };
+    return drawn.lines.map((text, i): Row => ({ text, key, line: line + i, head: false, hot: true, open: true, inset: OPEN_INSET, target: drawn.targets[i], spots: drawn.spots[i] }));
+  };
 
   /**
    * An entry's lines; `head` is where its content starts, after the row that sets it apart, and
@@ -119,19 +143,30 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting, p
     const { rail } = entry;
     const railed = `${rail.spaced}${rail.joined}${rail.through}`;
     if (entry.kind === "step") {
-      const { row, open } = entry;
-      const calls = row.flow.flatMap((one) => (one.kind === "row" ? one.row.calls : []));
-      const mine = picked !== undefined && calls.some((call) => call.id === picked) ? picked : undefined;
-      const drawn = drawStep(stepOwner(entry.first), `${width}|${pictureRows}|${open}|${mine}|${railed}|${signature(row)}`, width, () =>
-        stepPieces({ step: row, rail, open, width, picked: mine, pictureRows, links: "screen", cwd: state.cwd, home: state.home }),
+      const { row } = entry;
+      // The line of the opened call, if it's in this step, which opens the step if a closed one leaves it out.
+      const found = opened === undefined ? undefined : row.flow.find((one) => one.kind === "row" && one.row.calls.some((call) => call.id === opened.id));
+      const mine = found?.kind === "row" ? found.row : undefined;
+      const open = entry.open || (mine !== undefined && leavesOut(row, mine));
+      const picked = mine && opened?.id;
+      const drawn = drawStep(stepOwner(entry.first), `${width}|${pictureRows}|${open}|${picked}|${railed}|${signature(row)}`, width, () =>
+        stepPieces({ step: row, rail, open, width, picked, pictureRows, links: "screen", cwd: state.cwd, home: state.home }),
       );
+      // The opened call goes under its line and what's drawn under that: why it failed, a subagent's calls, pictures.
+      const under = mine ? new Set([`row:${mine.calls[0]!.id}`, `why:${mine.calls[0]!.id}`, `agent:${mine.calls[0]!.id}`, ...mine.calls.map((call) => `pictures:${call.id}`)]) : null;
+      const after = under ? drawn.pieces.findLastIndex((piece) => under.has(piece)) + 1 : drawn.lines.length;
+      const call = mine?.calls.find((one) => one.id === opened?.id);
+      const added = call ? openUnder(entry.key, call, after, rail.through) : [];
       const start = rows.length;
       starts.set(entry.key, start);
-      drawn.lines.forEach((text, line) => {
+      drawn.lines.forEach((text, i) => {
         // The row that sets the step apart from the entry before isn't part of what a click acts on.
-        const target = rail.spaced && line === 0 ? undefined : drawn.targets[line];
+        const target = rail.spaced && i === 0 ? undefined : drawn.targets[i];
+        if (i === after) rows.push(...added);
+        const line = i < after ? i : i + added.length;
         rows.push({ text, key: entry.key, line, head: target !== undefined, hot: target !== undefined, open: false, inset: GUTTER, target });
       });
+      if (after === drawn.lines.length) rows.push(...added);
       // Each call's line, for scrolling to a call and for Alt+Shift+↑ and ↓. A call a closed step
       // leaves out is at the step's row.
       for (const one of row.flow) {
@@ -140,7 +175,7 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting, p
         for (const call of one.row.calls) {
           const index = state.tools[call.id];
           const item = index === undefined ? undefined : state.items[index];
-          if (item) starts.set(item.key, at === -1 ? start : start + at);
+          if (item) starts.set(item.key, at === -1 ? start : start + (at < after ? at : at + added.length));
         }
       }
       continue;
@@ -155,10 +190,11 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting, p
       <ItemView item={item} rail={rail} detailed waiting={isWaiting} expanded={isOpen} copyable {...view} />
     ));
     add(item.key, lines, rail.spaced ? 1 : 0, GUTTER, opens, isOpen);
+    if (item.kind === "tool" && item.call.id === opened?.id) rows.push(...openUnder(item.key, item.call, lines.length, rail.through));
   }
   const live = state.live;
   if (live) add("live", draw(live, `${width}`, width, () => <LiveView live={live} width={width} />), 1, GUTTER);
-  return { rows, starts };
+  return { rows, starts, opened: shown };
 }
 
 /** What a step's lines are drawn from, so they're drawn again only when that changes. */
@@ -183,6 +219,9 @@ export function useTranscript(input: TranscriptInput) {
   /** The wait for a new width, and the width it's for; only the width moving again starts it over. */
   const settling = useRef<{ timer: ReturnType<typeof setTimeout>; width: number } | null>(null);
   const waiting = [...input.waiting].join(" ");
+  const { opened } = input;
+  // A subagent's transcript grows while its call stays the same.
+  const log = opened ? input.state.agentLogs[opened.id] : undefined;
 
   useEffect(() => {
     const draw = () => {
@@ -207,7 +246,7 @@ export function useTranscript(input: TranscriptInput) {
     return () => {
       stale = true;
     };
-  }, [input.state.items, input.state.live, input.state.cwd, input.width, input.pictureRows, input.branch, input.expanded, input.picked, waiting]);
+  }, [input.state.items, input.state.live, input.state.cwd, input.width, input.pictureRows, input.branch, input.expanded, opened?.id, opened?.tab, opened?.whole, log, waiting]);
 
   useEffect(
     () => () => {

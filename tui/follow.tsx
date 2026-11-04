@@ -1,9 +1,9 @@
-// Follow Claude: a panel that shows the tool call Claude is making as it makes it, drawn as the
-// inspector draws it: an edit's diff, the lines a read looked at, a command's output, a search's
-// matches, a subagent's transcript. On a wide full screen it's the inspector itself, beside the
-// transcript; elsewhere it's a short dock above the message box, which shows the end of it. It
-// moves to each call as it starts, at once when the call waits for you, and holds each a moment
-// otherwise, so a burst of calls doesn't flicker. It never takes the message box's keys.
+// Follow Claude: a dock above the message box that shows the tool call Claude is making as it makes
+// it, drawn as the inspector draws it: an edit's diff, the lines a read looked at, a command's
+// output, a search's matches, a subagent's transcript, with the end of it in view. Nothing opens
+// beside the transcript, at any width. It moves to each call as it starts, at once when the call
+// waits for you, and holds each a moment otherwise, so a burst of calls doesn't flicker. It never
+// takes the message box's keys.
 import { Box, Text, type DOMElement } from "ink";
 import { useEffect, useRef, useState } from "react";
 import type { AgentLine } from "../src/view/agents";
@@ -46,19 +46,6 @@ export function useDwell(target: string | undefined, urgent: boolean, dwell = FO
 /** What the panel says before Claude has made a call to show. */
 export const NOTHING_YET = "Each tool call Claude makes shows here as it runs.";
 
-/** The panel beside the transcript while there's no call to show yet. */
-export function FollowEmpty({ width, height }: { width: number; height: number }) {
-  return (
-    <Box flexDirection="column" width={width} height={height} flexShrink={0}>
-      <Text color={PALETTE.teal}>{"▁".repeat(width)}</Text>
-      <Box flexDirection="column" backgroundColor={PALETTE.surface} paddingX={1} width={width} height={height - 1}>
-        <Text color={PALETTE.teal}>◉ Following Claude</Text>
-        <Text color={PALETTE.haze}>{NOTHING_YET}</Text>
-      </Box>
-    </Box>
-  );
-}
-
 type DockProps = {
   call: ToolCall | undefined;
   /** It waits on a permission prompt or a question. */
@@ -70,7 +57,7 @@ type DockProps = {
   rows: number;
   cwd: string;
   home: string;
-  /** A click on it, in full screen, which inspects the call. */
+  /** A click on it, in full screen, which opens the call under its line. */
   onOpen: (id: string) => void;
 };
 

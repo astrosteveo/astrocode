@@ -1,9 +1,9 @@
 // Full screen: the conversation in a viewport that scrolls, with the message box and status bar
 // pinned under it. The wheel, PgUp and PgDn scroll, and the viewport follows the end until you
-// scroll up. Dragging selects text and copies it; clicking a step's line inspects its call, which
-// the inspector shows beside the transcript or in its place, clicking a command opens it,
-// clicking a link opens that, and clicking a picture enlarges it. Ctrl+F finds text in it, and Alt+↑ and Alt+↓ jump between your
-// messages, with Shift between tool calls and commands.
+// scroll up. Dragging selects text and copies it; clicking a step's line opens its call under the
+// line, at every width, clicking a command opens it, clicking a link opens that, and clicking a
+// picture enlarges it. Ctrl+F finds text in it, and Alt+↑ and Alt+↓ jump between your messages,
+// with Shift between tool calls and commands.
 import { Box, Text, useBoxMetrics, useInput, useStdout, type DOMElement } from "ink";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
@@ -14,8 +14,9 @@ import type { Find } from "./find";
 import { cellsOn, findIn, highlight, isTextAt, linkAt, lit, litLink, markMatches, selectedText, wordAt, type Cell } from "./selection";
 import { PALETTE } from "./theme";
 import { Welcome, WELCOME_HEIGHT, WELCOME_WIDTH } from "./mirror";
+import type { Opened } from "./opened";
 import { imageAt, pictureRows, usePictureRows } from "./pictures";
-import { useTranscript, type Transcript } from "./transcript";
+import { useTranscript, type Row, type Transcript } from "./transcript";
 
 const WHEEL_LINES = 3;
 /**
@@ -49,12 +50,8 @@ type Props = {
   rows: number;
   expanded: ReadonlySet<string>;
   waiting: ReadonlySet<string>;
-  /**
-   * The inspector, drawn `width` cells wide beside the transcript, or `over` it, in its place; and
-   * the call it shows, whose line is marked and kept in view. Following Claude, it names no call:
-   * the transcript keeps its own place, which may be scrolled up.
-   */
-  inspector?: { width: number; over: boolean; call?: string; node: (height: number) => ReactNode };
+  /** The call opened under its line, which is scrolled into view as it opens. */
+  opened?: Opened;
   /** A tool call to scroll to, from the output browser. */
   reveal: { key: string } | null;
   /** Whether PgUp and PgDn scroll; a picker open below uses them for its list. */
@@ -77,16 +74,14 @@ type Props = {
   children: ReactNode;
 };
 
-export function Screen({ state, epoch, branch, columns, rows: height, expanded, waiting, inspector, reveal, keys, onToggle, onCopy, onOpen, onPicture, find: search, onMatches, children }: Props) {
-  // A column for the scrollbar and one to keep it off the text, and the inspector's, with a column
-  // between them, when it's beside the transcript.
-  const beside = inspector && !inspector.over ? inspector.width + 1 : 0;
-  const width = Math.max(10, columns - 2 - beside);
+export function Screen({ state, epoch, branch, columns, rows: height, expanded, waiting, opened, reveal, keys, onToggle, onCopy, onOpen, onPicture, find: search, onMatches, children }: Props) {
+  // A column for the scrollbar and one to keep it off the text.
+  const width = Math.max(10, columns - 2);
   const viewport = useRef<DOMElement>(null);
   const pill = useRef<DOMElement>(null);
   const metrics = useBoxMetrics(viewport);
   const view = Math.max(1, metrics.hasMeasured ? metrics.height : height - 6);
-  const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), branch, expanded, waiting, picked: inspector?.call });
+  const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), branch, expanded, waiting, opened });
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [selection, setSelectionState] = useState<Selection | null>(null);
   /** The selection as of the last event, which may be newer than the last render. */
@@ -156,6 +151,14 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     setAnchor(held);
   };
   const scrollBy = (lines: number) => scrollTo(now.current.top + lines);
+
+  /** Scrolls the row at `index` into view, and the rows down to `end` as far as they fit with it. */
+  const show = (index: number, end = index) => {
+    const { top, view, pad } = now.current;
+    const shown = view - pad;
+    if (index < top) scrollTo(index);
+    else if (end >= top + shown) scrollTo(Math.min(index, end - shown + 1));
+  };
 
   /** The transcript's cell under a viewport cell, kept inside the viewport. */
   const pointAt = (x: number, y: number): Point | null => {
@@ -253,8 +256,6 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
       const at = relative(viewport.current, event);
       if (!at) return;
 
-      // The inspector answers for itself, and covers the transcript when it's in its place.
-      if (inspector && (inspector.over || at.x > width + 1) && event.type !== "release" && !drag.current) return;
       if (event.type === "press") {
         if (!at.inside || event.button !== "left") return;
         event.handled = true;
@@ -321,19 +322,22 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
           const image = imageAt(row.text, point.col);
           if (image) return onPicture(image);
           if (!row.hot) return;
+          const spot = spotAt(row, point.col);
+          if (spot) return onToggle(spot);
           const y = index - top + pad;
           if (!row.open || row.head) {
             if (onToggle(row.target ?? row.key) && !following) setAnchor({ key: row.key, line: row.line, y });
             return;
           }
-          // Inside what's open, a click closes it. The entry's first row then takes the place of the
-          // row clicked, so the card is where you were reading, not wherever its top had been. On
-          // text it waits out a double click, which copies a word or a line; on blank cells there's
-          // nothing to copy, so it closes at once.
+          // Inside what's open, a click closes it. The entry's first row, or the line an opened call
+          // is under, then takes the place of the row clicked, so it's where you were reading, not
+          // wherever its top had been. On text it waits out a double click, which copies a word or a
+          // line; on blank cells there's nothing to copy, so it closes at once.
           const { key } = row;
           const close = () => {
             const { transcript, view, following } = now.current;
-            if (onToggle(key) && !following) setAnchor({ key, line: headLine(transcript, key), y: Math.max(0, Math.min(y, view - 4)) });
+            const head = headOf(transcript, index);
+            if (onToggle(row.target ?? key) && !following && head) setAnchor({ key, line: head.line, y: Math.max(0, Math.min(y, view - 4)) });
           };
           if (isTextAt(row.text, point.col, row.inset)) later(close);
           else close();
@@ -384,22 +388,21 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     if (reveal) setAnchor({ key: reveal.key, line: 0 });
   }, [reveal]);
 
-  // The call the inspector moves to is scrolled into view beside it, a third of the way down, once.
-  const keep = inspector && !inspector.over ? inspector.call : undefined;
+  // A call that opens, as from ← and →, is scrolled into view with as much of what opened under it
+  // as fits, once it's drawn.
+  const keep = opened?.id;
   const keeping = useRef<string | undefined>(undefined);
   useEffect(() => {
     keeping.current = keep;
   }, [keep]);
   useEffect(() => {
     const id = keeping.current;
-    const at = id === undefined ? undefined : state.tools[id];
+    if (id === undefined || transcript.opened?.id !== id) return;
+    const at = state.tools[id];
     const item = at === undefined ? undefined : state.items[at];
     const index = item ? transcript.starts.get(item.key) : undefined;
-    if (index === undefined) return;
     keeping.current = undefined;
-    const { top, view, pad } = now.current;
-    if (index >= top && index < top + view - pad) return;
-    scrollTo(index - Math.floor(view / 3));
+    if (index !== undefined) show(index, openedEnd(transcript, index));
   }, [keep, transcript]);
 
   // The match search is on stays in view, a third of the way down when it has to move.
@@ -435,7 +438,7 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     viewport,
     (x, y) => {
       const { transcript, top, pad, thumb } = now.current;
-      if (inspector?.over || x > width + 1) return null;
+      if (x > width + 1) return null;
       if (x > width) return thumb > 0 ? { key: "scrollbar", shape: "pointer" } : null;
       // A drag that selects lights nothing up as it passes.
       if (drag.current === "select" && selected.current) return null;
@@ -461,48 +464,39 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
         </Box>
       ) : (
         <Box ref={viewport} flexDirection="row" flexGrow={1} flexShrink={1} overflow="hidden">
-          {inspector?.over ? null : (
-            <>
-              <Box flexDirection="column" width={width + 1} flexShrink={0}>
-                {pad > 0 ? <Box height={pad} /> : null}
-                {rows.slice(top, top + view - pad).map((row, i) => {
-                  const range = cells ? cellsOn(row.text, top + i, cells[0], cells[1], row.inset) : null;
-                  const found = marks.get(top + i);
-                  return (
-                    <Text key={i} wrap="truncate-end">
-                      {range
-                        ? highlight(row.text, range[0], range[1])
-                        : found
-                          ? markMatches(row.text, found.ranges, found.current)
-                          : drag.current
-                          ? row.text || " "
-                          : linkUrl && row.key === linkEntry
-                            ? litLink(row.text, linkUrl)
-                            : row.hot && row.head && hovered === (row.target ?? row.key)
-                              ? lit(row.text, row.inset)
-                              : row.text || " "}
-                    </Text>
-                  );
-                })}
-              </Box>
-              <Box flexDirection="column" width={1} flexShrink={0}>
-                {scrollable
-                  ? Array.from({ length: view }, (_, i) => (
-                      <Text key={i} color={anchor || drag.current === "scrollbar" ? PALETTE.gold : PALETTE.dust}>
-                        {i >= thumbTop && i < thumbTop + thumb ? "┃" : " "}
-                      </Text>
-                    ))
-                  : null}
-              </Box>
-            </>
-          )}
-          {inspector ? (
-            <Box marginLeft={inspector.over ? 0 : 1} width={inspector.width} flexShrink={0}>
-              {inspector.node(view)}
-            </Box>
-          ) : null}
-          {below > 0 && anchor && !inspector?.over ? (
-            <Box ref={pill} position="absolute" bottom={0} right={3 + beside}>
+          <Box flexDirection="column" width={width + 1} flexShrink={0}>
+            {pad > 0 ? <Box height={pad} /> : null}
+            {rows.slice(top, top + view - pad).map((row, i) => {
+              const range = cells ? cellsOn(row.text, top + i, cells[0], cells[1], row.inset) : null;
+              const found = marks.get(top + i);
+              return (
+                <Text key={i} wrap="truncate-end">
+                  {range
+                    ? highlight(row.text, range[0], range[1])
+                    : found
+                      ? markMatches(row.text, found.ranges, found.current)
+                      : drag.current
+                      ? row.text || " "
+                      : linkUrl && row.key === linkEntry
+                        ? litLink(row.text, linkUrl)
+                        : row.hot && row.head && hovered === (row.target ?? row.key)
+                          ? lit(row.text, row.inset)
+                          : row.text || " "}
+                </Text>
+              );
+            })}
+          </Box>
+          <Box flexDirection="column" width={1} flexShrink={0}>
+            {scrollable
+              ? Array.from({ length: view }, (_, i) => (
+                  <Text key={i} color={anchor || drag.current === "scrollbar" ? PALETTE.gold : PALETTE.dust}>
+                    {i >= thumbTop && i < thumbTop + thumb ? "┃" : " "}
+                  </Text>
+                ))
+              : null}
+          </Box>
+          {below > 0 && anchor ? (
+            <Box ref={pill} position="absolute" bottom={0} right={3}>
               <Text>
                 <Text color={PALETTE.gold}>▐</Text>
                 <Text backgroundColor={PALETTE.gold} color={PALETTE.ink} bold>
@@ -525,11 +519,30 @@ function samePoint(a: Point, b: Point) {
   return a.key === b.key && a.line === b.line && a.col === b.col;
 }
 
-/** Which of an entry's lines is its first line of content. */
-function headLine(transcript: Transcript, key: string) {
-  const start = transcript.starts.get(key) ?? 0;
-  for (let i = start; transcript.rows[i]?.key === key; i++) if (transcript.rows[i]?.head) return transcript.rows[i]!.line;
-  return 0;
+/**
+ * The row an open row belongs to: an open entry's first line of content, or the line an opened call
+ * is under.
+ */
+function headOf(transcript: Transcript, index: number) {
+  let i = index;
+  while (i > 0 && transcript.rows[i]?.open && !transcript.rows[i]?.head && transcript.rows[i - 1]?.key === transcript.rows[index]?.key) i--;
+  return transcript.rows[i];
+}
+
+/** The last row of what's opened under the line at `index`, past what's drawn under the line, such as why it failed. */
+function openedEnd(transcript: Transcript, index: number) {
+  const { rows } = transcript;
+  let end = index;
+  for (let i = index + 1; rows[i]?.key === rows[index]?.key; i++) {
+    if (rows[i]!.open && !rows[i]!.head) end = i;
+    else if (end > index) break;
+  }
+  return end;
+}
+
+/** What a click at `col` on a row acts on in a way of its own, such as an opened call's tab. */
+function spotAt(row: Row, col: number) {
+  return row.spots?.find((spot) => col >= spot.from && col < spot.to)?.target;
 }
 
 function find(transcript: Transcript, point: Anchor) {
