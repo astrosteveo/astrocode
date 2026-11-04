@@ -1,7 +1,7 @@
 // The transcript's entries in order, for both layouts: Claude's tool calls gathered into steps, each
 // drawn as an activity log that's open or closed, and every other item as itself.
 import { activityRows } from "../src/view/activity";
-import { isCurrent, restOf, stepSpan, stepStatus, steps, stepTitle, type Step } from "../src/view/steps";
+import { isCurrent, restOf, stepSpan, stepStatus, steps, titleOf, type Step } from "../src/view/steps";
 import type { Item, State, ToolItem } from "../src/view/state";
 import type { Flow, StepRow } from "./entries";
 import { hasPictures } from "./figure";
@@ -28,14 +28,11 @@ function spaced(before: Item | undefined, item: Item) {
 
 /** A step's row as it's drawn, from the step and how its calls went. One Claude is still working in shows as running. */
 function stepRow(step: Step, state: State, waiting: ReadonlySet<string>, current: boolean): StepRow {
-  const title = stepTitle(step, state.cwd, state.home);
-  const more = step.title ? restOf(step.title.text) || undefined : undefined;
   const status = stepStatus(step, waiting);
   return {
     key: step.key,
-    title: title.text,
-    made: title.made,
-    more,
+    title: step.title ? titleOf(step.title.text) : undefined,
+    more: step.title ? restOf(step.title.text) || undefined : undefined,
     status: current && status === "done" ? "running" : status,
     span: stepSpan(step),
     flow: flowOf(step, state, waiting),

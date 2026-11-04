@@ -193,9 +193,8 @@ export type Flow =
 
 export type StepRow = {
   key: string;
-  title: string;
-  /** Made from the calls, for want of a sentence from Claude: drawn quieter. */
-  made: boolean;
+  /** Claude's sentence before the calls. A step without one has no heading: its lines stand under what came before. */
+  title?: string;
   /** Claude's whole sentence, when there's more of it than the title, shown once the step opens. */
   more?: string;
   status: keyof typeof STEP_NODES;
@@ -224,9 +223,16 @@ type StepProps = {
   clickable?: boolean;
 };
 
-/** Whether the step has more to show open than closed: Claude's words, thinking, or lines past the most a closed step shows. */
+/** Whether a closed step leaves lines out, past the most it shows. */
+const folds = (step: StepRow) => step.flow.filter((one) => one.kind === "row").length > MOST_ROWS;
+
+/**
+ * Whether the step has more to show open than closed: Claude's words, thinking, or lines past the
+ * most a closed step shows. A step without a heading has nothing to fold its thinking under, so
+ * shows it, and opens only for its lines.
+ */
 export function opens(step: StepRow) {
-  return Boolean(step.more) || step.flow.some((one) => one.kind !== "row") || step.flow.length > MOST_ROWS;
+  return folds(step) || (step.title !== undefined && (Boolean(step.more) || step.flow.some((one) => one.kind !== "row")));
 }
 
 /** Whether a closed step leaves `line` out, among the lines between its first two and its last three. */
@@ -240,7 +246,8 @@ export function leavesOut(step: StepRow, line: ActivityRow) {
  * A step as an activity log: what Claude set out to do, with how long it took, and under it a line
  * for each thing it did, what that acted on and what came of it. A failure says why under its line,
  * a running subagent shows its latest calls, and pictures a call returned show under it. Open, the
- * step shows Claude's thinking between its calls too, and every line.
+ * step shows Claude's thinking between its calls too, and every line. A step without a heading
+ * shows its thinking closed too, and opens and closes by its `… N more`.
  */
 export function StepView({ spaced, ...props }: StepProps & { spaced: boolean }) {
   return (
@@ -269,14 +276,15 @@ export function stepPieces({ step, open, width, picked, pictureRows, links, cwd,
     target,
     node: <Box paddingLeft={GUTTER}>{child}</Box>,
   });
-  const pieces: Piece[] = [
-    {
+  const pieces: Piece[] = [];
+  if (step.title !== undefined) {
+    pieces.push({
       key: "title",
       target: openable ? step.key : undefined,
       node: (
         <Marked node={node} color={color} spaced={false}>
           <Box justifyContent="space-between" width={inner}>
-            <Text wrap="truncate-end" color={step.made ? PALETTE.haze : PALETTE.star} italic={step.made} bold={live && !step.made}>
+            <Text wrap="truncate-end" color={PALETTE.star} bold={live}>
               {fit(step.title, inner - cellWidth(tail) - 2, false)}
             </Text>
             <Text color={PALETTE.dust}>{tail}</Text>
@@ -284,22 +292,23 @@ export function stepPieces({ step, open, width, picked, pictureRows, links, cwd,
           {open && step.more ? <Markdown text={step.more} width={inner} /> : null}
         </Marked>
       ),
-    },
-  ];
-  // Closed, a step leaves out its thinking, and the lines between its first two and last three.
-  const rows = step.flow.filter((one) => one.kind === "row");
-  let shown: Flow[] = step.flow;
-  let hidden: ActivityRow[] = [];
-  if (!open) {
-    shown = rows;
-    if (rows.length > MOST_ROWS) {
-      hidden = rows.slice(2, -3).map((one) => one.row);
-      shown = [...rows.slice(0, 2), ...rows.slice(-3)];
-    }
+    });
   }
+  // Closed, a step leaves out its thinking, and the lines between its first two and last three. One
+  // without a heading leaves out only those lines, and its line for them stays once it's open, as
+  // there's no heading to close it by.
+  const rows = step.flow.filter((one) => one.kind === "row");
+  const left = folds(step) ? rows.slice(2, -3).map((one) => one.row) : [];
+  const unnamed = step.title === undefined;
+  let shown: Flow[] = step.flow;
+  if (!open && left.length) shown = [...rows.slice(0, 2), ...rows.slice(-3)];
+  else if (!open && !unnamed) shown = rows;
+  const hidden = !open || unnamed ? left : [];
+  /** Activity lines drawn so far: the line for what's left out goes after the first two. */
+  let lines = 0;
   /** The verb of the line just drawn: a line that does the same leaves its verb out, so a run of commands reads as one. */
   let verb = "";
-  shown.forEach((one, i) => {
+  shown.forEach((one) => {
     if (one.kind !== "row") verb = "";
     if (one.kind === "thinking") {
       pieces.push(
@@ -320,8 +329,7 @@ export function stepPieces({ step, open, width, picked, pictureRows, links, cwd,
     const { row } = one;
     const id = row.calls[0]!.id;
     const target = callTarget(row.opens);
-    // A closed step's line for what it leaves out goes after its first two lines.
-    if (hidden.length && i === 2) {
+    if (hidden.length && lines === 2) {
       verb = "";
       const failed = hidden.filter((one) => one.status === "error").length;
       pieces.push(
@@ -330,11 +338,13 @@ export function stepPieces({ step, open, width, picked, pictureRows, links, cwd,
           <Text wrap="truncate-end">
             <Text color={PALETTE.dust}>{`${" ".repeat(INDENT)}… ${hidden.length} more`}</Text>
             {failed ? <Text color={PALETTE.rose}>{` · ${failed} failed`}</Text> : null}
+            {unnamed && clickable ? <Text color={PALETTE.dust}>{open ? "  ▾" : "  ▸"}</Text> : null}
           </Text>,
           step.key,
         ),
       );
     }
+    lines += 1;
     const isPicked = picked !== undefined && row.calls.some((call) => call.id === picked);
     pieces.push(lined(`row:${id}`, <ActivityLine row={row} width={inner} picked={isPicked} again={row.verb === verb} />, target));
     // What goes under the line sets the next one apart, which then says its verb again.

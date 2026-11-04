@@ -572,6 +572,35 @@ test("↑ and ↓ move the cursor over lines, and Enter opens a call under its l
   expect(cursor()).toBe(row(/Ran +the tests/));
 });
 
+test("a step with no heading opens with Enter on its `… N more`, and closes with Enter, or a click, on the same line", async () => {
+  // Seven searches and reads in turn, with no sentence of Claude's before them.
+  const calls = Array.from({ length: 7 }, (_, i) => (i % 2 ? call(`c${i}`, { name: "Read", input: { file_path: `/p/src/f${i}.ts` }, result: "1\n2" }) : call(`c${i}`)));
+  const state: State = {
+    ...initialState("/p", "/home/u"),
+    items: [{ kind: "prompt", key: "p", text: "look around" }, ...calls.map((one) => ({ kind: "tool" as const, key: one.id, call: one }))],
+    tools: Object.fromEntries(calls.map((one, i) => [one.id, i + 1])),
+  };
+  const { press, click, cursor, row } = await launch(state);
+  const left = () => [row(/Searched +c2 in src/), row(/Read +src\/f3\.ts/)];
+  expect(left()).toEqual([-1, -1]);
+  await press(KEYS.ctrlO);
+  for (let i = 0; i < 3; i++) await press(KEYS.up);
+  const at = row(/… 2 more +▸/);
+  expect(cursor()).toBe(at);
+  // The line stays where it is, with the two lines it stood for under it.
+  await press(KEYS.enter);
+  expect(row(/… 2 more +▾/)).toBe(at);
+  expect(left()).toEqual([at + 1, at + 2]);
+  expect(cursor()).toBe(at);
+  await press(KEYS.enter);
+  expect(row(/… 2 more +▸/)).toBe(at);
+  expect(left()).toEqual([-1, -1]);
+  await press(KEYS.enter);
+  await click(8, at);
+  expect(row(/… 2 more +▸/)).toBe(at);
+  expect(left()).toEqual([-1, -1]);
+});
+
 test("in an opened call ← and → open the call before or after, Tab its next tab, and Esc closes it before leaving", async () => {
   const { press, cursor, row, screen, boxKeys } = await launch(THREE);
   await press(KEYS.ctrlO);
