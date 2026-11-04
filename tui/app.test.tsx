@@ -44,7 +44,7 @@ afterEach(async () => {
  * mouse on. `screen()` is the last frame drawn, a row per line, without its colors; `update()` puts
  * another state in its place.
  */
-async function launch(state: State, { columns = 200, rows = 40, follow = false } = {}) {
+async function launch(state: State, { columns = 200, rows = 40, follow = false, session: answers = {} as Record<string, (...args: unknown[]) => Promise<unknown>> } = {}) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns, rows });
   const writes: string[] = [];
   stdout.on("data", (chunk: Buffer) => writes.push(chunk.toString()));
@@ -70,9 +70,9 @@ async function launch(state: State, { columns = 200, rows = 40, follow = false }
           ? () => () => {}
           : name === "knownId"
             ? undefined
-            : () => {
+            : (...args: unknown[]) => {
                 asked.push(String(name));
-                return Promise.resolve(null);
+                return answers[String(name)]?.(...args) ?? Promise.resolve(null);
               },
     },
   ) as unknown as AgentSession;
@@ -415,28 +415,223 @@ test("Enter on a line of several calls closes the one of them that's open", asyn
   expect(opened()).toBeUndefined();
 });
 
-test("Enter on a turn's closing line lists what it changed and its tokens, and Enter again closes it", async () => {
-  const ended: State = {
-    ...initialState("/p", "/home/u"),
+/** A file's line in an opened ledger, from column 4 with the cursor's `›` before it or not, and the scrollbar after it or not. */
+const fileLine = (name: string, result: string) => new RegExp(`^ {3}.${name.replace(/[./]/g, "\\$&")} +${result.replace(/[+]/g, "\\$&")} ?.?$`);
+
+/** A turn that edited a file and ran the tests, closed by its ledger, then a second turn after it. */
+function ledgers(cwd = "/p"): State {
+  const patch = [{ oldStart: 3, oldLines: 3, newStart: 3, newLines: 3, lines: [" const a = 1;", "-  if (Date.now() > entry.expires) {", "+  if (this.clock.now() > entry.expires) {", " }"] }];
+  return {
+    ...initialState(cwd, "/home/u"),
     items: [
-      { kind: "prompt", key: "p", text: "fix it" },
+      { kind: "prompt", key: "p", text: "fix it", starts: true },
+      { kind: "tool", key: "e", call: call("e", { name: "Edit", input: { file_path: `${cwd}/src/a.ts`, old_string: "a", new_string: "b" }, output: { structuredPatch: patch } }) },
+      { kind: "tool", key: "b", call: call("b", { name: "Bash", input: { command: "bun test", description: "Run the tests" }, status: "error", result: "Exit code 1\n 7 pass\n 1 fail\nRan 8 tests across 1 file." }) },
       { kind: "text", key: "t", text: "Fixed." },
-      { kind: "turn", key: "end", outcome: "finished", durationMs: 6000, tokens: 1200, files: [{ path: "/p/src/a.ts", added: 2, removed: 1 }], commands: ["bun test"] },
+      { kind: "turn", key: "end", outcome: "finished", durationMs: 6000, tokens: 1200, files: [{ path: `${cwd}/src/a.ts`, added: 1, removed: 1 }, { path: `${cwd}/src/b.ts`, added: 4, removed: 0, status: "new" }], commands: ["bun test"] },
+      { kind: "prompt", key: "p2", text: "and again", starts: true },
+      { kind: "text", key: "t2", text: "Done again." },
+      { kind: "turn", key: "end2", outcome: "finished", durationMs: 9000, tokens: 300 },
     ],
+    tools: { e: 1, b: 2 },
   };
-  const { press, cursor, row } = await launch(ended);
+}
+
+test("Enter on a turn's closing line opens its ledger, Enter on a file its diff, and Esc closes the diff, then the ledger", async () => {
+  // Under 160 columns, so the diff is unified.
+  const { press, cursor, row, screen, boxKeys } = await launch(ledgers(), { columns: 120 });
   await press(KEYS.ctrlO);
-  expect(cursor()).toBe(row(/6s · 1 file \+2 −1/));
+  for (let i = 0; i < 3; i++) await press(KEYS.up);
+  expect(cursor()).toBe(row(/6s · 2 files \+5 −1/));
   await press(KEYS.enter);
-  expect(row(/changed +src\/a\.ts \+2 −1/)).toBeGreaterThan(cursor());
-  expect(row(/ran +\$ bun test/)).toBeGreaterThan(cursor());
-  // The closing line holds still as the list opens under it, so the cursor goes down to the tokens.
+  expect(row(fileLine("src/a.ts", "+1 −1"))).toBe(cursor() + 1);
+  expect(row(fileLine("src/b.ts", "new +4"))).toBe(cursor() + 2);
+  expect(row(/^ {4}bun test +✕ exit 1 · 7 passed, 1 failed$/)).toBe(cursor() + 3);
+  expect(row(/^ {4}1\.2k tokens/)).toBe(cursor() + 4);
+  await press(KEYS.down);
+  await press(KEYS.enter);
+  // The file's diff, from the turn's edit, under its line.
+  const file = row(fileLine("src/a.ts", "+1 −1"));
+  expect(cursor()).toBe(file);
+  expect(screen()[file + 1]).toMatch(/^ {4}\s*⋯ 2 lines/);
+  expect(screen()[file + 3]).toMatch(/^ {4}4  - +if \(Date\.now\(\)/);
+  expect(screen()[file + 4]).toMatch(/^ {4}4  \+ +if \(this\.clock\.now\(\)/);
+  // Esc closes what the cursor's in: the diff, back to its file, then the ledger, back to its line.
   for (let i = 0; i < 3; i++) await press(KEYS.down);
-  expect(cursor()).toBe(row(/1\.2k tokens/));
-  await press(KEYS.enter);
-  expect(row(/changed +src\/a\.ts/)).toBe(-1);
-  expect(cursor()).toBe(row(/6s · 1 file \+2 −1/));
+  await press(KEYS.esc);
+  expect(screen().some((line) => line.includes("this.clock.now()"))).toBe(false);
+  expect(cursor()).toBe(row(fileLine("src/a.ts", "+1 −1")));
+  await press(KEYS.esc);
+  expect(row(fileLine("src/a.ts", "+1 −1"))).toBe(-1);
+  expect(cursor()).toBe(row(/6s · 2 files \+5 −1/));
+  await press(KEYS.esc);
+  expect(boxKeys()).toBe(true);
 });
+
+test("in an opened ledger ← and → move between its files, a opens every file's diff, and a again closes them", async () => {
+  const { press, cursor, row, screen } = await launch(ledgers());
+  await press(KEYS.ctrlO);
+  for (let i = 0; i < 3; i++) await press(KEYS.up);
+  await press(KEYS.enter);
+  await press(KEYS.right);
+  expect(cursor()).toBe(row(fileLine("src/a.ts", "+1 −1")));
+  await press(KEYS.right);
+  expect(cursor()).toBe(row(fileLine("src/b.ts", "new +4")));
+  await press(KEYS.right);
+  expect(cursor()).toBe(row(fileLine("src/b.ts", "new +4")));
+  await press(KEYS.left);
+  expect(cursor()).toBe(row(fileLine("src/a.ts", "+1 −1")));
+  await press("a");
+  expect(screen().some((line) => line.includes("this.clock.now()"))).toBe(true);
+  // b.ts came from no edit, and git kept no trees for it. The view follows the cursor down to it.
+  await press(KEYS.right);
+  expect(screen()[cursor()]).toMatch(/^ {3}›src\/b\.ts/);
+  await press(KEYS.down);
+  expect(screen()[cursor()]).toContain("Its diff wasn't kept.");
+  await press("a");
+  expect(screen().some((line) => line.includes("this.clock.now()") || line.includes("wasn't kept"))).toBe(false);
+});
+
+test("[ and ] move the cursor between ledgers, and in an opened one switch it to what isn't committed and to the branch", async () => {
+  // A git repository, so the ledger has scopes, whose files the session reads.
+  const cwd = process.cwd();
+  const changes = async (scope: unknown) =>
+    scope === "uncommitted" ? { files: [{ path: `${cwd}/notes.md`, added: 2, removed: 0, status: "new" }], trees: { from: "h", to: "w" } } : { files: [{ path: `${cwd}/src/c.ts`, added: 1, removed: 1 }], trees: { from: "m", to: "w" }, base: "main" };
+  const { press, cursor, row, screen } = await launch(ledgers(cwd), { session: { changes } });
+  await press(KEYS.ctrlO);
+  expect(cursor()).toBe(row(/^╰.─ 9s/));
+  await press("[");
+  expect(cursor()).toBe(row(/6s · 2 files/));
+  await press("]");
+  expect(cursor()).toBe(row(/^╰.─ 9s/));
+  await press("[");
+  await press(KEYS.enter);
+  expect(screen()[cursor() + 1]).toContain("▐this turn▌");
+  // The cursor goes to the scopes, which stay put as what's under them changes.
+  await press("]");
+  expect(screen()[cursor()]).toContain("▐uncommitted▌");
+  expect(row(fileLine("notes.md", "new +2"))).toBe(cursor() + 1);
+  expect(row(/bun test/)).toBe(-1);
+  await press("]");
+  expect(screen()[cursor()]).toMatch(/▐branch▌ +vs main/);
+  expect(row(fileLine("src/c.ts", "+1 −1"))).toBe(cursor() + 1);
+  await press("]");
+  expect(screen()[cursor()]).toContain("▐this turn▌");
+  expect(row(/bun test/)).toBeGreaterThan(cursor());
+  await press("[");
+  expect(screen()[cursor()]).toMatch(/▐branch▌/);
+});
+
+test("a ledger showing what isn't committed reads it again once another turn ends, since the working tree moved on", async () => {
+  const cwd = process.cwd();
+  let reads = 0;
+  const changes = async () => {
+    reads += 1;
+    return { files: [{ path: `${cwd}/read-${reads}.md`, added: reads, removed: 0, status: "new" }], trees: { from: "h", to: `w${reads}` } };
+  };
+  const state = ledgers(cwd);
+  const { press, row, update } = await launch(state, { session: { changes } });
+  await press(KEYS.ctrlO);
+  for (let i = 0; i < 3; i++) await press(KEYS.up);
+  await press(KEYS.enter);
+  await press("]");
+  expect(row(fileLine("read-1.md", "new +1"))).toBeGreaterThan(-1);
+  await update({ ...state, items: [...state.items, { kind: "prompt", key: "p3", text: "once more", starts: true }, { kind: "turn", key: "end3", outcome: "finished", durationMs: 2000, tokens: 10 }] });
+  await settle();
+  expect(row(fileLine("read-1.md", "new +1"))).toBe(-1);
+  expect(row(fileLine("read-2.md", "new +2"))).toBeGreaterThan(-1);
+});
+
+test("/diff opens the latest turn's ledger with the cursor on it, and the keys a ledger takes never reach the box", async () => {
+  const { press, cursor, row, boxKeys, screen } = await launch(ledgers());
+  const box = () => screen().find((line) => line.startsWith(" ❯")) ?? "";
+  await press("/diff");
+  await press(KEYS.enter);
+  expect(boxKeys()).toBe(false);
+  const line = row(/^╰.─ 9s/);
+  expect(cursor()).toBe(line);
+  expect(row(/^ {4}300 tokens/)).toBe(line + 1);
+  // The hint in the box's edge names the ledger's keys. Outside git there's no scope to switch, so
+  // [ and ] go to the ledger before or after.
+  expect(row(/a open all {3}\[ \] ledgers/)).toBeGreaterThan(line);
+  await press("[");
+  expect(cursor()).toBe(row(/6s · 2 files/));
+  for (const key of ["]", "a", KEYS.right, KEYS.left]) await press(key);
+  expect(box().trim()).toBe("❯");
+  expect(cursor()).toBe(line);
+  // The hint follows the cursor: out of the ledger, it's the transcript's own again.
+  await press(KEYS.up);
+  expect(row(/\{ \} messages/)).toBeGreaterThan(line);
+  expect(row(/a open all/)).toBe(-1);
+});
+
+test("a click on a ledger's file opens its diff, and one on a scope's tab switches to it, as Enter and ] do", async () => {
+  const cwd = process.cwd();
+  const changes = async () => ({ files: [{ path: `${cwd}/notes.md`, added: 2, removed: 0, status: "new" }], trees: { from: "h", to: "w" } });
+  const { press, click, cursor, row, screen } = await launch(ledgers(cwd), { columns: 120, session: { changes } });
+  await click(10, row(/6s · 2 files/));
+  await click(10, row(fileLine("src/a.ts", "+1 −1")));
+  expect(cursor()).toBe(row(fileLine("src/a.ts", "+1 −1")));
+  expect(screen().some((line) => line.includes("this.clock.now()"))).toBe(true);
+  const tabs = row(/this turn.*uncommitted.*branch/);
+  await click([...screen()[tabs]!].join("").indexOf("uncommitted") + 2, tabs);
+  expect(row(fileLine("notes.md", "new +2"))).toBe(row(/▐uncommitted▌/) + 1);
+  await press(KEYS.esc);
+  expect(row(fileLine("notes.md", "new +2"))).toBe(-1);
+});
+
+test("[ and ] deep in an opened ledger bring its scopes back into view, with the cursor on them", async () => {
+  const cwd = process.cwd();
+  const state = ledgers(cwd);
+  const big = Array.from({ length: 40 }, (_, i) => `+line ${i + 1}`);
+  const items = state.items.map((item) =>
+    item.kind === "tool" && item.call.name === "Edit" ? { ...item, call: { ...item.call, output: { structuredPatch: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 40, lines: big }] } } } : item,
+  );
+  // What isn't committed has the same file, whose diff stays open as long.
+  const changes = async () => ({ files: [{ path: `${cwd}/src/a.ts`, added: 40, removed: 0 }], trees: { from: "h", to: "w" } });
+  const patch = async () => `@@ -0,0 +1,40 @@\n${big.join("\n")}\n`;
+  const { press, cursor, row, screen } = await launch({ ...state, items }, { columns: 120, rows: 24, session: { changes, patch } });
+  await press(KEYS.ctrlO);
+  for (let i = 0; i < 3; i++) await press(KEYS.up);
+  await press(KEYS.enter);
+  await press(KEYS.down);
+  await press(KEYS.down);
+  await press(KEYS.enter);
+  for (let i = 0; i < 22; i++) await press(KEYS.down);
+  expect(screen()[cursor()]).toMatch(/src\/b\.ts/);
+  expect(row(/this turn.*uncommitted/)).toBe(-1);
+  await press("]");
+  expect(screen()[cursor()]).toContain("▐uncommitted▌");
+}, 15_000);
+
+test("Esc on a long diff's ⋯ line closes the diff, where Enter on it shows the rest", async () => {
+  const state = ledgers();
+  const big = Array.from({ length: 40 }, (_, i) => `+line ${i + 1}`);
+  const items = state.items.map((item) =>
+    item.kind === "tool" && item.call.name === "Edit" ? { ...item, call: { ...item.call, output: { structuredPatch: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 40, lines: big }] } } } : item,
+  );
+  const { press, cursor, row, screen } = await launch({ ...state, items }, { columns: 120 });
+  await press(KEYS.ctrlO);
+  for (let i = 0; i < 3; i++) await press(KEYS.up);
+  await press(KEYS.enter);
+  await press(KEYS.down);
+  await press(KEYS.enter);
+  // The file's first 12 lines, then the line that stands for the 20 between, which the cursor stops on.
+  const fold = async () => {
+    for (let i = 0; i < 13; i++) await press(KEYS.down);
+    expect(screen()[cursor()]).toContain("⋯ 20 more lines");
+  };
+  await fold();
+  expect(screen().some((line) => /\+ line 13$/.test(line.trimEnd()))).toBe(false);
+  await press(KEYS.esc);
+  expect(screen().some((line) => line.includes("+ line"))).toBe(false);
+  expect(cursor()).toBe(row(fileLine("src/a.ts", "+1 −1")));
+  await press(KEYS.enter);
+  await fold();
+  await press(KEYS.enter);
+  expect(row(/⋯ \d+ more lines/)).toBe(-1);
+  expect(screen().some((line) => /13  \+ line 13/.test(line))).toBe(true);
+}, 15_000);
 
 test("PgUp and PgDn move the cursor half a screen, Home and End to the top and the end, which the view follows again", async () => {
   const { press, cursor, row, screen } = await launch(long(), { rows: 24 });

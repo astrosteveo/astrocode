@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentSession } from "../src/session";
 import { saved, settingsPath } from "../src/settings";
 import { App } from "./app";
@@ -163,4 +164,28 @@ test("Esc Esc clears the box into Claude Code's prompt history, where ↑ finds 
   expect(recalled).toContain("draft to keep");
   const file = readFileSync(join(config.folder(), "claude", "history.jsonl"), "utf8");
   expect(file).toContain('"display":"draft to keep"');
+});
+
+test("/diff in scrollback prints the latest turn's ledger whole at the end, and says so when no turn has ended", async () => {
+  const { press, store, ink, written } = app();
+  store.emit({ kind: "loaded", loaded: { version: "2.1.318" } });
+  await settle(300);
+  await press("/diff", KEYS.enter);
+  expect(stripVTControlCharacters(written())).toContain("No turn has ended yet.");
+  const file = join(process.cwd(), "src/a.ts");
+  store.emit({ kind: "prompt", text: "fix it", starts: true });
+  store.emit({ kind: "ledger", files: [{ path: file, added: 2, removed: 1 }], commits: [], unseen: [] });
+  store.emit({ kind: "sdk", message: { type: "result", subtype: "success", uuid: "r", session_id: "s", duration_ms: 6000, num_turns: 1, is_error: false, result: "done" } as unknown as SDKMessage });
+  await settle(300);
+  const before = written().length;
+  await press("/diff", KEYS.enter);
+  await settle(300);
+  await store.prompts.written();
+  ink.unmount();
+  const printed = stripVTControlCharacters(written().slice(before));
+  // The closing line again, and under it the file with how it changed, and what it says of its diff.
+  expect(printed).toMatch(/6s · 1 file \+2 −1 · not committed/);
+  expect(printed).toMatch(/ {4}src\/a\.ts +\+2 −1/);
+  expect(printed).toContain("Its diff wasn't kept.");
+  expect(store.getSnapshot().items.at(-1)?.kind).toBe("review");
 });

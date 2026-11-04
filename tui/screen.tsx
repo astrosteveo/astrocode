@@ -18,9 +18,11 @@ import { strokeOf, type Keymap } from "./keys";
 import { cellWidth } from "./markdown";
 import { cellsOn, cursorOn, findIn, hasContent, highlight, isTextAt, linkAt, lit, litLink, markMatches, selectedText, wordAt, type Cell } from "./selection";
 import { PALETTE } from "./theme";
+import { allTarget, fileTarget, isMore, ledgerTarget, scopeTarget } from "./ledger";
 import { moveTarget, tabTarget, WHOLE, type Opened } from "./opened";
 import { imageAt, pictureRows, usePictureRows } from "./pictures";
 import { StartScreen, type Start } from "./start";
+import type { Review } from "./review";
 import { useTranscript, type Row, type Transcript } from "./transcript";
 
 const WHEEL_LINES = 3;
@@ -58,6 +60,13 @@ type Props = {
   waiting: ReadonlySet<string>;
   /** The call opened under its line, which is scrolled into view as it opens. */
   opened?: Opened;
+  /**
+   * An entry to put the cursor on, at its first line, once it's drawn open, with as much of what
+   * opened under it in view as fits: /diff's latest ledger. Each request is a new object.
+   */
+  reveal?: { key: string };
+  /** What the opened ledgers list, and the diffs read for them. */
+  review?: Review;
   /** Whether PgUp and PgDn scroll; a picker open below uses them for its list. */
   keys: boolean;
   /** The transcript has your keys: its cursor shows, and moves with ↑ and ↓. */
@@ -66,6 +75,8 @@ type Props = {
   keymap: Keymap;
   /** A click on a line, which gives the transcript your keys. */
   onFocus: () => void;
+  /** The cursor going into an opened ledger, or out of one, for the hint to name the keys that work there. */
+  onLedger?: (inside: boolean) => void;
   /** Esc, q or Ctrl+O, which give your keys back to the box. */
   onLeave: () => void;
   /**
@@ -88,14 +99,14 @@ type Props = {
   children: ReactNode;
 };
 
-export function Screen({ state, epoch, start, columns, rows: height, expanded, waiting, opened, keys, focused, keymap, onFocus, onLeave, onToggle, onCopy, onEdit, onOpen, onPicture, find: search, onMatches, children }: Props) {
+export function Screen({ state, epoch, start, columns, rows: height, expanded, waiting, opened, reveal, review, keys, focused, keymap, onFocus, onLedger, onLeave, onToggle, onCopy, onEdit, onOpen, onPicture, find: search, onMatches, children }: Props) {
   // A column for the scrollbar and one to keep it off the text.
   const width = Math.max(10, columns - 2);
   const viewport = useRef<DOMElement>(null);
   const pill = useRef<DOMElement>(null);
   const metrics = useBoxMetrics(viewport);
   const view = Math.max(1, metrics.hasMeasured ? metrics.height : height - 6);
-  const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), start, expanded, waiting, opened });
+  const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), start, expanded, waiting, opened, review });
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   /** The row the cursor is on, kept while your keys are elsewhere. */
   const [cursor, setCursor] = useState<Anchor | null>(null);
@@ -115,6 +126,8 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
 
   const { rows } = transcript;
   const total = rows.length;
+  /** The turns' keys, in order, which their ledgers' rows go by. */
+  const turns = useMemo(() => new Set(state.items.flatMap((item) => (item.kind === "turn" ? [item.key] : []))), [state.items]);
 
   // Search's matches, top to bottom, and the one it's on, counted back from the newest.
   const query = search?.query ?? "";
@@ -255,6 +268,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
    */
   const transcriptKey = (input: string, key: Key) => {
     const open = now.current.transcript.opened;
+    const ledger = ledgerAt(now.current.at);
     // A letter with Ctrl or Alt held is another key: Ctrl+C isn't `c`.
     const letter = key.ctrl || key.meta ? "" : input;
     if ((key.upArrow || key.downArrow) && !key.meta && !key.shift) moveCursor(key.upArrow ? -1 : 1);
@@ -263,7 +277,11 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     else if (key.meta && (key.upArrow || key.downArrow)) jumpCursor(key.upArrow ? -1 : 1, key.shift);
     else if (letter === "{" || letter === "}") jumpCursor(letter === "{" ? -1 : 1, false);
     else if (key.return) enter();
-    // Esc backs out one level: what's open closes first.
+    else if (letter === "[" || letter === "]") bracket(letter === "[" ? -1 : 1);
+    else if (ledger !== undefined && (key.leftArrow || key.rightArrow)) moveFile(ledger, key.leftArrow ? -1 : 1);
+    else if (ledger !== undefined && letter === "a") onToggle(allTarget(ledger));
+    // Esc backs out one level: what's open closes first, the innermost first.
+    else if (key.escape && ledger !== undefined) backOut(ledger);
     else if (key.escape && open) onToggle(callTarget(open.id));
     else if (key.escape || letter === "q" || keymap.get(strokeOf(input, key) ?? "") === "app:toggleTranscript") onLeave();
     else if (!open) return false;
@@ -273,6 +291,61 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
       if (open.copy) (letter === "c" ? onCopy : onEdit)(open.copy);
     } else return false;
     return true;
+  };
+
+  /** The opened ledger the row at `index` is in, by its turn's key: its closing line, or a row under it. */
+  const ledgerAt = (index: number | null) => {
+    const row = index === null ? undefined : now.current.transcript.rows[index];
+    return row?.open && turns.has(row.key) ? row.key : undefined;
+  };
+
+  /** A ledger's closing line, where its turn's rows start. */
+  const ledgerLine = (rows: Row[], key: string) => rows.findIndex((row) => row.key === key && row.head && row.target === undefined);
+
+  /** `[` or `]`: in an opened ledger in git, the scope before or after; elsewhere, the cursor to the ledger before or after. */
+  const bracket = (by: -1 | 1) => {
+    const { transcript, at } = now.current;
+    const ledger = ledgerAt(at);
+    if (ledger !== undefined && review?.git) {
+      // The cursor goes to the scopes' row, in view, which stays put as the list under it changes.
+      const tabs = transcript.rows.findIndex((row) => row.key === ledger && row.spots);
+      if (!onToggle(scopeTarget(ledger, by)) || tabs === -1) return;
+      place(tabs);
+      show(tabs);
+      return;
+    }
+    const lines = [...turns].map((key) => ledgerLine(transcript.rows, key)).filter((index) => index !== -1);
+    const from = at ?? lastShown();
+    const next = by < 0 ? lines.findLast((index) => index < from) : lines.find((index) => index > from);
+    if (next === undefined) return;
+    place(next);
+    // With as much of it in view as fits, should it be open.
+    const key = transcript.rows[next]!.key;
+    show(next, transcript.rows.findLastIndex((row) => row.key === key));
+  };
+
+  /** ← or → in an opened ledger: the cursor to the file before or after. */
+  const moveFile = (ledger: string, by: -1 | 1) => {
+    const { transcript, at } = now.current;
+    const files = transcript.rows.flatMap((row, index) => (row.key === ledger && row.head && row.target !== undefined && ledgerTarget(row.target) ? [index] : []));
+    const from = at ?? 0;
+    const next = by < 0 ? files.findLast((index) => index < from) : files.find((index) => index > from);
+    if (next === undefined) return;
+    place(next);
+    show(next);
+  };
+
+  /** Esc in an opened ledger: a file's diff the cursor is in closes, else the ledger, and the cursor goes to the line it was under. */
+  const backOut = (ledger: string) => {
+    const { transcript, at, top, pad, view } = now.current;
+    const row = at === null ? undefined : transcript.rows[at];
+    const inDiff = row && !row.head && row.target !== undefined ? ledgerTarget(row.target) : undefined;
+    const close = inDiff && "path" in inDiff ? fileTarget(inDiff.turn, inDiff.path) : ledger;
+    const index = transcript.rows.findIndex((one) => one.key === ledger && one.head && (one.target ?? one.key) === close);
+    const head = transcript.rows[index];
+    if (!head || !onToggle(close)) return;
+    setCursor({ key: head.key, line: head.line });
+    setAnchor({ key: head.key, line: head.line, y: Math.max(0, Math.min(index - top + pad, view - 4)) });
   };
 
   /** The transcript's cell under a viewport cell, kept inside the viewport. */
@@ -550,6 +623,23 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     show(index, keep === undefined ? index : openedEnd(transcript, index));
   }, [keep, transcript]);
 
+  const inLedger = focused && at !== null && rows[at]?.open === true && turns.has(rows[at]!.key);
+  useEffect(() => onLedger?.(inLedger), [inLedger]);
+
+  // /diff's ledger: once it's drawn open, the cursor goes to its line, with as much as fits of what
+  // opened under it in view.
+  const revealed = useRef<object | undefined>(undefined);
+  useEffect(() => {
+    if (!reveal || revealed.current === reveal) return;
+    const { rows } = transcript;
+    const index = ledgerLine(rows, reveal.key);
+    const row = rows[index];
+    if (!row || (row.hot && !row.open)) return;
+    revealed.current = reveal;
+    place(index);
+    show(index, rows.findLastIndex((one) => one.key === reveal.key));
+  }, [reveal, transcript]);
+
   // While the transcript has your keys its cursor is in view, so the gold mark shows. Your keys
   // coming to it put the cursor on the last line in view, unless it's in view already. After that,
   // the view moving away from it (the wheel, or the end it follows growing) brings it to the nearest
@@ -647,7 +737,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
                         ? cursorOn(row.text, row.inset - 1, width)
                       : linkUrl && row.key === linkEntry
                         ? litLink(row.text, linkUrl)
-                        : row.hot && (row.head || row.target === WHOLE) && hovered === (row.target ?? row.key)
+                        : row.hot && (row.head || opensMore(row.target)) && hovered === (row.target ?? row.key)
                           ? lit(row.text, row.inset)
                           : row.text || " "}
                 </Text>
@@ -684,14 +774,19 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
 }
 
 /**
- * The transcript's keys while it has yours, as many as fit in `room` cells, for the box's top edge.
- * It's drawn there rather than on a row of its own, so the transcript doesn't move as it takes them.
+ * The transcript's keys while it has yours, as many as fit in `room` cells, for the box's top edge,
+ * with a call opened in it, or the cursor in an opened ledger, whose `[` and `]` switch its scopes
+ * in git. It's drawn there rather than on a row of its own, so the
+ * transcript doesn't move as it takes them.
  */
-export function transcriptHint(opened: boolean, room: number) {
+export function transcriptHint(opened: "call" | "ledger" | undefined, room: number, scopes = false) {
   // Four to six keys, as every hint line has; the rest are for the key sheet.
-  const pairs = opened
-    ? ["↑↓ move", "←→ calls", "tab views", "c copy", "enter open or close", "esc close"]
-    : ["↑↓ move", "enter open or close", "{ } messages", "esc back to the box"];
+  const pairs =
+    opened === "call"
+      ? ["↑↓ move", "←→ calls", "tab views", "c copy", "enter open or close", "esc close"]
+      : opened === "ledger"
+        ? ["↑↓ move", "enter open or close", "←→ files", "a open all", scopes ? "[ ] scope" : "[ ] ledgers", "esc close"]
+        : ["↑↓ move", "enter open or close", "{ } messages", "esc back to the box"];
   let hint = "";
   for (const pair of pairs) {
     const next = hint ? `${hint}   ${pair}` : pair;
@@ -720,13 +815,16 @@ function samePoint(a: Point, b: Point) {
 }
 
 /**
- * The row an open row belongs to: an open entry's first line of content, or the line an opened call
- * is under.
+ * The row an open row belongs to: an open entry's first line of content, the line an opened call is
+ * under, or in an opened ledger the file whose diff it's in, else the ledger's own line.
  */
 function headOf(transcript: Transcript, index: number) {
+  const { rows } = transcript;
+  const row = rows[index];
+  const of = row?.target ?? row?.key;
   let i = index;
-  while (i > 0 && transcript.rows[i]?.open && !transcript.rows[i]?.head && transcript.rows[i - 1]?.key === transcript.rows[index]?.key) i--;
-  return transcript.rows[i];
+  while (i > 0 && rows[i]?.open && !(rows[i]?.head && (rows[i]?.target ?? rows[i]?.key) === of) && rows[i - 1]?.key === row?.key) i--;
+  return rows[i];
 }
 
 /** The last row of what's opened under the line at `index`, past what's drawn under the line, such as why it failed. */
@@ -740,9 +838,14 @@ function openedEnd(transcript: Transcript, index: number) {
   return end;
 }
 
-/** Whether Enter or a click on a row closes what it's in: any row of what's open but its first, and an opened call's `⋯ N lines`, which opens more. */
+/** Whether Enter or a click on a row closes what it's in: any row of what's open but its first, and the `⋯ N lines` that opens more of an opened call or a file's diff. */
 function closes(row: Row) {
-  return row.open && !row.head && row.target !== WHOLE;
+  return row.open && !row.head && !opensMore(row.target);
+}
+
+/** An opened call's `⋯ N lines`, or a folded diff's in a ledger, which a click or Enter opens the rest of. */
+function opensMore(target: string | undefined) {
+  return target === WHOLE || isMore(target);
 }
 
 /** What a click at `col` on a row acts on in a way of its own, such as an opened call's tab. */

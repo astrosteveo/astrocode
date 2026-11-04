@@ -18,6 +18,8 @@ import { ago, canStopThinking, currentModel, duration } from "../src/view/format
 import { isCurrent, steps, titleWorthy } from "../src/view/steps";
 import { askedBy } from "../src/view/permissions";
 import { findRunning, runningKeyOf, runningList, type Running } from "../src/view/runs";
+import { callsOf } from "../src/view/ledger";
+import type { DiffLine } from "../src/view/patch";
 import type { Item, State } from "../src/view/state";
 import { todoList } from "../src/view/todos";
 import { plural, shortPath, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
@@ -37,6 +39,7 @@ import { useNeedsYou, type Background, type Fleet } from "./fleet";
 import { focusOf } from "./focus";
 import { HooksPanel } from "./hooks";
 import { ItemView, LiveView, StepView, targetCall } from "./entries";
+import { commandRows, fileTarget, ledgerTarget } from "./ledger";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
 import { keyFor, keyLabel, strokeOf } from "./keys";
@@ -53,6 +56,7 @@ import { ModelPicker } from "./model-picker";
 import { FollowDock, followedCall, useDwell } from "./follow";
 import { Inspector, placeOf, type TabId } from "./inspector";
 import { targetMove, targetTab, WHOLE } from "./opened";
+import { listedIn, scopeOf, turnDiff, useReview } from "./review";
 import { hit, MouseContext, useMouse } from "./mouse";
 import { Picker, type PickerItem } from "./picker";
 import { drawsImages, pictureRows, resendPictures } from "./pictures";
@@ -213,6 +217,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   // transcript has your keys, and what was copied.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [transcriptKeys, setTranscriptKeys] = useState(false);
+  /** The ledgers' scopes and the diffs read for their files, which `expanded` opens by `fileTarget()`. */
+  const { review, setScope } = useReview(session, state.items, expanded, git !== null, store.resets);
+  /** /diff's ledger, for the cursor to go to once it's drawn open. */
+  const [reveal, setReveal] = useState<{ key: string } | undefined>(undefined);
+  /** The transcript's cursor is in an opened ledger, whose keys the hint then names. */
+  const [inLedger, setInLedger] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   /** What Ctrl+F finds, kept when its bar closes so it opens again on the same words, and how many matches there are. */
   const [find, setFind] = useState<Find>({ query: "", back: 0 });
@@ -648,6 +658,15 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
    * its view instead.
    */
   const toggleTool = (key: string) => {
+    const ledger = ledgerTarget(key);
+    if (ledger && "scope" in ledger) {
+      setScope(ledger.turn, ledger.scope);
+      return true;
+    }
+    if (ledger && "all" in ledger) {
+      openAllFiles(ledger.turn);
+      return true;
+    }
     const tab = targetTab(key);
     if (key === WHOLE || tab) {
       setInspect((open) => open && (tab ? { ...open, tab, whole: false } : { ...open, whole: true }));
@@ -673,6 +692,46 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       return next;
     });
     return true;
+  };
+
+  /** `a` in an opened ledger: every file's diff opens, or with all of them open, closes. */
+  const openAllFiles = (key: string) => {
+    const turn = state.items.find((item) => item.key === key);
+    const listed = turn?.kind === "turn" ? listedIn(review, turn, scopeOf(review, key)) : undefined;
+    if (typeof listed !== "object") return;
+    const files = listed.files.map((file) => fileTarget(key, file.path));
+    setExpanded((open) => {
+      const all = files.every((file) => open.has(file));
+      const next = new Set(open);
+      for (const file of files) {
+        if (all) next.delete(file);
+        else next.add(file);
+      }
+      return next;
+    });
+  };
+
+  /**
+   * /diff: the latest turn's ledger, opened. In full screen your keys and the cursor go to it. In
+   * scrollback, which has no cursor to give them to, it's printed whole at the end, each file's diff
+   * under its line.
+   */
+  const openDiff = () => {
+    const index = state.items.findLastIndex((item) => item.kind === "turn");
+    const turn = state.items[index];
+    if (turn?.kind !== "turn") return notice("info", "No turn has ended yet. /diff opens the latest turn's ledger: what it changed, ran and committed.");
+    if (fullscreen) {
+      setExpanded((open) => (open.has(turn.key) ? open : new Set(open).add(turn.key)));
+      setTranscriptKeys(true);
+      setReveal({ key: turn.key });
+      return;
+    }
+    const calls = callsOf(state.items, index);
+    const files = (turn.files ?? []).filter((file) => !file.big && !file.binary);
+    void Promise.all(files.map(async (file) => [file.path, await turnDiff(session, turn, file, calls)] as const)).then((read) => {
+      const diffs = Object.fromEntries(read.filter((one): one is readonly [string, DiffLine[]] => Array.isArray(one[1])));
+      store.emit({ kind: "review", turn: turn.key, diffs, commands: commandRows(state.items, index, state.cwd, state.home) });
+    }, report);
   };
 
   /** The conversation's tool calls in order, which ← and → in the inspector move through. */
@@ -878,6 +937,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         return pickEffort(argument);
       case "/output":
         return openTranscript();
+      case "/diff":
+        return openDiff();
       case "/pictures":
         return openPictures();
       case "/play":
@@ -1121,6 +1182,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       description: fullscreen
         ? "Move through the transcript and open any line in place: a tool call's command or input, its whole output, what Claude got back (Ctrl+O)"
         : "Inspect a tool call: its exact command or input, its whole output, what Claude got back (Ctrl+O)",
+      argumentHint: "",
+    },
+    {
+      name: "diff",
+      description: fullscreen
+        ? "Review the latest turn's changes: each file's diff, the commands it ran and its commits; [ and ] switch to what isn't committed, or the branch"
+        : "Print the latest turn's changes: each file's diff, the commands it ran and its commits",
       argumentHint: "",
     },
     { name: "play", description: "Run a command from one of Claude's shell code blocks, as with !", argumentHint: "" },
@@ -1635,7 +1703,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           active={boxKeys}
           anywhere={focus === "transcript"}
           // As much of it as fits in the edge with a cell of it at each end.
-          hint={focus === "transcript" ? transcriptHint(Boolean(inspected), width - 5) : undefined}
+          hint={focus === "transcript" ? transcriptHint(inLedger ? "ledger" : inspected ? "call" : undefined, width - 5, review.git) : undefined}
           fullscreen={fullscreen}
           busy={state.busy}
           waitingOn={question || elicitation ? "question" : request ? "permission" : undefined}
@@ -1734,10 +1802,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         expanded={expanded}
         waiting={waiting}
         opened={inspected ? { id: inspected.id, tab: inspect?.tab, whole: inspect?.whole } : undefined}
+        reveal={reveal}
+        review={review}
         keys={!overlay}
         focused={focus === "transcript"}
         keymap={store.keymap}
         onFocus={() => setTranscriptKeys(true)}
+        onLedger={setInLedger}
         onLeave={() => setTranscriptKeys(false)}
         onToggle={toggleTool}
         onCopy={copySelection}
