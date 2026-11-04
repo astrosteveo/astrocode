@@ -222,3 +222,14 @@ test("a lock left by a claude that's gone is taken over once it's stale, as clau
   expect(readFileSync(file, "utf8")).toContain('"display":"from astrocode"');
   expect(existsSync(`${file}.lock`)).toBe(false);
 });
+
+test("a conversation's box goes back through its folder on ↑ and every folder on Ctrl+R, and keeps what it sends with its id", async () => {
+  write([line("here", 1000, HERE, "s1"), line("elsewhere", 1001, OTHER, "s2"), line("here, another session", 1002, HERE, "s3")]);
+  const history = new PromptHistory();
+  await history.load();
+  const box = history.forConversation(HERE, "s1");
+  expect(box.history).toEqual(["here, another session", "here"]);
+  expect(box.everywhere).toEqual(["here", "elsewhere", "here, another session"]);
+  await box.add("sent here");
+  expect(JSON.parse(readFileSync(file, "utf8").trim().split("\n").at(-1)!)).toMatchObject({ display: "sent here", project: HERE, sessionId: "s1" });
+});
