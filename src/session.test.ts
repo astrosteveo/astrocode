@@ -295,6 +295,27 @@ test("prompts offer bypass permissions and auto mode unless your settings turn t
   expect(events).toContainEqual({ kind: "modes-available", bypass: false, auto: true });
 });
 
+test("prompts don't offer auto mode where Claude Code has it off: in your permissions settings, or for the model or account", async () => {
+  const modes = async (init: Record<string, unknown>, effective: Record<string, unknown>) => {
+    starting = async () => ({ models: [], commands: [], account: {}, claude_code_version: "2.1.318", ...init });
+    answers = { getSettings: async () => ({ effective, applied: {} }) };
+    const events: SessionEvent[] = [];
+    try {
+      session((event) => events.push(event)).start();
+      await settle();
+    } finally {
+      starting = () => new Promise(() => {});
+      answers = {};
+    }
+    return events.find((event) => event.kind === "modes-available");
+  };
+  expect(await modes({}, { permissions: { disableAutoMode: "disable" } })).toEqual({ kind: "modes-available", bypass: true, auto: false });
+  expect(await modes({}, { disableAutoMode: "disable" })).toEqual({ kind: "modes-available", bypass: true, auto: false });
+  // Asked to start in auto mode, Claude Code started asking first instead.
+  expect(await modes({ current_permission_mode: "default" }, {})).toEqual({ kind: "modes-available", bypass: true, auto: false });
+  expect(await modes({ current_permission_mode: "auto" }, {})).toEqual({ kind: "modes-available", bypass: true, auto: true });
+});
+
 test("a no with a comment tells Claude what you said and lets it carry on; a plain no stops the turn", async () => {
   const events: SessionEvent[] = [];
   const one = session((event) => events.push(event));
