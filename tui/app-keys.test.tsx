@@ -285,3 +285,19 @@ test("Claude Code's suggested next message reaches the empty box, where Tab take
   ink.unmount();
   expect(asked).toContain("send");
 });
+
+test("anything you send uses up the suggestion, a command astrocode runs itself too, as in claude", async () => {
+  const { press, store, ink, written } = app();
+  await settle();
+  store.emit(suggested("next one adds two numbers"));
+  await settle();
+  const before = written().length;
+  await press("/help", KEYS.enter);
+  // /help opens the key sheet, and Esc closing it shows the box again, empty.
+  expect(stripVTControlCharacters(written().slice(before))).toContain("In the box");
+  await press(KEYS.esc);
+  await store.prompts.written();
+  ink.unmount();
+  expect(store.getSnapshot().nextPrompt).toBeUndefined();
+  expect(stripVTControlCharacters(written().slice(before))).not.toContain("next one adds two numbers");
+});

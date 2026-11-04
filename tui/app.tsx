@@ -876,6 +876,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const sent = store.prompts.forConversation(state.cwd, session.knownId);
   const submit = (text: string, how: { now?: boolean; later?: boolean; ignoreUltracode?: boolean } = {}) => {
     const { now = false } = how;
+    store.emit({ kind: "sent" });
     void sent.add(text);
     if (text.startsWith("!")) return runCommand(text.slice(1).trim());
     if (text.startsWith("#")) return openMemory(text.slice(1).trim());
