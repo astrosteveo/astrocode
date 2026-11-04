@@ -33,7 +33,8 @@ import { PALETTE } from "./theme";
 const CALLOUTS: Record<Callout, { color: string; title: string }> = {
   note: { color: PALETTE.sky, title: "Note" },
   tip: { color: PALETTE.teal, title: "Tip" },
-  important: { color: PALETTE.gold, title: "Important" },
+  // Bright, not gold, which marks only you.
+  important: { color: PALETTE.star, title: "Important" },
   warning: { color: PALETTE.ember, title: "Warning" },
   caution: { color: PALETTE.rose, title: "Caution" },
 };
@@ -186,13 +187,7 @@ function Styled({ run, voice = "claude" }: { run: Span; voice?: Voice }) {
   const words = voice === "you" && run.href === undefined ? paintKeywords(text, 0, text.length, keywordsIn(text)) : text;
   switch (run.style) {
     case "code":
-      // A cell of the code's background on each side makes it a chip. Whole cells rather than half
-      // blocks, so a comma right after the code sits against it instead of half a cell away.
-      return (
-        <Text color={PALETTE.tealLight} backgroundColor={PALETTE.raised}>
-          {` ${text} `}
-        </Text>
-      );
+      return <Text color={PALETTE.tealLight}>{text}</Text>;
     case "bold":
       return (
         <Text bold color={VOICES[voice].accent}>

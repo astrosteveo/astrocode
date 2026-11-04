@@ -158,7 +158,7 @@ test("at 200 columns a click opens a call under its line, with nothing beside th
   const at = row(/Ran +the tests/);
   const lines = screen();
   expect(lines[at + 1]).toContain("‹ 2 of 3 ›");
-  expect(lines[at + 1]).toMatch(/^│ {4}Run the tests/);
+  expect(lines[at + 1]).toMatch(/^ {5}Run the tests/);
   expect(lines[at + 2]).toContain("Output");
   // The transcript keeps its whole width: its lines run to the right edge, and no row holds two things side by side.
   expect(lines[at]!.trimEnd().length).toBeGreaterThan(190);
@@ -350,7 +350,7 @@ test("following Claude, a command that waits for your OK opens once it runs, so 
   // The prompt comes a moment after the call starts, as Claude Code sends them.
   await update(asking);
   await update({ ...asking, pending: [{ id: "c", toolName: "Bash", input: { command: "make c" }, description: "Lint the code" }] });
-  expect(row(/^▁+$/)).toBe(row(/^│.*Lint +the code/) + 1);
+  expect(row(/^▁+$/)).toBe(row(/^.{4}Lint +the code/u) + 1);
   expect(screen().filter((line) => line.includes("make c"))).toEqual([" $ make c"]);
   // Answered, it runs, and opens under its line on what it prints.
   await update(asking);
@@ -365,8 +365,8 @@ test("a click on the line that asks opens its call at once, though following Cla
   await update(asking);
   await update({ ...asking, pending: [{ id: "c", toolName: "Bash", input: { command: "make c" }, description: "Lint the code" }] });
   expect(row(/‹ \d of \d ›/)).toBe(-1);
-  await click(10, row(/^│.*Lint +the code/));
-  expect(screen()[row(/^│.*Lint +the code/) + 1]).toContain("‹ 3 of 3 ›");
+  await click(10, row(/^.{4}Lint +the code/u));
+  expect(screen()[row(/^.{4}Lint +the code/u) + 1]).toContain("‹ 3 of 3 ›");
 });
 
 test("a line of several reads, the last of them running, opens on the one running, and follows Claude from there", async () => {
@@ -572,6 +572,35 @@ test("↑ and ↓ move the cursor over lines, and Enter opens a call under its l
   expect(cursor()).toBe(row(/Ran +the tests/));
 });
 
+test("a step with no heading opens with Enter on its `… N more`, and closes with Enter, or a click, on the same line", async () => {
+  // Seven searches and reads in turn, with no sentence of Claude's before them.
+  const calls = Array.from({ length: 7 }, (_, i) => (i % 2 ? call(`c${i}`, { name: "Read", input: { file_path: `/p/src/f${i}.ts` }, result: "1\n2" }) : call(`c${i}`)));
+  const state: State = {
+    ...initialState("/p", "/home/u"),
+    items: [{ kind: "prompt", key: "p", text: "look around" }, ...calls.map((one) => ({ kind: "tool" as const, key: one.id, call: one }))],
+    tools: Object.fromEntries(calls.map((one, i) => [one.id, i + 1])),
+  };
+  const { press, click, cursor, row } = await launch(state);
+  const left = () => [row(/Searched +c2 in src/), row(/Read +src\/f3\.ts/)];
+  expect(left()).toEqual([-1, -1]);
+  await press(KEYS.ctrlO);
+  for (let i = 0; i < 3; i++) await press(KEYS.up);
+  const at = row(/… 2 more +▸/);
+  expect(cursor()).toBe(at);
+  // The line stays where it is, with the two lines it stood for under it.
+  await press(KEYS.enter);
+  expect(row(/… 2 more +▾/)).toBe(at);
+  expect(left()).toEqual([at + 1, at + 2]);
+  expect(cursor()).toBe(at);
+  await press(KEYS.enter);
+  expect(row(/… 2 more +▸/)).toBe(at);
+  expect(left()).toEqual([-1, -1]);
+  await press(KEYS.enter);
+  await click(8, at);
+  expect(row(/… 2 more +▸/)).toBe(at);
+  expect(left()).toEqual([-1, -1]);
+});
+
 test("in an opened call ← and → open the call before or after, Tab its next tab, and Esc closes it before leaving", async () => {
   const { press, cursor, row, screen, boxKeys } = await launch(THREE);
   await press(KEYS.ctrlO);
@@ -668,6 +697,20 @@ test("Claude's question and an MCP server's form say once, on their title row, h
   }
 });
 
+test("a decision takes the box's place with no bottom edge, as the box has none, so the status bar sits right under it", async () => {
+  const command = { command: "bun test", description: "Run the tests" };
+  const question = { id: "q", questions: [{ question: "Which cache?", header: "Cache", multiSelect: false, options: [{ label: "LRU", description: "least recently used" }, { label: "TTL", description: "time based" }] }] };
+  const form = { id: "e", server: "hello", message: "Your name?", mode: "form" as const, fields: [{ name: "name", label: "Name", type: "string" as const, required: true }] };
+  const asking = turn([call("a"), call("q", { name: "Bash", input: command, status: "running" })]);
+  for (const waiting of [{ pending: [{ id: "q", toolName: "Bash", input: command, description: command.description }] }, { questions: [question] }, { elicitations: [form] }]) {
+    const { screen } = await launch({ ...asking, busy: true, ...waiting }, { columns: 80, rows: 24 });
+    const lines = screen().filter((line, i, all) => i < all.length - 1 || line !== "");
+    expect(lines.at(-1)).toMatch(/ask first/);
+    expect(lines.at(-2)).not.toMatch(/▀/);
+    quit?.();
+  }
+});
+
 test("a decision opening brings the end back into view, so the line that asks sits right above it", async () => {
   const command = { command: "rm -rf build", description: "Clean the build" };
   const asking = turn([call("a"), call("b", { name: "Bash", input: command, status: "running" })]);
@@ -677,7 +720,7 @@ test("a decision opening brings the end back into view, so the line that asks si
   await press(KEYS.ctrlO);
   await press("\x1b[H");
   // The call's own line, not the line over the box that names it while it runs.
-  const asks = /^│\s+Clean\s+the build/;
+  const asks = /^.{4}Clean\s+the build/u;
   expect(row(asks)).toBe(-1);
   await update({ ...long, pending: [{ id: "b", toolName: "Bash", input: command, description: command.description }] });
   expect(row(/^▁+$/)).toBe(row(asks) + 1);
@@ -969,11 +1012,11 @@ test("[ and ] move the cursor between ledgers, and in an opened one switch it to
     scope === "uncommitted" ? { files: [{ path: `${cwd}/notes.md`, added: 2, removed: 0, status: "new" }], trees: { from: "h", to: "w" } } : { files: [{ path: `${cwd}/src/c.ts`, added: 1, removed: 1 }], trees: { from: "m", to: "w" }, base: "main" };
   const { press, cursor, row, screen } = await launch(ledgers(cwd), { session: { changes } });
   await press(KEYS.ctrlO);
-  expect(cursor()).toBe(row(/^╰.─ 9s/));
+  expect(cursor()).toBe(row(/^╰›9s/));
   await press("[");
   expect(cursor()).toBe(row(/6s · 2 files/));
   await press("]");
-  expect(cursor()).toBe(row(/^╰.─ 9s/));
+  expect(cursor()).toBe(row(/^╰›9s/));
   await press("[");
   await press(KEYS.enter);
   expect(screen()[cursor() + 1]).toContain("▐this turn▌");
@@ -1018,7 +1061,7 @@ test("/diff opens the latest turn's ledger with the cursor on it, and the keys a
   await press("/diff");
   await press(KEYS.enter);
   expect(boxKeys()).toBe(false);
-  const line = row(/^╰.─ 9s/);
+  const line = row(/^╰›9s/);
   expect(cursor()).toBe(line);
   expect(row(/^ {4}300 tokens/)).toBe(line + 1);
   // The hint in the box's edge names the ledger's keys. Outside git there's no scope to switch, so
@@ -1044,7 +1087,7 @@ test("? with the cursor in an opened ledger lists the ledger's keys first, and E
   expect(screen().join("\n")).toMatch(/a +every diff, or none/);
   await press(KEYS.esc);
   expect(sheetFirst(screen())).toBeUndefined();
-  expect(cursor()).toBe(row(/^╰.─ 9s/));
+  expect(cursor()).toBe(row(/^╰›9s/));
   expect(row(/^ {4}300 tokens/)).toBe(cursor() + 1);
 });
 
@@ -1230,8 +1273,8 @@ test("v in the transcript opens the whole conversation in $EDITOR, as claude's v
     expect(seen).toContain("look around");
     expect(seen).toContain("Looking around");
     expect(seen).toMatch(/Ran +the tests/);
-    // Content only, as a drag copies it: no rail, and not the start screen.
-    expect(seen).not.toContain("│");
+    // Content only, as a drag copies it: no marks in the gutter, and not the start screen.
+    expect(seen).not.toMatch(/[●◆]/);
     expect(seen).not.toContain("astrocode");
   } finally {
     process.stdin.setRawMode = setRawMode;

@@ -31,8 +31,6 @@ export type ActivityRow = {
   /** The target is a path, or paths, which keep their ends when cut to fit. */
   path: boolean;
   result: Part[];
-  /** Lines an edit added and removed, drawn as a diffstat. */
-  diff?: { added: number; removed: number };
   status: ToolStatus | "waiting";
   /** For a call that failed, the line that says the most about why. */
   failure?: string;
@@ -161,7 +159,6 @@ function rowOf(calls: ToolCall[], waiting: ReadonlySet<string>, cwd: string, hom
     row.verb = "Not run";
     if (!forms.bare) row.target = target("ask", forms.ask);
     row.result = [{ text: status === "stopped" ? "stopped" : last.deniedBy ? `denied by ${last.deniedBy}` : "you said no", tone: "stopped" }];
-    row.diff = undefined;
   } else if (status === "stopped") {
     row.verb = "Stopped";
     row.target = target("doing", forms.doing[0]!.toLowerCase() + forms.doing.slice(1));
@@ -212,7 +209,6 @@ function describe(row: ActivityRow, cwd: string, home: string): Verbs {
       }, { added: 0, removed: 0 });
       const created = call.name === "Write" && field(call.output, "type") === "create";
       if (done.length) {
-        row.diff = counts;
         row.result = [
           ...diffParts(counts, created),
           ...(calls.length > 1 ? [{ text: ` · ${plural(calls.length, call.name === "Write" ? "write" : "edit")}`, tone: "faint" as const }] : []),

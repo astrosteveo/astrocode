@@ -1,6 +1,7 @@
-// Asking you before a tool runs, in the box's place, on a panel with a gold top edge: what Claude
-// wants to do, and the choices, in `claude`'s words (src/view/permissions.ts). The panel is the one
-// place that says Claude is waiting, and for how long. Tab on No opens a comment, which goes to
+// Asking you before a tool runs, in the box's place, on a panel with a gold top edge and, like the
+// box, no bottom edge: what Claude wants to do, and the choices, in `claude`'s words
+// (src/view/permissions.ts). The panel is the one place that says Claude is waiting, and for how
+// long. Tab on No opens a comment, which goes to
 // Claude as the reason; a plan's last row is a comment of its own, saying what to change, and
 // Ctrl+G opens the plan's file in your editor, as in `claude`.
 import { Box, renderToString, Text, useAnimation, useInput, type DOMElement } from "ink";
@@ -159,7 +160,7 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
   // needs it, so the line that asks stays in view above, and the status bar below. Rows are
   // counted as they wrap.
   const chrome =
-    5 +
+    4 +
     (agent !== undefined ? 1 : 0) +
     [ask.subject, note, ask.question].reduce((sum, text) => sum + (text ? rowsOf(text, inner) : 0), 0) +
     ask.rows.reduce((sum, one) => sum + rowsOf(one.amend !== undefined && comment !== null ? `${one.label}, ${comment || one.amend} ` : rowText(one), inner - 5), 0) +
@@ -169,7 +170,7 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
   const body = useMemo(() => details(current, cwd, home, inner, pictureRows), [current, cwd, home, inner, pictureRows]);
   const shown = useFitting(body, limit, inner);
   return (
-    <Panel width={width} accent={PALETTE.gold}>
+    <Panel width={width} accent={PALETTE.gold} open>
       {agent !== undefined ? (
         <Text wrap="truncate-end">
           <Text color={PALETTE.dust}>{"subagent  "}</Text>

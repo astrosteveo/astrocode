@@ -1,9 +1,9 @@
 // A turn as steps: each run of tool calls, with the sentence Claude wrote before it as its title,
 // drawn as one row that says what Claude meant to do and what came of it. Prose that isn't a
-// title (a long explanation, a reply) stays as it is. Without a sentence to use, a title is made
-// from the calls. Calls that show you something on purpose (a picture, a plan, a question) stand
-// apart, since a closed step would hide them.
-import { SHOW_TOOL, shortPath, toolLabel, toolTarget } from "./tools";
+// title (a long explanation, a reply) stays as it is. Without a sentence to use, a step has no
+// title. Calls that show you something on purpose (a picture, a plan, a question) stand apart,
+// since a closed step would hide them.
+import { SHOW_TOOL } from "./tools";
 import type { Item, ToolItem } from "./state";
 
 /** Calls that stay out of steps, drawn whole, as does a call a mod drew a result for. */
@@ -106,70 +106,6 @@ export function titleOf(text: string) {
   line = line.replace(/[.:,;]$/, "");
   return line.charAt(0).toUpperCase() + line.slice(1);
 }
-
-/** What the step is called, and whether it was made from its calls for want of a sentence. */
-export function stepTitle(step: Step, cwd: string, home: string): { text: string; made: boolean } {
-  if (step.title) return { text: titleOf(step.title.text), made: false };
-  // Consecutive calls of one tool read as one phrase: `Read queue.ts and fixtures.ts`.
-  const phrases: string[] = [];
-  /** Phrases from Claude's descriptions and tools that read as verbs, which read on in lower case; a tool's name keeps its capital. */
-  const said = new Set<number>();
-  let last = "";
-  const calls = step.calls.filter(({ call }) => !SETUP.has(call.name));
-  for (const { call } of calls.length ? calls : step.calls) {
-    // A command or a subagent reads best by what Claude said it does.
-    const description = typeof call.input.description === "string" ? call.input.description.trim() : "";
-    if ((call.name === "Bash" || call.name === "Agent" || call.name === "Task") && description) {
-      said.add(phrases.length);
-      phrases.push(description);
-      last = "";
-      continue;
-    }
-    const action = ACTIONS[call.name];
-    const label = action ?? toolLabel(call.name);
-    const target = shortTarget(call, cwd, home);
-    if (label === last && phrases.length) {
-      phrases[phrases.length - 1] += target ? ` and ${target}` : "";
-      continue;
-    }
-    // Claude Code's own tools are verbs, and read on like Claude's words.
-    if (action) said.add(phrases.length);
-    phrases.push(target ? `${label} ${target}` : label);
-    last = label;
-  }
-  // Phrases after the first read on as one sentence: `Find the test, read retry.ts`.
-  const rest = phrases.slice(1).map((phrase, i) => (said.has(i + 1) && /^[A-Z][a-z]/.test(phrase) ? phrase.charAt(0).toLowerCase() + phrase.slice(1) : phrase));
-  return { text: [phrases[0] ?? "", ...rest].join(", "), made: true };
-}
-
-/** Claude Code's tools as the verbs a title made from them uses: `Read math.js`, `Fetch example.com`. */
-const ACTIONS: Record<string, string> = {
-  Read: "Read",
-  Edit: "Edit",
-  MultiEdit: "Edit",
-  NotebookEdit: "Edit",
-  Write: "Write",
-  Grep: "Search for",
-  Glob: "Find",
-  WebFetch: "Fetch",
-  WebSearch: "Search the web for",
-  TodoWrite: "Update the to-dos",
-  Skill: "Load",
-};
-
-/** Calls that only make other tools ready, which a title leaves out when the step has others. */
-const SETUP = new Set(["ToolSearch"]);
-
-/** A target short enough for a title: a file's name without its folder, a page without its scheme. */
-function shortTarget(call: ToolItem["call"], cwd: string, home: string) {
-  const target = toolTarget(call, cwd, home);
-  if (call.name === "TodoWrite") return "";
-  if (call.name === "WebFetch") return target.replace(/^https?:\/\//, "").replace(/\/$/, "");
-  if (call.name === "Grep" || call.name === "Glob") return String(call.input.pattern ?? target);
-  return ["Read", "Edit", "MultiEdit", "NotebookEdit", "Write"].includes(call.name) ? basename(target) : target;
-}
-
-const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1) || path;
 
 /**
  * How the step is going. It has `failed` when its last call failed; a failure Claude got past

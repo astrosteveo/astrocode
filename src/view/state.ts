@@ -228,7 +228,6 @@ export type State = {
   effort?: EffortLevel;
   /** False once thinking is turned off; unknown means Claude Code's default, which thinks. */
   thinking?: boolean;
-  plan?: string;
   models: ModelChoice[];
   commands: CommandInfo[];
   /** What Claude Code loaded, once it has said. */
@@ -343,7 +342,7 @@ export function reduce(state: State, event: ViewEvent): State {
   switch (event.kind) {
     case "ready":
       // A new Claude Code process, with nothing in the background yet.
-      return { ...state, plan: event.plan, models: event.models, commands: event.commands, tasks: [], taskInfo: {}, agentLogs: {}, modStatus: {}, modToast: undefined };
+      return { ...state, models: event.models, commands: event.commands, tasks: [], taskInfo: {}, agentLogs: {}, modStatus: {}, modToast: undefined };
     case "commands":
       return { ...state, commands: event.commands };
     case "loaded":

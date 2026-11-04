@@ -1,4 +1,4 @@
-// A tool call: its node on the rail says how it went (a filled hexagon once it's done, an outline
+// A tool call: its node in the gutter says how it went (a filled hexagon once it's done, an outline
 // while it runs or after it stopped), and its row says what it was: the tool, what it acts on,
 // and a word on the result, set against the right edge. Finished rows keep what matters from the
 // result on a panel under them. Bash calls are cards of their own (`shell-card.tsx`).
@@ -43,7 +43,7 @@ type Props = {
   links?: FigureLinks;
 };
 
-/** The node a tool call shows on the rail. */
+/** The node a tool call shows in the gutter. */
 export function toolNode(call: ToolCall, waiting: boolean) {
   return STATUS[waiting ? "waiting" : call.status];
 }

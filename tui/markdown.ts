@@ -30,12 +30,6 @@ export type Span = {
   href?: string
 }
 
-/** Cells drawn around a row's piece of inline code: one of its background on each side (`markdown-view.tsx`), so it reads as a chip. */
-const CODE_PADDING = 2
-
-/** Cells a run takes on screen. */
-const runWidth = (run: Span) => cellWidth(run.text) + (run.style === 'code' ? CODE_PADDING : 0)
-
 const FENCE = /^( {0,3})(`{3,}|~{3,})\s*([^\s`]*)/
 /** A fence under a list item, which can be indented further, as under `10. `. */
 const LIST_FENCE = /^(\s+)(`{3,}|~{3,})\s*([^\s`]*)/
@@ -293,7 +287,7 @@ export const spans = (text: string): Span[] => {
 }
 
 /** Cells the text takes once its inline markers are drawn as styles. */
-export const width = (text: string) => spans(text).reduce((sum, run) => sum + runWidth(run), 0)
+export const width = (text: string) => spans(text).reduce((sum, run) => sum + cellWidth(run.text), 0)
 
 /** A table row's cells: split on pipes outside code spans, `\|` kept as a pipe. A backtick with no closing one is a plain character. */
 const rowCells = (line: string) => {
@@ -500,15 +494,12 @@ export const wrapSpans = (runs: Span[], room: number): Span[][] => {
     return last !== undefined && last.style === style && last.href === href
   }
 
-  /** The padding `run`'s text would add to the row: that of a piece of inline code it starts. */
-  const paddingFor = (run: Span) => (run.style === 'code' && !continues(run) ? CODE_PADDING : 0)
-
   const add = (text: string, run: Span) => {
     if (text === '') {
       return
     }
     const { style, href } = run
-    used += cellWidth(text) + paddingFor(run)
+    used += cellWidth(text)
     if (continues(run)) {
       rows[rows.length - 1]!.at(-1)!.text += text
     } else {
@@ -541,7 +532,7 @@ export const wrapSpans = (runs: Span[], room: number): Span[][] => {
           if (indent > 0) {
             add(takeCells(token, indent)[0], run)
           }
-        } else if (used > 0 && used + paddingFor(run) + cellWidth(token) <= limit) {
+        } else if (used > 0 && used + cellWidth(token) <= limit) {
           add(token, run)
         } else if (used > 0) {
           breakRow()
@@ -549,12 +540,12 @@ export const wrapSpans = (runs: Span[], room: number): Span[][] => {
         continue
       }
       hasWords = true
-      if (used > 0 && used + paddingFor(run) + cellWidth(token) > limit) {
+      if (used > 0 && used + cellWidth(token) > limit) {
         breakRow()
       }
       let rest = token
-      while (rest !== '' && paddingFor(run) + cellWidth(rest) > limit) {
-        const [head, tail] = takeCells(rest, limit - paddingFor(run))
+      while (rest !== '' && cellWidth(rest) > limit) {
+        const [head, tail] = takeCells(rest, limit)
         add(head, run)
         rest = tail
         if (rest !== '') {
@@ -573,4 +564,4 @@ export const wrapText = (text: string, room: number, isPlain = false): Span[][] 
   text.split('\n').flatMap(line => wrapSpans(isPlain ? [{ text: line, style: 'plain' }] : spans(line), room))
 
 /** Cells a row of runs takes. */
-export const rowWidth = (row: Span[]) => row.reduce((sum, run) => sum + runWidth(run), 0)
+export const rowWidth = (row: Span[]) => row.reduce((sum, run) => sum + cellWidth(run.text), 0)

@@ -12,7 +12,6 @@ const state: State = {
   ...initialState("/p", "/home/u"),
   model: "claude-opus-5-5",
   effort: "xhigh",
-  plan: "Claude Max",
   context: { percentage: 18, tokens: 36_000, max: 200_000 },
   limits: { fiveHour: { utilization: 0.31, resetsAt: 0 }, sevenDay: { utilization: 0.64, resetsAt: 0 } },
 };
@@ -64,7 +63,7 @@ test("says in the status bar, after the mode, how many other conversations wait 
     const { line, stop } = bar(columns, { needsYou: 2 });
     const shown = line();
     stop();
-    expect(shown).toMatch(/^ ▐ask first▌ {2}shift\+tab {2}← 2 need you /);
+    expect(shown).toMatch(/^ ▐ask first▌ {2}← 2 need you /);
     // The readings make room for it, keeping the context first.
     expect(shown).toContain("context");
     expect(shown.trimEnd().length).toBeLessThanOrEqual(columns);
@@ -94,7 +93,8 @@ test("a click on the count opens the conversations, and a click on the mode stil
   const shown = line();
   await click(shown.indexOf("← 1 needs you") + 4);
   expect(opened).toBe(1);
-  await click(shown.indexOf("shift+tab") + 2);
+  // The gap between the mode and the count is neither.
+  await click(shown.indexOf("← 1 needs you") - 1);
   expect(opened).toBe(1);
   await click(shown.indexOf("ask first"));
   stop();
@@ -134,4 +134,12 @@ test("a click on the count beside a cut armed hint still opens the conversations
   await click(shown.indexOf("← 2 need you") + 4);
   stop();
   expect(opened).toBe(1);
+});
+
+test("leaves out the key that changes the mode, which ? lists, even with room for it", () => {
+  const { line, stop } = bar(200, {});
+  const shown = line();
+  stop();
+  expect(shown).not.toContain("shift+tab");
+  expect(shown).toMatch(/⎇ feat\/cache-clock ±3 *$/);
 });

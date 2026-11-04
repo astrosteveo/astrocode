@@ -62,7 +62,7 @@ test("Bash: Tab on No opens a comment, which goes to Claude as the reason for no
   expect(screen()).toMatch(/waiting \d+s/);
   expect(screen()).toContain("$ rm -rf build");
   // Tab does nothing on Yes, and doesn't move the selection.
-  expect(screen()).toMatch(/Esc to cancel\s*\n/);
+  expect(screen()).toMatch(/Esc to cancel\s*$/);
   await press(KEYS.tab);
   expect(screen()).toMatch(/› 1 {2}Yes/);
   await press(KEYS.down + KEYS.down);

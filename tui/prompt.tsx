@@ -1,8 +1,9 @@
 // The message box: a small multi-line editor with a menu for slash commands and one for `@` file
-// mentions, on a panel whose top edge turns gold while it has your keys. The menu unfolds up out of
-// the box and folds back down into it, so the box itself never moves. The text lives in a ref so
-// keys that arrive faster than React re-renders still see the latest text. In full screen, clicking
-// puts the cursor where you click, and clicking in a menu chooses.
+// mentions, on a panel whose top edge turns gold while it has your keys, and with no bottom edge,
+// so the status bar sits right under it. The menu unfolds up out of the box and folds back down
+// into it, so the box itself never moves. The text lives in a ref so keys that arrive faster than
+// React re-renders still see the latest text. In full screen, clicking puts the cursor where you
+// click, and clicking in a menu chooses.
 //
 // The keys are Claude Code's, from the keymap (`keys.ts`), and the shell's: Ctrl+K, Ctrl+U, Ctrl+W
 // and Alt+D cut and Ctrl+Y puts back, Alt+B and Alt+F move by words. Ctrl+S puts the message aside
@@ -721,7 +722,7 @@ export function Prompt(props: Props) {
     const all = query ? found(query) : [];
     const match = all[skip];
     return (
-      <Panel width={width} accent={PALETTE.gold} label="search what you've sent" note={query ? (match === undefined ? "no match" : `${skip + 1} of ${all.length}`) : undefined}>
+      <Panel width={width} accent={PALETTE.gold} label="search what you've sent" note={query ? (match === undefined ? "no match" : `${skip + 1} of ${all.length}`) : undefined} open>
         <Box>
           <Box flexShrink={0}>
             <Text color={PALETTE.gold}>{"⌕ "}</Text>
@@ -747,7 +748,7 @@ export function Prompt(props: Props) {
     <Box flexDirection="column">
       {room.current > 0 ? <Box height={room.current} flexShrink={0} /> : null}
       <Box flexDirection="column">
-        <Panel width={width} accent={active ? PALETTE.gold : undefined} label={mode} note={note} behind={unfolded > 0 ? PALETTE.surface : undefined}>
+        <Panel width={width} accent={active ? PALETTE.gold : undefined} label={mode} note={note} behind={unfolded > 0 ? PALETTE.surface : undefined} open>
           <Box>
             <Box flexShrink={0}>
               <Text color={active ? PALETTE.gold : PALETTE.dust}>

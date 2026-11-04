@@ -64,7 +64,7 @@ function palette(page: string | undefined, text: string | undefined) {
     star: mix(ink, dark ? "#FFFFFF" : "#000000", 0.35),
     /** Secondary text, readable. */
     haze: readable(mix(ink, page, 0.4), page, 4.5),
-    /** The rail, panel edges and other lines, and the quietest hints, so it reads at 3:1 at least. */
+    /** Marks in the gutter, panel edges and other lines, and the quietest hints, so it reads at 3:1 at least. */
     dust: readable(mix(ink, page, 0.58), page, 3),
     /** Panels: code, output, the message box and the cards that ask you things. */
     surface,

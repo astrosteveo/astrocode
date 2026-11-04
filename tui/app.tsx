@@ -36,7 +36,7 @@ import { FindBar, type Find } from "./find";
 import { useNeedsYou, type Background, type Fleet } from "./fleet";
 import { focusOf } from "./focus";
 import { HooksPanel } from "./hooks";
-import { ItemView, LiveView, StepView, targetCall } from "./entries";
+import { GUTTER, ItemView, LiveView, StepView, targetCall } from "./entries";
 import { fileTarget, ledgerTarget } from "./ledger";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
@@ -63,7 +63,6 @@ import { Prompt } from "./prompt";
 import { QuestionPrompt } from "./question";
 import { QueuedMessages } from "./queued";
 import { RemotePanel } from "./remote";
-import { GUTTER } from "./rail";
 import { SandboxPanel } from "./sandbox";
 import { Screen, transcriptHint } from "./screen";
 import { KeySheet, sheetOf, type Place, type Prompted } from "./sheet";
@@ -1829,9 +1828,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         {(entry) => (
           <Box key={entry.kind === "item" ? entry.item.key : entry.key} flexDirection="column">
             {entry.kind === "item" ? (
-              <ItemView item={entry.item} rail={entry.rail} detailed scrollback {...view} />
+              <ItemView item={entry.item} spaced={entry.spaced} detailed scrollback {...view} />
             ) : entry.kind === "step" ? (
-              <StepView step={entry.row} rail={entry.rail} open={entry.open} width={width} pictureRows={view.pictureRows} links="scrollback" cwd={state.cwd} home={state.home} clickable={false} />
+              <StepView step={entry.row} spaced={entry.spaced} open={entry.open} width={width} pictureRows={view.pictureRows} links="scrollback" cwd={state.cwd} home={state.home} clickable={false} />
             ) : (
               <StartScreen start={start} width={width} />
             )}
@@ -1845,12 +1844,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           <>
             {unsettled.map((entry) =>
               entry.kind === "step" ? (
-                <StepView key={entry.key} step={entry.row} rail={entry.rail} open={entry.open} width={width} pictureRows={view.pictureRows} cwd={state.cwd} home={state.home} clickable={false} />
+                <StepView key={entry.key} step={entry.row} spaced={entry.spaced} open={entry.open} width={width} pictureRows={view.pictureRows} cwd={state.cwd} home={state.home} clickable={false} />
               ) : (
                 <ItemView
                   key={entry.item.key}
                   item={entry.item}
-                  rail={entry.rail}
+                  spaced={entry.spaced}
                   waiting={entry.item.kind === "tool" && waiting.has(entry.item.call.id)}
                   {...view}
                 />
