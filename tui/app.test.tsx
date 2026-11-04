@@ -224,6 +224,30 @@ test("x stops the running subagent or command under the cursor, opened or not, a
   expect(stopped()).toEqual(["agent-1", "agent-1", "bash-1"]);
 });
 
+/** A turn whose calls `more` started tasks of Claude Code's in the background, which `tasks` has. */
+function inBackground(more: ToolCall[], tasks: State["taskInfo"]): State {
+  return { ...turn([call("a"), ...more]), taskInfo: tasks };
+}
+
+test("a workflow or a Monitor in the background opens its task view, which shows it live", async () => {
+  const workflow = call("f", { name: "Workflow", input: { description: "Review the code" }, result: "Workflow launched in the background with ID: wf-1", background: "running", taskId: "wf-1" });
+  const monitor = call("m", { name: "Monitor", input: { description: "Watch the logs", command: "tail -f log" }, result: "Monitor started with ID: mon-1", background: "running", taskId: "mon-1" });
+  const state = inBackground([monitor, workflow], {
+    "wf-1": { id: "wf-1", description: "Review the code", type: "local_workflow", toolUseId: "f", background: true, status: "running" },
+    "mon-1": { id: "mon-1", description: "Watch the logs", type: "monitor", toolUseId: "m", background: true, status: "running" },
+  });
+  const { press, row, screen } = await launch(state);
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  expect(row(/workflow +Review the code/)).not.toBe(-1);
+  expect(screen().some((line) => line.includes("▐Result▌"))).toBe(false);
+  await press(KEYS.esc);
+  await press(KEYS.up);
+  await press(KEYS.enter);
+  expect(row(/monitor +Watch the logs/)).not.toBe(-1);
+  expect(screen().some((line) => line.includes("▐Result▌"))).toBe(false);
+});
+
 test("x on a running call that can't stop on its own says what stops it", async () => {
   const { press, asked, row } = await launch({ ...turn([call("a", { status: "running", result: undefined })]), busy: true });
   await press(KEYS.ctrlO);
