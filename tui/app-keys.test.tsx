@@ -98,6 +98,19 @@ test("Ctrl+L redraws with an overlay open too, where the message box doesn't hav
   expect(written().slice(before)).toContain(CLEARED);
 });
 
+test("Ctrl+L in scrollback writes the start screen again, at the top of the cleared screen", async () => {
+  const { press, store, ink, written } = app();
+  store.emit({ kind: "loaded", loaded: { version: "2.1.318" } });
+  await settle(300);
+  expect(stripVTControlCharacters(written())).toContain("Claude Code 2.1.318 underneath");
+  const before = written().length;
+  await press(KEYS.ctrlL);
+  ink.unmount();
+  const after = written().slice(before);
+  expect(after).toContain(CLEARED);
+  expect(stripVTControlCharacters(after.slice(after.indexOf(CLEARED)))).toContain("Claude Code 2.1.318 underneath");
+});
+
 test("Shift+↑ at the top says once, for a moment, that max takes /effort, as claude does", async () => {
   const { press, store, ink, written } = app();
   await settle();
