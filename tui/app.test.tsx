@@ -323,3 +323,16 @@ test("in an opened call Shift+Tab leaves the tab alone, and Ctrl+C doesn't copy 
   await press(KEYS.ctrlC);
   expect(screen().some((line) => line.includes("Copied"))).toBe(false);
 });
+
+test("Alt+L with a call opened from the transcript closes it and follows Claude again", async () => {
+  const state = turn([call("a"), call("b", { name: "Bash", status: "running", input: { command: "sleep 9", description: "Wait a while" } })]);
+  const { press, screen, row, click } = await launch(state, { follow: true });
+  expect(row(/◉ Following/)).not.toBe(-1);
+  await click(10, row(/Searched +a in src/));
+  expect(screen().some((line) => line.includes("‹ 1 of 2 ›"))).toBe(true);
+  expect(row(/◉ Following/)).toBe(-1);
+  await press("\x1bl");
+  expect(screen().some((line) => line.includes("‹ 1 of 2 ›"))).toBe(false);
+  expect(row(/◉ Following/)).not.toBe(-1);
+  expect(row(/Following Claude again/)).not.toBe(-1);
+});
