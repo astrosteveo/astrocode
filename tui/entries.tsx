@@ -5,7 +5,8 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
 import type { ActivityRow, Part, Tone } from "../src/view/activity";
-import { compact, duration, timed, took } from "../src/view/format";
+import { compact, timed, took } from "../src/view/format";
+import { ledgerLine } from "../src/view/ledger";
 import { runOfCall, runOfShell } from "../src/view/runs";
 import { plural, shortPath } from "../src/view/tools";
 import type { Item, Live } from "../src/view/state";
@@ -166,6 +167,7 @@ const TONES: Record<Tone, string> = {
   failed: PALETTE.rose,
   stopped: PALETTE.ember,
   waiting: PALETTE.gold,
+  elsewhere: PALETTE.sky,
 };
 
 /** Cells before an activity line's verb, and the verb's column, so targets line up down a step. */
@@ -519,35 +521,36 @@ function Message({ text, images = {}, width, rows }: { text: string; images?: Re
 }
 
 /**
- * `╰── 42s   1.2k tokens   2 files · 3 commands`: how long the turn took, what Claude wrote and
- * what it did, closing the rail. Opened in full screen, the files and commands are listed under it.
+ * `╰── 1m 40s · 3 files +58 −3 · 7 passed 1 failed · not committed`: the turn's ledger, closing the
+ * rail. Opened in full screen, the files and commands are listed under it, with the turn's tokens.
  */
 function TurnEnd({ item, expanded, cwd, home, width }: { item: Extract<Item, { kind: "turn" }>; expanded: boolean; cwd: string; home: string; width: number }) {
-  const tokens = item.tokens > 0 ? `   ${compact(item.tokens)} tokens` : "";
-  const said = {
-    finished: { text: `${duration(item.durationMs)}${tokens}`, color: PALETTE.haze },
-    stopped: { text: `stopped after ${duration(item.durationMs)}${tokens}`, color: PALETTE.ember },
-    failed: { text: `failed after ${duration(item.durationMs)}`, color: PALETTE.rose },
-  }[item.outcome];
-  // A replayed turn whose messages carried no times says only what it did.
-  const timed = !item.replayed || item.durationMs > 0;
-  const work = turnWork(item);
+  const reason = item.detail?.split("\n").slice(1).join("\n");
   return (
     <Box flexDirection="column">
       <Text>
         <Text color={PALETTE.dust}>─ </Text>
-        {timed ? <Text color={said.color}>{said.text}</Text> : null}
-        {work ? <Text color={PALETTE.dust}>{`${timed ? "   " : ""}${work}`}</Text> : null}
+        {ledgerLine(item).map((part, i) => (
+          <Text key={i} color={TONES[part.tone]}>
+            {part.text}
+          </Text>
+        ))}
       </Text>
-      {item.detail ? <Text color={PALETTE.rose}>{item.detail}</Text> : null}
+      {/* The closing line says the failure's first line; the rest goes under it. */}
+      {item.outcome === "failed" && reason ? <Text color={PALETTE.rose}>{reason}</Text> : null}
       {expanded ? (
         <Box flexDirection="column" marginTop={1}>
-          {item.files?.map((file) => (
-            <Text key={`f${file}`} wrap="truncate-end">
-              <Text color={PALETTE.haze}>{"changed  "}</Text>
-              <Text color={PALETTE.star}>{fit(shortPath(file, cwd, home), width - 9, true)}</Text>
-            </Text>
-          ))}
+          {item.files?.map((file) => {
+            const size = [file.added ? `+${file.added}` : "", file.removed ? `−${file.removed}` : ""].filter(Boolean).join(" ");
+            return (
+              <Text key={`f${file.path}`} wrap="truncate-end">
+                <Text color={PALETTE.haze}>{"changed  "}</Text>
+                <Text color={PALETTE.star}>{fit(shortPath(file.path, cwd, home), width - 10 - size.length, true)}</Text>
+                {file.added ? <Text color={PALETTE.teal}>{` +${file.added}`}</Text> : null}
+                {file.removed ? <Text color={PALETTE.rose}>{` −${file.removed}`}</Text> : null}
+              </Text>
+            );
+          })}
           {item.commands?.map((command, i) => (
             <Text key={`c${i}`} wrap="truncate-end">
               <Text color={PALETTE.haze}>{"ran      "}</Text>
@@ -555,13 +558,14 @@ function TurnEnd({ item, expanded, cwd, home, width }: { item: Extract<Item, { k
               <Text>{firstLine(command)}</Text>
             </Text>
           ))}
+          {item.tokens > 0 ? <Text color={PALETTE.haze}>{`${compact(item.tokens)} tokens`}</Text> : null}
         </Box>
       ) : null}
     </Box>
   );
 }
 
-/** What a turn did, counted: `2 files · 3 commands`, or empty when it changed and ran nothing. */
+/** What opening a turn's closing line lists, counted: `2 files · 3 commands`, or empty when there's nothing to list. */
 export function turnWork(item: Extract<Item, { kind: "turn" }>) {
   const files = item.files?.length ?? 0;
   const commands = item.commands?.length ?? 0;

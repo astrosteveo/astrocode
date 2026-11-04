@@ -12,9 +12,10 @@ import { field, plural, shortPath, SHOW_TOOL, subagentCallCount, toolLabel, tool
 
 /**
  * How a piece of a line is drawn: `plain` as text, `bright` brighter, `quiet` and `faint` stepping
- * back, `code` as inline code, and the rest in the colors of how things went.
+ * back, `code` as inline code, `elsewhere` for what's away from here, such as a pull request, and
+ * the rest in the colors of how things went.
  */
-export type Tone = "plain" | "bright" | "quiet" | "faint" | "code" | "added" | "removed" | "done" | "failed" | "stopped" | "waiting";
+export type Tone = "plain" | "bright" | "quiet" | "faint" | "code" | "added" | "removed" | "done" | "failed" | "stopped" | "waiting" | "elsewhere";
 export type Part = { text: string; tone: Tone };
 
 export type ActivityRow = {
