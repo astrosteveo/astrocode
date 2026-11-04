@@ -40,7 +40,7 @@ const SAYS: Record<Exclude<Listed, object>, string> = {
   "no base": "There's no main or master branch to compare with.",
 };
 
-/** A file's diff: its lines, or that they're being read, or that they weren't kept. */
+/** A file's diff: its lines, none for a file only renamed, or that they're being read, or that they weren't kept. */
 export type FileDiff = DiffLine[] | "reading" | "gone";
 
 /** A command the turn ran, as its line in the ledger reads: the command, and how it went. */
@@ -189,7 +189,8 @@ function diffPieces(turn: string, file: FileChange, diff: FileDiff | undefined, 
   if (file.big) return say("It's over 10 MB, so astrocode didn't read it.");
   if (file.binary) return say("It's binary: there are no lines to show.");
   if (diff === undefined || diff === "reading") return say("Reading the diff…");
-  if (diff === "gone" || !diff.length) return say("Its diff wasn't kept.");
+  if (diff === "gone") return say("Its diff wasn't kept.");
+  if (!diff.length) return say("No lines changed.");
   const runs = runsOf(diff);
   // One gutter for every run, so their numbers line up. A loop, not a spread: a diff can have more
   // lines than a call can take arguments.

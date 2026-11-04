@@ -113,16 +113,14 @@ export function useReview(reader: Reader, items: Item[], expanded: ReadonlySet<s
   return { review, setScope };
 }
 
-const linesOf = (patch: string | null): FileDiff => {
-  const lines = patch === null ? [] : patchLines(patch);
-  return lines.length ? lines : "gone";
-};
+/** A patch's lines: none for a file only renamed, or whose mode changed. Git printing nothing, or failing, kept no diff. */
+const linesOf = (patch: string | null): FileDiff => (patch ? patchLines(patch) : "gone");
 
 /** A file's diff for the turn: git's between its edges, else what the turn's edits to it changed. */
 export async function turnDiff(reader: Reader, turn: TurnItem, file: FileChange, calls: ToolCall[]): Promise<FileDiff> {
+  // Git prints nothing for a file it can't see, ignored or outside the repository, which its edits tell of.
   const patch = turn.trees ? await reader.patch(turn.trees, file) : null;
-  const lines = patch === null ? [] : patchLines(patch);
-  if (lines.length) return lines;
+  if (patch) return patchLines(patch);
   const edits = calls.filter((call) => call.status === "done" && editedFile(call.name, call.input) === file.path).flatMap(editedLines);
   return edits.length ? edits : "gone";
 }
