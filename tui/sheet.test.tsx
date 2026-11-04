@@ -169,3 +169,12 @@ test("the mouse rows name every click target full screen has, where a click ther
   expect(listed("transcript")).toContain("click the box  your keys back");
   expect(listed("box")).not.toContain("click the box  your keys back");
 });
+
+test("a permission prompt's sheet in full screen lists what scrolls the conversation above it, and the mouse; the number keys as many as it has", () => {
+  const rows = listed("decision");
+  for (const row of ["pgup, pgdn  a page", "ctrl+home, ctrl+end  top, end", "wheel  scroll", "click an option  choose it", "1, 2, …  answer at once"]) expect(rows).toContain(row);
+  // Alt+↑ and Alt+↓ move its choice as well as the view, and two options have no 3.
+  expect(rows.some((row) => row.startsWith("alt+") || row.startsWith("1–3"))).toBe(false);
+  // In scrollback the terminal scrolls, and has the mouse.
+  expect(listed("decision", false).some((row) => row.startsWith("pgup") || row.startsWith("wheel"))).toBe(false);
+});
