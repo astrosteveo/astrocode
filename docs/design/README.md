@@ -41,7 +41,7 @@ Each principle comes with a test that a screen, or a design decision, passes or 
 | 4 | **Say it once.** A state is put in words in one place. Elsewhere it may only be marked, by a color or a glyph. | Search the screen for a state's words ("waiting", "running", "failed"). They appear at most once. |
 | 5 | **Gold means you.** Gold marks only three things: your messages, where your keys are, and whatever waits on you. | Every gold cell in any screenshot is one of the three. |
 | 6 | **Open in place, one way.** Any line that stands for more opens with Enter or a click, under itself, at every width, and closes the same way. Nothing opens in a pane or panel beside the column. There is no second way to see the same thing. | For each kind of line (call, step, subagent, ledger file, thinking, picture, `… N more`), Enter and a click open the same content in the same place. |
-| 7 | **Only live state moves.** The one thing that animates is the running mark: in the gutter of the running step, and on the now line. Text arrives as it streams; nothing else moves. | Record an idle screen, and one waiting on you, for two seconds. Every frame is identical. |
+| 7 | **Only live state moves.** The one thing that animates is the running mark: in the gutter of the running step, and on the now line. Text arrives as it streams, and a decision's `waiting 4s` counts the seconds; nothing else moves. | Record an idle screen, and one waiting on you, for two seconds. Every frame is identical, but for the decision's `waiting Ns`. |
 
 ---
 
@@ -350,6 +350,8 @@ The words are `claude`'s, read from `claude` 2.1.318's screen, a table per tool 
 | Claude's question | The question as the title | Options with descriptions; the preview beside them at 100 columns and up, under them below that, and a picture in kitty | | Digits pick, Space checks (multi), Other… types, `n` adds a note (as `claude`), Esc dismisses |
 | Plan | Ready to code?; Here is Claude's plan: | The plan as Claude wrote it, its diagrams drawn, in as many rows as leave the asking line in view, then `… N more lines`. Ctrl+G opens the plan's file in your editor, as in `claude`; what you save is the plan shown, and the one a yes approves | Claude has written up a plan and is ready to execute. Would you like to proceed? | The first your settings allow of: Yes, and switch to BYPASS PERMISSIONS (no further prompts) for this session · Yes, and use auto mode · Yes, auto-accept edits. Then Yes, manually approve edits · Tell Claude what to change, a row you type in, which Enter sends as the reason for no |
 | MCP form | The server's | The server's fields | | Tab next field · Enter submit · Esc decline |
+
+Over a Bash prompt that offers auto mode, `claude` also writes `Tip: auto mode handles these prompts for you — choose "switch to auto mode" below`; astrocode leaves that line out, since the row says the same.
 
 Tab on No opens a comment field, `No, and tell Claude what to do differently`, as in `claude`; what you type goes to Claude as the reason for no, and Claude carries on with it. `claude` takes a comment on Yes too, and the plan's Shift+Tab approves with feedback; both wait until the Agent SDK can carry a comment on an approval. Shift+Tab picks the row that names it. The hint line is `claude`'s: `Esc to cancel`, with `· Tab to amend` while No is chosen and its field is closed. WebFetch's prompt has none, and a plan's is `claude`'s `ctrl+g to edit in Nvim · ~/.claude/plans/<name>.md`, naming your editor. Claude Code may ask that no one key say yes: the prompt then starts on No, and digits pick only the rows that say no.
 
@@ -661,7 +663,7 @@ Small PRs, shipped in this order. Each is usable on its own, and each has the te
 | 9 | `feat: add a ? key sheet` | `?` and `/help` show the sheet from the live keymap | Render test, with a rebinding fixture |
 | 10 | `feat: drop the rail, chips and marks that said nothing` | The rail line and its rows, the transcript's start mark, inline-code chips, `›`, the diff meter, step names made from calls, one box edge, the falling-dot row, the plan name, the `shift+tab` hint | Row-budget test: a recorded turn at 120×40 fits in N rows; a palette test that gold is used only by the allowed components |
 | 11 | `feat: fold finished turns and show thinking` | Steps fold to sentences when a turn ends; `∴` summaries | `state` tests; render snapshots |
-| 12 | `feat: one moving mark and a now line that names the call` | `◐◓◑◒` in step with the gutter; no shimmer; retry and compact states | Animation test: idle and waiting frames are identical over time |
+| 12 | `feat: one moving mark and a now line that names the call` | `◐◓◑◒` in step with the gutter; no shimmer; retry and compact states | Animation test: idle frames are identical over time, and waiting ones but for the decision's `waiting Ns` |
 | 13 | `feat: lay out by width` | 110-column measure; results under their line below 100; status readings by rank | Render snapshots at 80×24, 120×40, 200×50 |
 | 14 | `feat: show other conversations that need you` | `← N needs you`; the ← hint; Conversations in Ledger marks | `fleet` and agents-view tests |
 | 15 | `feat: Claude Code's next-prompt suggestions` | Tab or → takes one; needs the SDK to emit them (see open questions) | `prompt` tests with a stubbed suggestion |
