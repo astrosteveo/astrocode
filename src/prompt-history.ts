@@ -86,6 +86,11 @@ export class PromptHistory {
     return this.texts;
   }
 
+  /** What a conversation's message box goes through: ↑'s messages and Ctrl+R's, and what it sends, kept with the conversation's id. */
+  forConversation(project: string, sessionId: string | undefined) {
+    return { history: this.recall(project, sessionId), everywhere: this.everything(), add: (text: string) => this.add(text, project, sessionId) };
+  }
+
   /** The file's lines in its order, with what's been sent from here that isn't in it in its place by time. */
   private merge() {
     const key = (prompt: SavedPrompt) => `${prompt.timestamp}\0${prompt.sessionId ?? ""}`;

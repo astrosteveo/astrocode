@@ -819,9 +819,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     handOver(() => editText(text)).then((edited) => setPrefill({ text: edited }), report);
   };
 
+  const sent = store.prompts.forConversation(state.cwd, session.knownId);
   const submit = (text: string, how: { now?: boolean; later?: boolean; ignoreUltracode?: boolean } = {}) => {
     const { now = false } = how;
-    void store.prompts.add(text, state.cwd, session.knownId);
+    void sent.add(text);
     if (text.startsWith("!")) return runCommand(text.slice(1).trim());
     if (text.startsWith("#")) return openMemory(text.slice(1).trim());
     const [command = "", ...rest] = text.trim().split(/\s+/);
@@ -1613,8 +1614,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           waitingOn={question || elicitation ? "question" : request ? "permission" : undefined}
           width={width}
           cwd={state.cwd}
-          history={store.prompts.recall(state.cwd, session.knownId)}
-          everywhere={store.prompts.everything()}
+          history={sent.history}
+          everywhere={sent.everywhere}
           commands={[...commands, ...state.commands.filter((command) => !commands.some((own) => own.name === command.name))]}
           onSubmit={submit}
           onSendQueuedNow={sendQueuedNow}
