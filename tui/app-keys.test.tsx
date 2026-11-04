@@ -189,3 +189,26 @@ test("/diff in scrollback prints the latest turn's ledger whole at the end, and 
   expect(printed).toContain("Its diff wasn't kept.");
   expect(store.getSnapshot().items.at(-1)?.kind).toBe("review");
 });
+
+test("/diff in scrollback while Claude works says to run it again once Claude is done, and prints nothing into the turn", async () => {
+  const { press, store, ink, written } = app();
+  store.emit({ kind: "loaded", loaded: { version: "2.1.318" } });
+  await settle(300);
+  const end = (uuid: string) => store.emit({ kind: "sdk", message: { type: "result", subtype: "success", uuid, session_id: "s", duration_ms: 6000, num_turns: 1, is_error: false, result: "done" } as unknown as SDKMessage });
+  store.emit({ kind: "prompt", text: "fix it", starts: true });
+  store.emit({ kind: "ledger", files: [{ path: join(process.cwd(), "src/a.ts"), added: 2, removed: 1 }], commits: [], unseen: [] });
+  end("r1");
+  store.emit({ kind: "prompt", text: "and again", starts: true });
+  await settle(300);
+  await press("/diff", KEYS.enter);
+  await settle(300);
+  expect(store.getSnapshot().items.some((item) => item.kind === "review")).toBe(false);
+  expect(stripVTControlCharacters(written())).toContain("Run /diff again once it's done");
+  end("r2");
+  await settle(300);
+  await press("/diff", KEYS.enter);
+  await settle(300);
+  await store.prompts.written();
+  ink.unmount();
+  expect(store.getSnapshot().items.at(-1)?.kind).toBe("review");
+});
