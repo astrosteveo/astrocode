@@ -6,7 +6,7 @@ import { basename } from "node:path";
 import { useEffect, useRef, useState } from "react";
 import type { NotifyMode } from "../src/settings";
 import { askedBy, permissionTitle } from "../src/view/permissions";
-import type { Item, ShellItem, State } from "../src/view/state";
+import { asksYou, type Item, type ShellItem, type State } from "../src/view/state";
 import type { GitInfo } from "./git";
 import { trace, type TerminalWindow } from "./window";
 
@@ -31,7 +31,7 @@ type Input = {
 
 export function useAttention({ state, window, notify, title, git }: Input) {
   const focused = useFocus(window);
-  const waiting = state.pending.length + state.questions.length + state.elicitations.length > 0;
+  const waiting = asksYou(state);
 
   // The title: what's going on first, since a tab bar cuts titles off at the end.
   const mark = waiting ? "● " : state.busy ? "◇ " : "";

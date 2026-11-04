@@ -4,7 +4,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { runningAgents, waitsOnYou, type Agent } from "../src/agents";
 import { sessionTitle } from "../src/history";
-import type { State } from "../src/view/state";
+import { asksYou, type State } from "../src/view/state";
 import type { Store } from "./store";
 
 /** How often Claude Code's background sessions are read again while a conversation counts those waiting on you. */
@@ -74,7 +74,7 @@ export class Fleet<C extends Conversation = Conversation> {
 export type LiveState = "working" | "blocked" | "idle";
 
 export function liveState(state: State, shells: number): LiveState {
-  if (state.pending.length || state.questions.length || state.elicitations.length) return "blocked";
+  if (asksYou(state)) return "blocked";
   // What runs in the background, Claude's or yours, would stop with this Claude Code.
   if (state.busy || state.tasks.length || shells) return "working";
   return "idle";

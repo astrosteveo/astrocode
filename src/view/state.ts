@@ -339,6 +339,11 @@ export function initialState(cwd: string, home: string): State {
   };
 }
 
+/** Whether Claude waits on you: for an OK, an answer to its question, or an MCP server's form. */
+export function asksYou(state: State) {
+  return state.pending.length > 0 || state.questions.length > 0 || state.elicitations.length > 0;
+}
+
 export function reduce(state: State, event: ViewEvent): State {
   switch (event.kind) {
     case "ready":
