@@ -73,6 +73,16 @@ test("Bash: Tab on No opens a comment, which goes to Claude as the reason for no
   expect(decided).toEqual([{ allow: false, comment: "use git clean -fdx" }]);
 });
 
+test("Bash: a comment typed on No still goes with it when No is picked by its number from another row", async () => {
+  const { press, decided } = await ask(BASH);
+  await press(KEYS.down + KEYS.down + KEYS.tab);
+  await grace();
+  await press("not the build folder");
+  await press(KEYS.up);
+  await press("3");
+  expect(decided).toEqual([{ allow: false, comment: "not the build folder" }]);
+});
+
 test("Bash: Enter on a row sends what the row says, and Esc says no without a comment", async () => {
   const first = await ask(BASH);
   await grace();
