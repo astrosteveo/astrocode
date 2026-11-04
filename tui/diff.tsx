@@ -14,7 +14,7 @@ import { Panel } from "./markdown-view";
 import { PALETTE, rgb, TINT } from "./theme";
 
 /** A panel this wide or wider shows the two sides next to each other. */
-export const SPLIT_WIDTH = 160;
+export const SPLIT_WIDTH = 140;
 /** Past this many lines a side, lines are compared in one block instead of matched up, which would be slow. */
 const MATCH_LIMIT = 1000;
 /** Past this many words a line, a changed line is tinted whole rather than compared word by word. */

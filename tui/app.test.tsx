@@ -438,7 +438,7 @@ function ledgers(cwd = "/p"): State {
 }
 
 test("Enter on a turn's closing line opens its ledger, Enter on a file its diff, and Esc closes the diff, then the ledger", async () => {
-  // Under 160 columns, so the diff is unified.
+  // Under 146 columns, so the diff is unified.
   const { press, cursor, row, screen, boxKeys } = await launch(ledgers(), { columns: 120 });
   await press(KEYS.ctrlO);
   for (let i = 0; i < 3; i++) await press(KEYS.up);
