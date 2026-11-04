@@ -808,7 +808,7 @@ function applyResult(state: State, message: SDKResultMessage, at?: number): Stat
   // Claude Code answers a message that doesn't start a turn, such as a `!` command's, with a result of no turns.
   if (!state.busy && message.num_turns === 0) return state;
   const settled = { ...stopRunningTools(state, at), busy: false, live: null, turnTokens: 0, retry: undefined, compacting: false, fast: fastOf(message) ?? state.fast };
-  const turn = { kind: "turn" as const, durationMs: message.duration_ms, tokens: state.turnTokens, ...turnWork(state.items) };
+  const turn = { kind: "turn" as const, durationMs: message.duration_ms, tokens: state.turnTokens, ...turnWork(settled.items) };
   // Stop, Esc and Deny all end the turn early. The SDK reports that as an error, but it isn't one.
   if (message.terminal_reason === "aborted_streaming" || message.terminal_reason === "aborted_tools") {
     return add(settled, { ...turn, outcome: "stopped" });
@@ -824,22 +824,26 @@ function applyResult(state: State, message: SDKResultMessage, at?: number): Stat
 }
 
 /**
- * What the turn now ending did: the files it changed and the commands it ran, since your last
- * message or, for a turn Claude started on its own, as when a background task reports back, since
- * the turn before it ended.
+ * What the turn now ending did: the files it changed and the commands it ran, since the turn before
+ * it ended. A message you sent while Claude worked, which it took mid-turn, doesn't split the turn.
  */
 function turnWork(items: Item[]) {
-  const start = items.findLastIndex((item) => item.kind === "prompt" || item.kind === "turn");
+  const start = items.findLastIndex((item) => item.kind === "turn");
   const files: string[] = [];
   const commands: string[] = [];
   for (const item of items.slice(start + 1)) {
-    if (item.kind !== "tool" || item.call.status !== "done") continue;
-    const { name, input } = item.call;
+    if (item.kind !== "tool") continue;
+    const { name, input, status } = item.call;
     const path = typeof input.file_path === "string" ? input.file_path : typeof input.notebook_path === "string" ? input.notebook_path : "";
-    if ((name === "Edit" || name === "Write" || name === "NotebookEdit" || name === "MultiEdit") && path && !files.includes(path)) files.push(path);
-    if (name === "Bash" && typeof input.command === "string") commands.push(input.command);
+    if ((name === "Edit" || name === "Write" || name === "NotebookEdit" || name === "MultiEdit") && status === "done" && path && !files.includes(path)) files.push(path);
+    // A command that failed or was stopped still ran.
+    if (name === "Bash" && typeof input.command === "string" && ran(item.call)) commands.push(input.command);
   }
   return { files, commands };
+}
+
+function ran(call: ToolCall) {
+  return call.status === "done" || call.status === "error" || (call.status === "stopped" && !call.unanswered);
 }
 
 /**

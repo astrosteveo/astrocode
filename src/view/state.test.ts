@@ -58,3 +58,42 @@ test("leaves Claude's own replies without a command", () => {
   state = reduce(state, { kind: "sdk", message: reply });
   expect(state.items.at(-1)).not.toHaveProperty("command");
 });
+
+// A turn as Claude Code's messages bring it: your message, Claude's calls and their results, and
+// the result that ends the turn.
+const T = 1_000_000;
+const sdk = (message: Record<string, unknown>, at?: number) => ({ kind: "sdk", message: message as unknown as SDKMessage, at }) as const;
+const call = (id: string, name: string, input: Record<string, unknown>) =>
+  sdk({ type: "assistant", uuid: `a-${id}`, session_id: "s", parent_tool_use_id: null, message: { id: `m-${id}`, model: "claude-opus-5-5", role: "assistant", content: [{ type: "tool_use", id, name, input }] } }, T);
+const answered = (id: string, content: string, output?: unknown, error = false) =>
+  sdk({ type: "user", uuid: `u-${id}`, session_id: "s", parent_tool_use_id: null, message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content, is_error: error }] }, ...(output !== undefined && { tool_use_result: output }) }, T + 1000);
+const ended = (ms = 6000) => sdk({ type: "result", subtype: "success", uuid: "r", session_id: "s", duration_ms: ms, num_turns: 3, is_error: false, result: "done" }, T + ms);
+const lastTurn = (state: State) => state.items.findLast((item) => item.kind === "turn");
+
+test("lists a command that failed among those the turn ran", () => {
+  const state = [
+    { kind: "prompt", text: "check it" } as const,
+    call("t", "Bash", { command: "bun test" }),
+    answered("t", "Exit code 1\n 2 pass\n 1 fail\nRan 3 tests across 1 file.", undefined, true),
+    call("g", "Bash", { command: "git log --oneline -3" }),
+    answered("g", "f535656 fix\nc0b6c78 init", { stdout: "f535656 fix\nc0b6c78 init", stderr: "", interrupted: false }),
+    call("s", "Bash", { command: "seq 200" }),
+    answered("s", "1\n2", { stdout: "1\n2", stderr: "", interrupted: false }),
+    ended(),
+  ].reduce(reduce, start());
+  expect(lastTurn(state)).toMatchObject({ commands: ["bun test", "git log --oneline -3", "seq 200"] });
+});
+
+test("counts the calls before a message you sent while Claude worked, which it took mid-turn", () => {
+  const state = [
+    { kind: "prompt", text: "check it" } as const,
+    call("t", "Bash", { command: "bun test" }),
+    answered("t", " 3 pass\n 0 fail\nRan 3 tests across 1 file.", { stdout: " 3 pass\n 0 fail\nRan 3 tests across 1 file.", stderr: "", interrupted: false }),
+    { kind: "prompt", text: "and the log", uuid: "q" } as const,
+    sdk({ type: "command_lifecycle", command_uuid: "q", state: "started", uuid: "l", session_id: "s" }),
+    call("g", "Bash", { command: "git log --oneline -3" }),
+    answered("g", "f535656 fix", { stdout: "f535656 fix", stderr: "", interrupted: false }),
+    ended(),
+  ].reduce(reduce, start());
+  expect(lastTurn(state)).toMatchObject({ commands: ["bun test", "git log --oneline -3"] });
+});
