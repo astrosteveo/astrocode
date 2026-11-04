@@ -276,6 +276,11 @@ export type State = {
   ultracode: boolean;
   /** Whether it can be turned on, once Claude Code has said. */
   ultracodeAvailable?: boolean;
+  /**
+   * Whether a prompt may offer bypass permissions and auto mode. astrocode always lets Claude Code
+   * bypass permissions, so both are on until your settings turn one off.
+   */
+  modesAvailable: { bypass: boolean; auto: boolean };
   /** A request being tried again, until the next response or the turn's end. */
   retry?: Retry;
   /** Claude Code is compacting the conversation. */
@@ -331,6 +336,7 @@ export function initialState(cwd: string, home: string): State {
     questions: [],
     elicitations: [],
     ultracode: false,
+    modesAvailable: { bypass: true, auto: true },
     compacting: false,
     modStatus: {},
     busy: false,
@@ -420,6 +426,8 @@ export function reduce(state: State, event: ViewEvent): State {
       return { ...state, ultracode: event.on };
     case "ultracode-available":
       return { ...state, ultracodeAvailable: event.available };
+    case "modes-available":
+      return { ...state, modesAvailable: { bypass: event.bypass, auto: event.auto } };
     case "fast":
       return { ...state, fast: { state: event.on ? "on" : "off" } };
     case "context":

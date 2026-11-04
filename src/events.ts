@@ -13,15 +13,23 @@ export type PermissionRequest = {
   description?: string;
   decisionReason?: string;
   blockedPath?: string;
-  /** Exactly what "always allow" applies, so the prompt can say what it does. */
+  /** Exactly what "don't ask again" applies, so the prompt can say what it does. */
   alwaysAllow?: PermissionUpdate[];
+  /** Claude Code's short name for the tool, such as "Greet" for an MCP server's `greet`. */
+  displayName?: string;
+  /** For an MCP tool, the server it's from, by the name it was configured with. */
+  server?: string;
   /** Claude Code asks that this prompt not default to approving. */
   defaultToNo?: boolean;
   /** The subagent that asks, by its agent id, which is also its task id. Absent when Claude asks. */
   agentId?: string;
 };
 
-export type Decision = "allow" | "always" | "deny";
+/**
+ * Your answer to a permission prompt: yes, with the changes to what's allowed that it makes, or no,
+ * with what you'd have Claude do instead.
+ */
+export type Decision = { allow: true; updates?: PermissionUpdate[] } | { allow: false; comment?: string };
 
 /** One of Claude's multiple-choice questions, from the AskUserQuestion tool. */
 export type Question = {
@@ -175,7 +183,7 @@ export type SessionEvent =
   | { kind: "question"; request: QuestionRequest }
   | { kind: "elicitation"; request: ElicitationRequest }
   /** `withdrawn`: Claude Code took it back, as after an interrupt or an answer given over Remote Control. */
-  | { kind: "resolved"; id: string; outcome: Decision | "answered" | "cancelled" | "withdrawn" }
+  | { kind: "resolved"; id: string; outcome: "allow" | "deny" | "answered" | "cancelled" | "withdrawn" }
   | { kind: "mode"; mode: PermissionMode }
   | { kind: "model"; model: string }
   | { kind: "effort"; effort: EffortLevel }
@@ -187,6 +195,8 @@ export type SessionEvent =
   | { kind: "fast"; on: boolean }
   /** Whether ultracode can be turned on: dynamic workflows are on and the model takes it. Unknown until Claude Code says. */
   | { kind: "ultracode-available"; available: boolean }
+  /** Which modes a prompt may offer to switch to, as your settings allow: bypass permissions and auto. */
+  | { kind: "modes-available"; bypass: boolean; auto: boolean }
   | { kind: "context"; percentage: number; tokens: number; max: number }
   /** A keep-warm request read the conversation's prompt cache at `at`, so it's warm for its TTL from then. */
   | { kind: "cache-warmed"; at: number }

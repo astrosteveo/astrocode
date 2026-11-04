@@ -281,6 +281,47 @@ test("Claude Code is asked for its settings once as it starts", async () => {
   expect(events.find((event) => event.kind === "loaded")).toEqual({ kind: "loaded", loaded: { version: "2.1.318", plugins: 1 } });
 });
 
+test("prompts offer bypass permissions and auto mode unless your settings turn them off", async () => {
+  starting = async () => ({ models: [], commands: [], account: {}, claude_code_version: "2.1.318" });
+  answers = { getSettings: async () => ({ effective: { permissions: { disableBypassPermissionsMode: "disable" } }, applied: {} }) };
+  const events: SessionEvent[] = [];
+  try {
+    session((event) => events.push(event)).start();
+    await settle();
+  } finally {
+    starting = () => new Promise(() => {});
+    answers = {};
+  }
+  expect(events).toContainEqual({ kind: "modes-available", bypass: false, auto: true });
+});
+
+test("a no with a comment tells Claude what you said and lets it carry on; a plain no stops the turn", async () => {
+  const events: SessionEvent[] = [];
+  const one = session((event) => events.push(event));
+  one.start();
+  const ask = started.at(-1)!.canUseTool as sdk.CanUseTool;
+  const asking = (id: string, toolName = "Bash", more = {}) =>
+    ask(toolName, { command: "rm -rf build" }, { signal: new AbortController().signal, toolUseID: id, requestId: id, ...more });
+  const commented = asking("a");
+  one.decide("a", { allow: false, comment: "use git clean instead" });
+  expect(await commented).toEqual({
+    behavior: "deny",
+    message:
+      "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). To tell you how to proceed, the user said:\nuse git clean instead",
+    interrupt: false,
+  });
+  const plain = asking("b");
+  one.decide("b", { allow: false });
+  expect(await plain).toMatchObject({ behavior: "deny", interrupt: true });
+  // A yes applies the changes its row names, such as a switch of mode.
+  const mcp = asking("c", "mcp__hello__greet", { displayName: "Greet", mcpServer: { name: "hello", source: "dynamic" } });
+  const switched = [{ type: "setMode" as const, mode: "auto" as const, destination: "session" as const }];
+  one.decide("c", { allow: true, updates: switched });
+  expect(await mcp).toEqual({ behavior: "allow", updatedInput: { command: "rm -rf build" }, updatedPermissions: switched });
+  expect(events.flatMap((event) => (event.kind === "resolved" ? [event.outcome] : []))).toEqual(["deny", "deny", "allow"]);
+  expect(events.findLast((event) => event.kind === "permission")).toMatchObject({ request: { displayName: "Greet", server: "hello" } });
+});
+
 test("a Claude Code that fails to start has loaded nothing", async () => {
   starting = async () => {
     throw new Error("no claude");

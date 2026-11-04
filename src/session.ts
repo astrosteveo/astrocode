@@ -90,6 +90,9 @@ export type TaskOutput = { output: string; total_bytes: number; truncated: boole
 /** Thinking turned back on in a Claude Code that started without it: Claude Code's own largest default budget. */
 const THINKING_BUDGET = 31_999;
 
+/** How Claude Code tells Claude you said no to a call, word for word, before what you said instead. */
+const REJECTED = "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file).";
+
 /** What a keep-warm request asks for: as little as Claude can say. */
 const WARM_PROMPT = "Reply with only the word ok.";
 
@@ -479,18 +482,16 @@ export class AgentSession {
     const waiting = this.permissions.get(id);
     if (!waiting) return;
     this.permissions.delete(id);
-    const request = waiting.value;
-    if (decision === "deny") {
+    if (decision.allow) {
+      waiting.resolve({ behavior: "allow", updatedInput: waiting.value.input, updatedPermissions: decision.updates });
+    } else if (decision.comment) {
+      // As in Claude Code: Claude reads what you said in the call's place, and carries on with it.
+      waiting.resolve({ behavior: "deny", message: `${REJECTED} To tell you how to proceed, the user said:\n${decision.comment}`, interrupt: false });
+    } else {
       // Like saying no in Claude Code: the turn stops and Claude waits for you.
       waiting.resolve({ behavior: "deny", message: "The user declined this action. Wait for them to say how to proceed.", interrupt: true });
-    } else {
-      waiting.resolve({
-        behavior: "allow",
-        updatedInput: request.input,
-        updatedPermissions: decision === "always" ? request.alwaysAllow : undefined,
-      });
     }
-    this.options.emit({ kind: "resolved", id, outcome: decision });
+    this.options.emit({ kind: "resolved", id, outcome: decision.allow ? "allow" : "deny" });
   }
 
   /** Answers Claude's questions, or dismisses them with `null`. */
@@ -917,6 +918,8 @@ export class AgentSession {
         decisionReason: context.decisionReason,
         blockedPath: context.blockedPath,
         alwaysAllow: context.suppressAlwaysAllowRule ? undefined : narrowest(context.suggestions),
+        displayName: context.displayName,
+        server: context.mcpServer?.name,
         defaultToNo: context.defaultToNo,
         agentId: context.agentID,
       };
@@ -1080,7 +1083,7 @@ export class AgentSession {
       }
       // Both reports read the settings, which are asked for once.
       const settings = untyped(run.query, "getSettings").catch(() => undefined);
-      await Promise.all([this.reportContext(run), this.reportUltracode(run, settings), this.reportLoaded(run, init.claude_code_version, settings)]);
+      await Promise.all([this.reportContext(run), this.reportUltracode(run, settings), this.reportLoaded(run, init.claude_code_version, settings), this.reportModes(run, settings)]);
     } catch {
       // A failed start is reported by pump(). It loaded nothing, which the start screen waits to hear.
       if (!run.closing) this.options.emit({ kind: "loaded", loaded: {} });
@@ -1107,6 +1110,17 @@ export class AgentSession {
         skills: skills === undefined ? undefined : skillsDialog(skills).filter((skill) => skill.state !== "off").length,
       },
     });
+  }
+
+  /**
+   * Which modes a prompt may offer to switch to. astrocode always lets Claude Code bypass
+   * permissions, so it's your settings that can turn bypass permissions or auto mode off.
+   */
+  private async reportModes(run: Run, asked: Promise<unknown>) {
+    const effective = field(await asked, "effective");
+    if (run.closing || effective === undefined) return;
+    const off = (value: unknown) => value === "disable";
+    this.options.emit({ kind: "modes-available", bypass: !off(field(field(effective, "permissions"), "disableBypassPermissionsMode")), auto: !off(field(effective, "disableAutoMode")) });
   }
 
   /**

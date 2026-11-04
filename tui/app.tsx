@@ -1657,7 +1657,16 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       onAnswer={(answer) => session.answerElicitation(elicitation.id, answer)}
     />
   ) : request ? (
-    <DecisionPrompt key={request.id} request={request} agent={askedBy(request, state.taskInfo)} {...view} onDecide={(decision) => session.decide(request.id, decision)} />
+    <DecisionPrompt
+      key={request.id}
+      request={request}
+      agent={askedBy(request, state.taskInfo)}
+      {...view}
+      rows={rows}
+      mode={state.mode}
+      modes={state.modesAvailable}
+      onDecide={(answer) => session.decide(request.id, answer)}
+    />
   ) : overlaid ? (
     overlaid
   ) : inspected && !fullscreen ? (
