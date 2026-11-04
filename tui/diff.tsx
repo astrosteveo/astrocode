@@ -13,8 +13,6 @@ import { cellWidth, printable } from "./markdown";
 import { Panel } from "./markdown-view";
 import { PALETTE, rgb, TINT } from "./theme";
 
-export type { DiffLine };
-
 /** A panel this wide or wider shows the two sides next to each other. */
 export const SPLIT_WIDTH = 160;
 /** Past this many lines a side, lines are compared in one block instead of matched up, which would be slow. */
