@@ -7,7 +7,8 @@
 // refs and stash stay as they were, though git may touch the mtime of an object it already has.
 // Clean filters, such as Git LFS's, don't run: files are hashed as they are on disk.
 // A file over 10 MB isn't read: a stub of its size and mtime stands in for it, so a turn that writes
-// one still counts it. Files under ~/.claude don't count, unless the repository is in it.
+// one still counts it. One you track is read when it's the size the index holds it at, as git
+// status would, to tell whether it was only touched. Files under ~/.claude don't count, unless the repository is in it.
 import { rmSync } from "node:fs";
 import { copyFile, lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -79,7 +80,8 @@ export class Snapshots {
       const repo = this.repo;
       if (!from || !this.last || !repo) return null;
       const [numstat, log, unseen] = await Promise.all([
-        git(repo, ["diff-tree", "-r", "--numstat", "-z", from.tree, this.last.tree], signal),
+        // A big file's lines aren't counted, so git doesn't read it to count them.
+        git(repo, ["-c", `core.bigFileThreshold=${BIG}`, "diff-tree", "-r", "--numstat", "-z", from.tree, this.last.tree], signal),
         // Commits made since the turn started: a pull or a switch brings older ones, which don't count.
         // rev-list, not log, which your log settings, such as log.showSignature, would add lines to.
         git(repo, ["rev-list", "--abbrev-commit", `--since=@${Math.floor(from.at / 1000)}`, "HEAD", ...(from.head ? [`^${from.head}`] : [])], signal),
@@ -168,7 +170,7 @@ export class Snapshots {
     if (untracked === null || changed === null) return null;
     const inClaude = (path: string) => repo.claude !== undefined && (path === repo.claude || path.startsWith(`${repo.claude}/`));
     const paths = [...untracked.split("\0"), ...changed.split("\0")].filter((path) => path && !inClaude(path));
-    const big = (
+    const large = (
       await Promise.all(
         paths.map(async (path) => {
           const stat = await lstat(join(repo.top, path)).catch(() => null);
@@ -176,6 +178,8 @@ export class Snapshots {
         }),
       )
     ).flat();
+    const kept = await unchanged(run, large);
+    const big = large.filter((file) => !kept.has(file.path));
     const left = [...big.map((file) => file.path), ...(repo.claude ? [repo.claude] : [])];
     const pathspec = [".", ...left.map((path) => `:(exclude,literal)${path}`)].map((spec) => `${spec}\0`).join("");
     if ((await run(["add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul"], pathspec)) === null) return null;
@@ -220,6 +224,28 @@ async function unfiltered(top: string): Promise<Record<string, string>> {
     env[`GIT_CONFIG_VALUE_${given + i}`] = value!;
   });
   return settings.length ? env : {};
+}
+
+/**
+ * Of the big files, those the index holds as they are, their stat changed only, as when touched or
+ * written again the same: git reads those it holds at their size, and updates the stat of any
+ * that match. LFS's are held as pointers, so they aren't read.
+ */
+async function unchanged(run: (args: string[], input?: string) => Promise<string | null>, big: { path: string; size: number }[]) {
+  if (!big.length) return new Set<string>();
+  const listed = (await run(["--literal-pathspecs", "ls-files", "-z", "--format=%(objectsize) %(path)", "--", ...big.map((file) => file.path)])) ?? "";
+  const held = new Map<string, number>();
+  for (const line of listed.split("\0")) {
+    const [, size, path] = /^(\d+) ([\s\S]+)$/.exec(line) ?? [];
+    if (path) held.set(path, Number(size));
+  }
+  const sized = big.filter((file) => held.get(file.path) === file.size).map((file) => file.path);
+  if (!sized.length) return new Set<string>();
+  if ((await run(["--literal-pathspecs", "add", "--refresh", "--pathspec-from-file=-", "--pathspec-file-nul"], sized.map((path) => `${path}\0`).join(""))) === null) return new Set<string>();
+  const differ = await run(["--literal-pathspecs", "diff-files", "-z", "--name-only", "--", ...sized]);
+  if (differ === null) return new Set<string>();
+  const still = new Set(differ.split("\0"));
+  return new Set(sized.filter((path) => !still.has(path)));
 }
 
 /** Deletes the folders astrocodes that were killed left behind, known by their pid. */

@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Snapshots } from "./snapshots";
@@ -95,6 +95,21 @@ test("counts a file too big to read without reading it, as one with no lines", a
   write(top, "data.txt", "y\n".repeat(7 * 1024 * 1024));
   expect((await edges.end())?.files).toEqual([{ path: join(top, "data.txt"), added: 0, removed: 0 }]);
   expect((await edges.end())?.files).toEqual([]);
+});
+
+test("doesn't count a big file you track that was only touched, or written again the same", async () => {
+  const big = "x\n".repeat(6 * 1024 * 1024);
+  const top = repo({ "big.txt": big });
+  const edges = snapshots(top);
+  await edges.start();
+  const later = new Date(Date.now() + 5000);
+  utimesSync(join(top, "big.txt"), later, later);
+  expect((await edges.end())?.files).toEqual([]);
+  write(top, "big.txt", big);
+  expect((await edges.end())?.files).toEqual([]);
+  // The same size, but not the same.
+  write(top, "big.txt", `y${big.slice(1)}`);
+  expect((await edges.end())?.files).toEqual([{ path: join(top, "big.txt"), added: 0, removed: 0 }]);
 });
 
 test("leaves your index, your stash and the repository's objects as they were", async () => {
