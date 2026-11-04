@@ -1633,7 +1633,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onBackground={background}
           onToggleTodos={() => setTodoMode(showTodos ? "off" : "on")}
           onRewind={openRewind}
-          onClearIntoHistory={(text) => void store.sent.push(text)}
+          onClearIntoHistory={(text) => void sent.add(text)}
           onSuspend={suspend}
           onToggleThinking={toggleThinking}
           keymap={store.keymap}
