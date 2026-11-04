@@ -162,6 +162,23 @@ test("the empty, idle box says ← for conversations until they've been opened, 
   }
 });
 
+test("the box says ← for conversations only while it has your keys, as ← moves the transcript's cursor instead", async () => {
+  const { here, frame, type, stop } = conversation({ hint: true });
+  try {
+    here.store.emit({ kind: "notice", tone: "info", text: "Something to put the cursor on." });
+    await settle();
+    const box = () => frame().find((line) => line.includes("❯")) ?? "";
+    expect(box()).toContain("← for conversations");
+    await type("\x0f");
+    expect(frame().join("\n")).toContain("esc back to the box");
+    expect(box()).not.toContain("for conversations");
+    await type("\x1b");
+    expect(box()).toContain("← for conversations");
+  } finally {
+    stop();
+  }
+});
+
 test("the status bar counts Claude Code's background sessions waiting on you too", async () => {
   const agent = (id: string, status: string): Agent => ({ id, name: id, cwd: "/p", folder: "/p", state: "blocked", status, alive: true, createdAt: 0, updatedAt: 0, prs: [] });
   const { other, statusBar, stop } = conversation({ agents: [agent("asking", "waiting"), agent("handed", "idle")] });
