@@ -34,7 +34,7 @@ export function useAttention({ state, window, notify, title, git }: Input) {
   const waiting = asksYou(state);
 
   // The title: what's going on first, since a tab bar cuts titles off at the end.
-  const mark = waiting ? "● " : state.busy ? "◇ " : "";
+  const mark = titleMark(state);
   const folder = basename(state.cwd) || state.cwd;
   const branch = git ? ` ⎇ ${git.branch}${git.changes ? ` ±${git.changes}` : ""}` : "";
   const text = `${mark}${title ? `${title} · ` : ""}${folder}${branch}`;
@@ -76,6 +76,11 @@ export function useAttention({ state, window, notify, title, git }: Input) {
       if (!before.prompts.has(request.id)) send({ title: `${request.server} is asking you something`, body: request.message });
     }
   }, [state.items, state.pending, state.questions, state.elicitations]);
+}
+
+/** The title's lead, the transcript's marks held still: `◐` while Claude works, `◇` while it waits on you. */
+export function titleMark(state: State) {
+  return asksYou(state) ? "◇ " : state.busy ? "◐ " : "";
 }
 
 /** What a turn that just ended says in a notification, if it's worth one at this focus. */
