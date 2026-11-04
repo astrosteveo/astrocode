@@ -839,10 +839,7 @@ export class AgentSession {
 
   /** One of the requests the SDK makes in its code but leaves out of Query's type. */
   private async untyped(name: string, ...args: unknown[]): Promise<unknown> {
-    const query = this.running().query as unknown as Record<string, unknown>;
-    const method = query[name];
-    if (typeof method !== "function") throw new Error(`This Agent SDK can't ask Claude Code for that (${name} is missing).`);
-    return (method as (...args: unknown[]) => Promise<unknown>).apply(query, args);
+    return untyped(this.running().query, name, ...args);
   }
 
   /** Stops Claude Code and forgets the conversation, so the next start begins a new one. */
@@ -1069,7 +1066,9 @@ export class AgentSession {
           if (!run.closing) this.options.emit({ kind: "notice", tone: "error", text: `Remote Control couldn't start: ${messageOf(error)}` });
         });
       }
-      await Promise.all([this.reportContext(run), this.reportUltracode(run), this.reportLoaded(run, init.claude_code_version)]);
+      // Both reports read the settings, which are asked for once.
+      const settings = untyped(run.query, "getSettings").catch(() => undefined);
+      await Promise.all([this.reportContext(run), this.reportUltracode(run, settings), this.reportLoaded(run, init.claude_code_version, settings)]);
     } catch {
       // A failed start is reported by pump().
     }
@@ -1080,13 +1079,9 @@ export class AgentSession {
    * on, MCP servers not turned off, other than astrocode's own, and skills not turned off. What it
    * can't say is left out.
    */
-  private async reportLoaded(run: Run, version: string | undefined) {
-    const query = run.query as unknown as Record<string, unknown>;
-    const ask = async (name: string) => {
-      const method = query[name];
-      return typeof method === "function" ? (method as () => Promise<unknown>).call(run.query).catch(() => undefined) : undefined;
-    };
-    const [memory, settings, servers, skills] = await Promise.all([ask("getMemoryDialog"), ask("getSettings"), ask("mcpServerStatus"), ask("getSkillsDialog")]);
+  private async reportLoaded(run: Run, version: string | undefined, asked: Promise<unknown>) {
+    const ask = (name: string) => untyped(run.query, name).catch(() => undefined);
+    const [memory, settings, servers, skills] = await Promise.all([ask("getMemoryDialog"), asked, ask("mcpServerStatus"), ask("getSkillsDialog")]);
     if (run.closing) return;
     const plugins = field(field(settings, "effective"), "enabledPlugins");
     this.options.emit({
@@ -1106,10 +1101,9 @@ export class AgentSession {
    * so for the model in use. `getSettings()` and its `applied` are in the SDK's code but not its
    * types. Returns whether it's on, if Claude Code said.
    */
-  private async reportUltracode(run: Run) {
-    const query = run.query as Query & { getSettings?: () => Promise<unknown> };
+  private async reportUltracode(run: Run, settings: Promise<unknown> = untyped(run.query, "getSettings")) {
     try {
-      const applied = field(await query.getSettings?.(), "applied");
+      const applied = field(await settings, "applied");
       if (run.closing) return undefined;
       const available = field(applied, "ultracodeAvailable");
       const on = field(applied, "ultracode");
@@ -1330,6 +1324,13 @@ function narrowest(suggestions: PermissionUpdate[] | undefined) {
     if (picked?.length) return picked;
   }
   return undefined;
+}
+
+/** One of the requests the SDK makes in its code but leaves out of Query's type, made of `query`. */
+function untyped(query: Query, name: string, ...args: unknown[]): Promise<unknown> {
+  const method = (query as unknown as Record<string, unknown>)[name];
+  if (typeof method !== "function") return Promise.reject(new Error(`This Agent SDK can't ask Claude Code for that (${name} is missing).`));
+  return (method as (...args: unknown[]) => Promise<unknown>).apply(query, args);
 }
 
 function messageOf(error: unknown) {

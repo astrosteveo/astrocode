@@ -258,3 +258,25 @@ test("what Claude Code can't say it loaded is left out", async () => {
   }
   expect(events.find((event) => event.kind === "loaded")).toEqual({ kind: "loaded", loaded: { version: "2.1.318", mcpServers: 1 } });
 });
+
+test("Claude Code is asked for its settings once as it starts", async () => {
+  starting = async () => ({ models: [], commands: [], account: {}, claude_code_version: "2.1.318" });
+  let asked = 0;
+  answers = {
+    getSettings: async () => {
+      asked += 1;
+      return { effective: { enabledPlugins: { "a@market": true } }, applied: { ultracodeAvailable: true } };
+    },
+  };
+  const events: SessionEvent[] = [];
+  try {
+    session((event) => events.push(event)).start();
+    await settle();
+  } finally {
+    starting = () => new Promise(() => {});
+    answers = {};
+  }
+  expect(asked).toBe(1);
+  expect(events).toContainEqual({ kind: "ultracode-available", available: true });
+  expect(events.find((event) => event.kind === "loaded")).toEqual({ kind: "loaded", loaded: { version: "2.1.318", plugins: 1 } });
+});
