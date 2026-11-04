@@ -280,3 +280,17 @@ test("Claude Code is asked for its settings once as it starts", async () => {
   expect(events).toContainEqual({ kind: "ultracode-available", available: true });
   expect(events.find((event) => event.kind === "loaded")).toEqual({ kind: "loaded", loaded: { version: "2.1.318", plugins: 1 } });
 });
+
+test("a Claude Code that fails to start has loaded nothing", async () => {
+  starting = async () => {
+    throw new Error("no claude");
+  };
+  const events: SessionEvent[] = [];
+  try {
+    session((event) => events.push(event)).start();
+    await settle();
+  } finally {
+    starting = () => new Promise(() => {});
+  }
+  expect(events.find((event) => event.kind === "loaded")).toEqual({ kind: "loaded", loaded: {} });
+});

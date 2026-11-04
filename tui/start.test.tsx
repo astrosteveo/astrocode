@@ -1,8 +1,14 @@
-import { expect, test } from "bun:test";
-import { renderToString } from "ink";
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { render, renderToString } from "ink";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import { version } from "../package.json";
+import type { AgentSession } from "../src/session";
 import { initialState, type State } from "../src/view/state";
+import { App } from "./app";
 import { cellWidth } from "./markdown";
 import { DEFAULT_KEYMAP, type Keymap } from "./keys";
 import { StartScreen, startOf, startReady } from "./start";
@@ -113,7 +119,7 @@ test("is ready once Claude Code has said what it loaded and the sessions here ar
   expect(startReady(fresh({ recent: undefined }))).toBe(false);
 });
 
-test("a new screen lists the sessions again, and keeps what Claude Code loaded", () => {
+test("a new screen waits for the sessions here again, and keeps what Claude Code loaded", () => {
   const store = new Store("/home/u/retrykit", "/home/u");
   store.emit({ kind: "loaded", loaded: { version: "2.1.318", skills: 3 } });
   store.emit({ kind: "recent", sessions: [{ id: "a", title: "Earlier", modified: NOW }] });
@@ -121,4 +127,113 @@ test("a new screen lists the sessions again, and keeps what Claude Code loaded",
   store.reset();
   expect(store.getSnapshot().loaded).toEqual({ version: "2.1.318", skills: 3 });
   expect(store.getSnapshot().recent).toBeUndefined();
+});
+
+// A Claude Code config folder of its own, with two sessions saved in a project.
+const root = mkdtempSync(join(tmpdir(), "astrocode-start-"));
+const project = join(root, "retrykit");
+const RESUMED = "11111111-1111-4111-8111-111111111111";
+const OTHER = "22222222-2222-4222-8222-222222222222";
+const configDir = process.env.CLAUDE_CONFIG_DIR;
+
+beforeAll(() => {
+  process.env.CLAUDE_CONFIG_DIR = root;
+  mkdirSync(project);
+  const saved = join(root, "projects", project.replace(/[^a-zA-Z0-9]/g, "-"));
+  mkdirSync(saved, { recursive: true });
+  for (const [id, text] of [
+    [RESUMED, "Make retries back off"],
+    [OTHER, "Give retries a deadline"],
+  ]) {
+    const line = { type: "user", message: { role: "user", content: text }, sessionId: id, cwd: project, uuid: id, timestamp: new Date().toISOString() };
+    writeFileSync(join(saved, `${id}.jsonl`), `${JSON.stringify(line)}\n`);
+  }
+});
+
+afterAll(() => {
+  if (configDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+  else process.env.CLAUDE_CONFIG_DIR = configDir;
+  rmSync(root, { recursive: true, force: true });
+});
+
+/** astrocode in scrollback on a fake terminal, short enough that a start screen drawn live would fill it, and all it wrote. */
+function launch(store: Store, knownId?: string) {
+  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 80, rows: 16 });
+  let drawn = "";
+  stdout.on("data", (chunk: Buffer) => {
+    drawn += chunk.toString();
+  });
+  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
+  // A stand-in Claude Code session: whatever's asked of it does nothing.
+  const known: Record<string, unknown> = { knownId, id: knownId, watchMods: () => () => {}, then: undefined };
+  const session = new Proxy(known, { get: (target, name) => (typeof name === "string" && name in target ? target[name] : () => Promise.resolve(undefined)) });
+  const app = render(<App store={store} session={session as unknown as AgentSession} fullscreen={false} onToggleFullscreen={() => {}} onAgents={() => {}} />, {
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    exitOnCtrlC: false,
+    patchConsole: false,
+  });
+  return { app, written: () => stripVTControlCharacters(drawn) };
+}
+
+const settle = (ms = 200) => new Promise((resolve) => setTimeout(resolve, ms));
+const copies = (text: string) => text.split(`astrocode  ${version}`).length - 1;
+/** Claude Code starting: its mode, then what it loaded. */
+const started = (store: Store) => {
+  store.emit({ kind: "mode", mode: "auto" });
+  store.emit({ kind: "loaded", loaded: { version: "2.1.318", skills: 3 } });
+};
+
+test("in scrollback, the start screen is written once, when all it says is known", async () => {
+  const store = new Store(project, "/home/u");
+  const { app, written } = launch(store);
+  try {
+    await settle();
+    // Nothing above the box yet: written now it would guess, and drawn live it could fill a short terminal, which then writes a copy on every frame.
+    expect(copies(written())).toBe(0);
+    started(store);
+    await settle();
+    store.emit({ kind: "context", percentage: 2, tokens: 4000, max: 200000 });
+    store.emit({ kind: "notice", tone: "info", text: "Something to say." });
+    await settle();
+  } finally {
+    app.unmount();
+  }
+  const text = written();
+  expect(copies(text)).toBe(1);
+  const lines = text.split("\n");
+  const first = lines.findIndex((line) => line.includes(`astrocode  ${version}`));
+  expect(lines[first]).toContain("Claude Code 2.1.318 underneath");
+  expect(lines[first + 1]).toEndWith(" · auto");
+  expect(lines[first + 2]).toContain("From Claude Code: 3 skills");
+  expect(text).toContain("Give retries a deadline");
+  expect(text.indexOf("Something to say.")).toBeGreaterThan(text.indexOf(`astrocode  ${version}`));
+});
+
+test("a resumed conversation waits for the start screen, which lists the other sessions here", async () => {
+  const store = new Store(project, "/home/u");
+  store.emit({ kind: "history", events: [{ kind: "prompt", text: "Make retries back off" }], title: "Make retries back off" });
+  const { app, written } = launch(store, RESUMED);
+  try {
+    await settle();
+    expect(copies(written())).toBe(0);
+    expect(written()).not.toContain("Make retries back off");
+    started(store);
+    await settle();
+  } finally {
+    app.unmount();
+  }
+  const text = written();
+  expect(copies(text)).toBe(1);
+  const lines = text.split("\n");
+  const first = lines.findIndex((line) => line.includes(`astrocode  ${version}`));
+  expect(lines[first + 1]).toEndWith(" · auto");
+  // The session on screen isn't one to pick.
+  const recent = lines.findIndex((line) => line.includes("Recent sessions here"));
+  expect(recent).toBeGreaterThan(first);
+  expect(lines[recent + 1]).toContain("Give retries a deadline");
+  expect(lines[recent + 2]).not.toContain("Make retries back off");
+  // Its history follows the start screen.
+  const keys = lines.findIndex((line) => line.trim() === "Keys");
+  expect(lines.findIndex((line) => line.includes("Make retries back off") && !line.includes("Resumed"))).toBeGreaterThan(keys);
 });
