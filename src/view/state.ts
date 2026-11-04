@@ -296,6 +296,11 @@ export type State = {
   /** A mod's latest toast (`$.ui.toast`), shown for `ms`. `count` tells the same words again apart. */
   modToast?: { plugin: string; text: string; ms: number; count: number };
   busy: boolean;
+  /**
+   * Claude Code's guess at your next message, after a turn's result, for the empty box to offer
+   * until you send something or Claude starts again. Claude Code skips it after some turns.
+   */
+  nextPrompt?: string;
   /** Output tokens of this turn's finished messages. */
   turnTokens: number;
   /** What git says the turn now ending changed, from its edges, until its result closes it. */
@@ -358,13 +363,14 @@ export function reduce(state: State, event: ViewEvent): State {
       return { ...state, recent: event.sessions };
     case "prompt":
       // Claude Code echoes a message sent over Remote Control as it starts on it, so it never waits here.
-      if (event.remote) return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at, remote: true, starts: event.starts }), busy: true };
+      if (event.remote) return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at, remote: true, starts: event.starts }), busy: true, nextPrompt: undefined };
       if (state.busy && event.uuid) {
         return { ...state, queue: [...state.queue, { text: event.text, uuid: event.uuid, images: event.images, at: event.at, later: event.later, starts: event.starts }] };
       }
-      return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at, starts: event.starts }), busy: true };
+      return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at, starts: event.starts }), busy: true, nextPrompt: undefined };
     case "shell":
-      return add(state, { kind: "shell", id: event.id, command: event.command, status: "running", stdout: "", stderr: "", startedAt: event.at, at: event.at });
+      // Sending anything, a `!` command too, uses up the suggestion, as in `claude`.
+      return add({ ...state, nextPrompt: undefined }, { kind: "shell", id: event.id, command: event.command, status: "running", stdout: "", stderr: "", startedAt: event.at, at: event.at });
     case "shell-output":
       return updateShell(state, event.id, (item) => (item.status === "running" ? { stdout: event.output, at: event.at } : {}));
     case "shell-done": {
@@ -592,14 +598,20 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
     case "tool_progress":
       return message.parent_tool_use_id ? state : updateTool(state, message.tool_use_id, (call) => (call.status === "running" ? { elapsed: message.elapsed_time_seconds } : {}));
     case "stream_event":
-      return message.parent_tool_use_id ? state : applyStream({ ...woken(state), busy: true, retry: undefined }, message.event);
+      return message.parent_tool_use_id ? state : applyStream({ ...woken(state), busy: true, retry: undefined, nextPrompt: undefined }, message.event);
     case "assistant":
       if (message.parent_tool_use_id) return applyAssistant({ ...state, cache: cacheAfter(state.cache, message, at) }, message, at);
-      return applyAssistant({ ...woken(state), busy: true, retry: undefined, cache: cacheAfter(state.cache, message, at) }, message, at);
+      return applyAssistant({ ...woken(state), busy: true, retry: undefined, nextPrompt: undefined, cache: cacheAfter(state.cache, message, at) }, message, at);
     case "user":
       return applyUser(state, message, images, at);
     case "result":
       return applyResult(state, message, at);
+    case "prompt_suggestion": {
+      // One still on its way when you sent something else is for a turn that's over.
+      const since = state.items.slice(state.items.findLastIndex((item) => item.kind === "turn") + 1);
+      if (state.busy || since.some((item) => item.kind === "prompt" || item.kind === "shell")) return state;
+      return { ...state, nextPrompt: message.suggestion };
+    }
     default:
       return state;
   }
@@ -636,7 +648,7 @@ function applyLifecycle(state: State, uuid: unknown, stage: unknown): State {
   const queued = state.queue.find((one) => one.uuid === uuid);
   if (!queued) return state;
   const queue = state.queue.filter((one) => one !== queued);
-  if (stage === "started") return { ...add({ ...state, queue }, { kind: "prompt", text: queued.text, uuid: queued.uuid, images: queued.images, at: queued.at, starts: queued.starts }), busy: true };
+  if (stage === "started") return { ...add({ ...state, queue }, { kind: "prompt", text: queued.text, uuid: queued.uuid, images: queued.images, at: queued.at, starts: queued.starts }), busy: true, nextPrompt: undefined };
   if (stage === "cancelled" || stage === "completed") return { ...state, queue };
   return state;
 }
