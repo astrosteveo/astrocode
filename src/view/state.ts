@@ -320,7 +320,9 @@ export type ViewEvent =
   /** Print a turn's ledger opened whole into the transcript, by its key, with what was read for it. */
   | { kind: "review"; turn: string; diffs: Record<string, DiffLine[]>; commands: { command: string; result: Part[] }[] }
   /** What mods drew for a tool call's result, or for a command's output row by its id; null for nothing. */
-  | { kind: "modDrawing"; of: { tool: string } | { command: string }; tree: ModNode | null };
+  | { kind: "modDrawing"; of: { tool: string } | { command: string }; tree: ModNode | null }
+  /** You sent something from the box, a command astrocode runs itself too. */
+  | { kind: "sent" };
 
 export function initialState(cwd: string, home: string): State {
   return {
@@ -368,8 +370,11 @@ export function reduce(state: State, event: ViewEvent): State {
         return { ...state, queue: [...state.queue, { text: event.text, uuid: event.uuid, images: event.images, at: event.at, later: event.later, starts: event.starts }] };
       }
       return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at, starts: event.starts }), busy: true, nextPrompt: undefined };
+    case "sent":
+      // Sending anything, a /command that never reaches Claude Code too, uses up the suggestion, as in `claude`.
+      return state.nextPrompt === undefined ? state : { ...state, nextPrompt: undefined };
     case "shell":
-      // Sending anything, a `!` command too, uses up the suggestion, as in `claude`.
+      // A command run from /play or a code block's link is sent too.
       return add({ ...state, nextPrompt: undefined }, { kind: "shell", id: event.id, command: event.command, status: "running", stdout: "", stderr: "", startedAt: event.at, at: event.at });
     case "shell-output":
       return updateShell(state, event.id, (item) => (item.status === "running" ? { stdout: event.output, at: event.at } : {}));
