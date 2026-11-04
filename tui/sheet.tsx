@@ -179,7 +179,7 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean, { pro
       ["click mode, model, effort", "change it"],
       ["click ◌ N running", "what's running"],
       ...(place === "decision" ? [] : [["click ← N needs you", "conversations"] as Row]),
-      ...(place === "transcript" || place === "opened" ? [["click the box", "your keys back"] as Row] : []),
+      ...(place === "transcript" || place === "opened" || place === "ledger" ? [["click the box", "your keys back"] as Row] : []),
       ["wheel", "scroll"],
       ["drag", "copy"],
       ["double click", "copy a word"],
