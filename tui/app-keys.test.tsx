@@ -269,3 +269,19 @@ test("the key sheet over scrollback's inspector keeps its place: the tab you're 
   expect((await after("?", KEYS.esc)).tab).toBe("Command");
   ink.unmount();
 });
+
+/** Claude Code's guess at your next message, as the SDK sends it after a turn's result. */
+const suggested = (text: string) => ({ kind: "sdk", message: { type: "prompt_suggestion", suggestion: text, uuid: "g", session_id: "s" } as unknown as SDKMessage }) as const;
+
+test("Claude Code's suggested next message reaches the empty box, where Tab takes it and Enter sends it", async () => {
+  const { press, store, asked, ink, written } = app();
+  await settle();
+  const before = written().length;
+  store.emit(suggested("next one adds two numbers"));
+  await settle();
+  expect(stripVTControlCharacters(written().slice(before))).toContain("next one adds two numbers");
+  await press(KEYS.tab, KEYS.enter);
+  await store.prompts.written();
+  ink.unmount();
+  expect(asked).toContain("send");
+});
