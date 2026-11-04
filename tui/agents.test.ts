@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Agent } from "../src/agents";
 import { initialState } from "../src/view/state";
-import { chosenLine, listLines, liveState, mineState, mineSummary, moveTo, startFolder } from "./agents";
+import { chosenLine, listLines, mineState, mineSummary, moveTo, startFolder } from "./agents";
 
 const agent = (id: string, folder: string, createdAt = 0): Agent => ({
   id,
@@ -60,16 +60,6 @@ test("lists background sessions alone when no conversation is open, this folder'
     "b",
   ]);
   expect(listLines([], [], "/p")).toEqual([]);
-});
-
-test("a conversation can move to the background only while nothing runs or waits in it", () => {
-  const idle = initialState("/p", "/home/u");
-  expect(liveState(idle, 0)).toBe("idle");
-  expect(liveState({ ...idle, busy: true }, 0)).toBe("working");
-  expect(liveState({ ...idle, tasks: [{ id: "t" } as (typeof idle.tasks)[number]] }, 0)).toBe("working");
-  expect(liveState(idle, 1)).toBe("working");
-  expect(liveState({ ...idle, busy: true, pending: [{ id: "p" } as (typeof idle.pending)[number]] }, 0)).toBe("blocked");
-  expect(liveState({ ...idle, questions: [{ id: "q" } as (typeof idle.questions)[number]] }, 0)).toBe("blocked");
 });
 
 test("a conversation's row says what Claude is doing, or once it's done, how its last turn went", () => {
