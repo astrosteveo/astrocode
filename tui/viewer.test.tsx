@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "ink";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
+import type { Agent } from "../src/agents";
 import type { AgentSession } from "../src/session";
 import { initialState, type Item, type State, type ToolCall } from "../src/view/state";
 import { App } from "./app";
@@ -56,10 +57,12 @@ afterEach(async () => {
 
 /**
  * astrocode in scrollback on a fake terminal, over `state`, as a real terminal gets it: each frame
- * drawn over the one before rather than written whole, the mouse there for the viewer to turn on,
- * and Follow Claude on or off. `out()` is everything written, escape codes and all.
+ * drawn over the one before rather than written whole, and the mouse there for the viewer to turn
+ * on, with Follow Claude on or off, kitty's keyboard protocol if asked, and background sessions
+ * that may wait on you. Opening the agents view stops it, as it does in the terminal. `out()` is
+ * everything written, escape codes and all.
  */
-async function scrollback(state: State, { columns = 120, rows = 30, follow = false } = {}) {
+async function scrollback(state: State, { columns = 120, rows = 30, follow = false, kitty = false, agents = [] as Agent[] } = {}) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns, rows });
   const writes: string[] = [];
   stdout.on("data", (chunk: Buffer) => writes.push(chunk.toString()));
@@ -79,20 +82,30 @@ async function scrollback(state: State, { columns = 120, rows = 30, follow = fal
   const mouse = new Mouse(stdin as unknown as NodeJS.ReadStream, stdout as unknown as NodeJS.WriteStream);
   const app = render(
     <MouseContext.Provider value={mouse}>
-      {/* No conversations besides this one, and no background sessions: never the real `claude agents`. */}
+      {/* No conversations besides this one, and only the background sessions given: never the real `claude agents`. */}
       <App
         store={store}
         session={session}
         fullscreen={false}
         onToggleFullscreen={() => {}}
-        onAgents={() => {}}
+        onAgents={() => {
+          app.clear();
+          app.unmount();
+        }}
         fleet={new Fleet()}
-        backgroundSessions={new Background(async () => [])}
+        backgroundSessions={new Background(async () => agents)}
         agentsHint={Promise.resolve(false)}
       />
     </MouseContext.Provider>,
     // Interactive even where a CI variable is set, since Ink hands the terminal over only then.
-    { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, exitOnCtrlC: false, patchConsole: false, interactive: true },
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+      interactive: true,
+      ...(kitty ? { kittyKeyboard: { mode: "enabled" as const } } : {}),
+    },
   );
   quit = () => {
     app.unmount();
@@ -288,4 +301,25 @@ test("leaving the viewer with a call open closes the call, so Follow Claude goes
   const after = stripVTControlCharacters(out().slice(out().lastIndexOf(LEAVE)));
   expect(after).toContain("◉ Following");
   expect(after).not.toContain("following paused");
+});
+
+/** The keyboard modes kitty is told to push and pop, and the switches between screens, in order. */
+const switches = (out: string) => [...out.matchAll(/\x1b\[\?1049[hl]|\x1b\[<u|\x1b\[>\d+u/g)].map((match) => match[0]);
+
+/** Another conversation, in the background, that waits on you. */
+const waiting: Agent = { id: "b1", name: "other", cwd: "/q", folder: "/q", state: "blocked", alive: true, status: "waiting", createdAt: 0, updatedAt: 0, prs: [] };
+
+test("kitty's keyboard modes stay balanced on each screen, through the viewer and as the agents view takes over from it", async () => {
+  const { out, press, click, screen, exited } = await scrollback(finished(), { kitty: true, agents: [waiting] });
+  await press(KEYS.ctrlO);
+  await press(KEYS.esc);
+  expect(switches(out())).toEqual(["\x1b[>1u", "\x1b[<u", ENTER, "\x1b[>1u", "\x1b[<u", LEAVE, "\x1b[>1u"]);
+  await press(KEYS.ctrlO);
+  const before = out().length;
+  const bar = screen().findIndex((line) => line.includes("← 1 needs you"));
+  await click(screen()[bar]!.indexOf("← 1 needs you") + 4, bar);
+  await settle();
+  expect(exited()).toBe(true);
+  // The viewer closes first: the alternate screen pops what it pushed, and the scrollback's screen what it did.
+  expect(switches(out().slice(before))).toEqual(["\x1b[<u", LEAVE, "\x1b[>1u", "\x1b[<u"]);
 });
