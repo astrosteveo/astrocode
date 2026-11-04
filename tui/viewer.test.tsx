@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "ink";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import type { Agent } from "../src/agents";
@@ -322,4 +325,36 @@ test("kitty's keyboard modes stay balanced on each screen, through the viewer an
   expect(exited()).toBe(true);
   // The viewer closes first: the alternate screen pops what it pushed, and the scrollback's screen what it did.
   expect(switches(out().slice(before))).toEqual(["\x1b[<u", LEAVE, "\x1b[>1u", "\x1b[<u"]);
+});
+
+test("an editor opened from the viewer gets the scrollback's screen, and the viewer comes back after it", async () => {
+  const kept = mkdtempSync(join(tmpdir(), "astrocode-viewer-"));
+  const visual = process.env.VISUAL;
+  // The editor borrows the test's own stdin, which isn't a terminal; it waits to be let go, so what's on screen meanwhile can be seen.
+  const setRawMode = process.stdin.setRawMode;
+  process.stdin.setRawMode = (() => process.stdin) as typeof process.stdin.setRawMode;
+  process.env.VISUAL = `sh -c 'cp "$1" ${kept}/seen; while [ -d ${kept} ] && [ ! -e ${kept}/go ]; do sleep 0.05; done' sh`;
+  try {
+    const { out, press, screen } = await scrollback(finished());
+    await press(KEYS.ctrlO);
+    const opened = out().length;
+    await press("v");
+    for (let i = 0; i < 50 && !existsSync(join(kept, "seen")); i++) await settle(100);
+    expect(readFileSync(join(kept, "seen"), "utf8")).toContain("All quiet in here.");
+    // While the editor runs, the terminal is on the scrollback's screen.
+    const during = out().slice(opened);
+    expect(during.lastIndexOf(LEAVE)).toBeGreaterThan(during.lastIndexOf(ENTER));
+    writeFileSync(join(kept, "go"), "");
+    for (let i = 0; i < 50 && out().lastIndexOf(ENTER) < opened + during.length; i++) await settle(100);
+    await settle();
+    const after = out().slice(opened);
+    expect(after.lastIndexOf(ENTER)).toBeGreaterThan(after.lastIndexOf(LEAVE));
+    expect(screen().join("\n")).toContain("All quiet in here.");
+    expect(count(scrollbackOf(out()), "All quiet in here.")).toBe(1);
+  } finally {
+    process.stdin.setRawMode = setRawMode;
+    if (visual === undefined) delete process.env.VISUAL;
+    else process.env.VISUAL = visual;
+    rmSync(kept, { recursive: true, force: true });
+  }
 });
