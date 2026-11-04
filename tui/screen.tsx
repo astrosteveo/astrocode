@@ -724,7 +724,8 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   return (
     <Box flexDirection="column" width={columns} height={height}>
       {welcome ? (
-        <Box ref={viewport} flexGrow={1} flexShrink={1} overflow="hidden">
+        // At its own height, cut short when what's over the box leaves less room, rather than squeezed into it line over line.
+        <Box ref={viewport} flexGrow={1} flexShrink={1} overflow="hidden" alignItems="flex-start">
           <StartScreen start={start} width={width} />
         </Box>
       ) : (
