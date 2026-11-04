@@ -77,7 +77,7 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
     if (!chosen) return update({ selected: index });
     const { selected, comment } = now.current;
     if (request.defaultToNo && chosen.decision.allow && index !== selected) return;
-    const said = chosen.amend !== undefined && index === selected ? comment?.trim() : undefined;
+    const said = chosen.amend !== undefined ? comment?.trim() : undefined;
     onDecide(said ? { allow: false, comment: said } : chosen.decision);
   };
 
