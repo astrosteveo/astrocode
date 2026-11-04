@@ -57,11 +57,20 @@ const STATES = new Set<string>(Object.keys(STATE_LABELS));
 
 /** Every background session, running or finished, with what its job file says of it. */
 export async function listAgents(): Promise<Agent[]> {
-  const { out, err, code } = await installedClaude(homedir(), ["agents", "--json", "--all"]);
-  if (code !== 0) throw new Error(`claude agents failed: ${(err || out).trim() || `exit ${code}`}`);
-  const rows = parseAgentList(out);
+  const rows = await agentRows(["--all"]);
   const jobs = await Promise.all(rows.map((row) => readJob(row.id)));
   return rows.map((row, i) => toAgent(row, jobs[i]));
+}
+
+/** The background sessions running now, as `claude agents --json` lists them: enough to tell which wait on you. */
+export async function runningAgents(): Promise<Agent[]> {
+  return (await agentRows([])).map((row) => toAgent(row, undefined));
+}
+
+async function agentRows(more: string[]) {
+  const { out, err, code } = await installedClaude(homedir(), ["agents", "--json", ...more]);
+  if (code !== 0) throw new Error(`claude agents failed: ${(err || out).trim() || `exit ${code}`}`);
+  return parseAgentList(out);
 }
 
 async function readJob(id: string): Promise<unknown> {

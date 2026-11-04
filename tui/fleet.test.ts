@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
+import type { Agent } from "../src/agents";
 import { initialState } from "../src/view/state";
-import { Fleet, liveState, moveAll, needsYou } from "./fleet";
+import { Background, Fleet, liveState, moveAll, needsYou } from "./fleet";
 import { Store } from "./store";
 
 const conversation = (key: string, task: string, knownId?: string) => {
@@ -74,4 +75,46 @@ test("hears every conversation in the fleet, those that join later too, until it
   fleet.add(later);
   await settle();
   expect(heard).toBe(4);
+});
+
+/** A background session as `claude agents --json` lists it. */
+const agent = (id: string, more: Partial<Agent>): Agent => ({ id, name: id, cwd: "/p", folder: "/p", state: "working", alive: true, createdAt: 0, updatedAt: 0, prs: [], ...more });
+
+test("counts Claude Code's background sessions waiting on you too, but not one only waiting for a prompt or one of astrocode's own", () => {
+  const fleet = new Fleet();
+  const shown = fleet.add(conversation("a", "fix the build", "id-a"));
+  fleet.add(conversation("b", "add the tests", "id-b"));
+  const agents = [
+    agent("asking", { state: "blocked", status: "waiting", sessionId: "id-x" }),
+    agent("handed", { state: "blocked", status: "idle", sessionId: "id-y" }),
+    agent("busy", { state: "working", status: "busy" }),
+    // Moved into astrocode, it's still listed there: its own row stands for it.
+    agent("moved", { state: "blocked", status: "waiting", sessionId: "id-b" }),
+    agent("this", { state: "blocked", status: "waiting", sessionId: "id-a" }),
+  ];
+  expect(needsYou(fleet.getSnapshot(), shown.store, agents)).toBe(1);
+});
+
+test("reads the background sessions at once and then again while anything listens, and stops when nothing does", async () => {
+  let reads = 0;
+  const waiting = [agent("asking", { state: "blocked", status: "waiting" })];
+  const background = new Background(async () => (reads += 1, waiting), 20);
+  expect(background.getSnapshot()).toEqual([]);
+  let heard = 0;
+  const stop = background.subscribe(() => (heard += 1));
+  const also = background.subscribe(() => {});
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(background.getSnapshot()).toEqual(waiting);
+  expect(heard).toBeGreaterThanOrEqual(2);
+  stop();
+  also();
+  const after = reads;
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  expect(reads).toBe(after);
+  // A `claude` that can't list them has none waiting.
+  const failing = new Background(() => Promise.reject(new Error("no claude")), 20);
+  const quiet = failing.subscribe(() => {});
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  quiet();
+  expect(failing.getSnapshot()).toEqual([]);
 });

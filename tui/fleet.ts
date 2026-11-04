@@ -1,9 +1,14 @@
 // The conversations astrocode runs at once. The one on screen is one of them; the rest carry on
 // while you're in the agents view or another conversation, as Claude Code's background sessions do
 // while you're away from them in `claude agents`.
+import { useCallback, useSyncExternalStore } from "react";
+import { runningAgents, waitsOnYou, type Agent } from "../src/agents";
 import { sessionTitle } from "../src/history";
 import type { State } from "../src/view/state";
 import type { Store } from "./store";
+
+/** How often Claude Code's background sessions are read again while a conversation counts those waiting on you. */
+const BACKGROUND_MS = 10_000;
 
 export type Conversation = {
   /** Its row's key in the agents view. */
@@ -75,9 +80,66 @@ export function liveState(state: State, shells: number): LiveState {
   return "idle";
 }
 
-/** How many of `conversations`, but the one whose store is `here`, wait on you: a tool call to allow, a question or a form. */
-export function needsYou(conversations: readonly Conversation[], here: Store) {
-  return conversations.filter((one) => one.store !== here && liveState(one.store.getSnapshot(), one.store.shells.size) === "blocked").length;
+/**
+ * How many conversations but the one whose store is `here` wait on you: astrocode's others, with a
+ * tool call to allow, a question or a form, and Claude Code's background sessions in `agents`, but
+ * those moved into astrocode, whose own conversations stand for them.
+ */
+export function needsYou(conversations: readonly Conversation[], here: Store, agents: readonly Agent[] = []) {
+  const ids = new Set(conversations.flatMap((one) => one.session.knownId ?? []));
+  const mine = conversations.filter((one) => one.store !== here && liveState(one.store.getSnapshot(), one.store.shells.size) === "blocked").length;
+  return mine + agents.filter((agent) => waitsOnYou(agent) && !(agent.sessionId && ids.has(agent.sessionId))).length;
+}
+
+/** {@link needsYou} for the conversation whose store is `here`, kept current. */
+export function useNeedsYou(fleet: Fleet, background: Background, here: Store) {
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      const stops = [fleet.watch(listener), background.subscribe(listener)];
+      return () => {
+        for (const stop of stops) stop();
+      };
+    },
+    [fleet, background],
+  );
+  return useSyncExternalStore(subscribe, () => needsYou(fleet.getSnapshot(), here, background.getSnapshot()));
+}
+
+/**
+ * Claude Code's background sessions that run now, read at once and then every `every` ms while
+ * anything listens: a conversation's status bar counts those waiting on you. A `claude` that can't
+ * list them has none waiting.
+ */
+export class Background {
+  private agents: readonly Agent[] = [];
+  private listeners = new Set<() => void>();
+  private timer: ReturnType<typeof setInterval> | undefined;
+
+  constructor(
+    private readonly list: () => Promise<Agent[]> = runningAgents,
+    private readonly every = BACKGROUND_MS,
+  ) {}
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    if (!this.timer) {
+      void this.read();
+      this.timer = setInterval(() => void this.read(), this.every);
+    }
+    return () => {
+      this.listeners.delete(listener);
+      if (this.listeners.size || !this.timer) return;
+      clearInterval(this.timer);
+      this.timer = undefined;
+    };
+  };
+
+  getSnapshot = () => this.agents;
+
+  private async read() {
+    this.agents = await this.list().catch(() => []);
+    for (const listener of this.listeners) listener();
+  }
 }
 
 /** How many wait on you, in words: `1 needs you`, `2 need you`. */

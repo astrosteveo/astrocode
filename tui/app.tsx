@@ -34,7 +34,7 @@ import { ElicitationPrompt } from "./elicitation";
 import { EFFORT_NOTES, effortStep, effortsOf, ULTRACODE_NOTE } from "./effort";
 import { editFile, editText, readInEditor } from "./editor";
 import { FindBar, type Find } from "./find";
-import { needsYou, type Fleet } from "./fleet";
+import { useNeedsYou, type Background, type Fleet } from "./fleet";
 import { focusOf } from "./focus";
 import { HooksPanel } from "./hooks";
 import { ItemView, LiveView, StepView, targetCall } from "./entries";
@@ -182,13 +182,15 @@ type Props = {
   onAgents: () => void;
   /** The conversations astrocode runs, this one among them. */
   fleet: Fleet;
+  /** Claude Code's background sessions, which the status bar counts too when they wait on you. */
+  backgroundSessions: Background;
   /** Whether the empty box mentions ←, once that's known. */
   agentsHint: Promise<boolean>;
 };
 
-export function App({ store, session, branch, fullscreen, onToggleFullscreen, onAgents, fleet, agentsHint }: Props) {
+export function App({ store, session, branch, fullscreen, onToggleFullscreen, onAgents, fleet, backgroundSessions, agentsHint }: Props) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const othersWaiting = useSyncExternalStore(fleet.watch, () => needsYou(fleet.getSnapshot(), store));
+  const othersWaiting = useNeedsYou(fleet, backgroundSessions, store);
   const [hintAgents, setHintAgents] = useState(false);
   /** Whether the message box is empty: a click on `← N needs you` leaves only then, as ← does, so nothing typed is lost. */
   const [boxEmpty, setBoxEmpty] = useState(true);
