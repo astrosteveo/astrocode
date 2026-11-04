@@ -29,6 +29,8 @@ type Props = {
   active: boolean;
   /** The transcript has your keys, but those that work anywhere, such as Ctrl+C and Shift+Tab, still do what they do here. */
   anywhere?: boolean;
+  /** What the keys do where yours are instead, for the box's top edge, in place of its own notes: the transcript's. */
+  hint?: string;
   /** Full screen, where the menu covers the transcript; in scrollback it makes room for itself. */
   fullscreen: boolean;
   busy: boolean;
@@ -641,7 +643,7 @@ export function Prompt(props: Props) {
   const keywordNote = keywordHint(keywords, ignored, props.workflows, keyFor(props.keymap, "chat:workflowKeywordToggle"));
   const note = chord.current
     ? chordHint(props.keymap, chord.current.keys)
-    : keywordNote ?? (preview ? `stashed “${preview}”${stashKey ? `  ${stashKey}` : ""}` : undefined);
+    : props.hint ?? keywordNote ?? (preview ? `stashed “${preview}”${stashKey ? `  ${stashKey}` : ""}` : undefined);
 
   if (search.current) {
     const { query, skip } = search.current;
