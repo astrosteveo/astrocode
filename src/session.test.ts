@@ -21,16 +21,16 @@ let starting: () => Promise<unknown> = () => new Promise(() => {});
 let answers: Record<string, unknown> = {};
 
 // A stand-in Claude Code, in place of the SDK's query: it queues every message, as Claude Code does
-// while Claude works, and keeps what it was sent.
+// while Claude works, and keeps what it was sent. A keep-warm request's one prompt is a string.
 mock.module("@anthropic-ai/claude-agent-sdk", () => ({
   ...sdk,
-  query: ({ prompt, options }: { prompt: AsyncIterable<SDKUserMessage>; options: Record<string, unknown> }) => {
+  query: ({ prompt, options }: { prompt: AsyncIterable<SDKUserMessage> | string; options: Record<string, unknown> }) => {
     started.push(options);
     const out = new AsyncQueue<unknown>();
     const close = out.close.bind(out);
     said = out;
     void (async () => {
-      for await (const message of prompt) {
+      for await (const message of typeof prompt === "string" ? [] : prompt) {
         sent.push(message.message.content);
         if (answer) answer(message, out);
         else out.push({ type: "command_lifecycle", command_uuid: message.uuid, state: "queued" });
@@ -98,6 +98,19 @@ test("a new conversation's id is known before Claude Code says it, so its first 
   resumed.start();
   expect(started.at(-1)).toMatchObject({ sessionId: undefined, resume: "earlier" });
   resumed.close();
+});
+
+test("the conversation asks Claude Code for a next-prompt suggestion after each turn, and a keep-warm request doesn't", async () => {
+  started = [];
+  const one = new AgentSession({ cwd: "/tmp", emit: () => {}, resume: "earlier" });
+  one.start();
+  expect(started.at(-1)).toMatchObject({ promptSuggestions: true });
+  const warming = one.warm();
+  expect(started.at(-1)).toMatchObject({ forkSession: true });
+  expect(started.at(-1)).not.toHaveProperty("promptSuggestions");
+  said?.push({ type: "result", subtype: "success", uuid: randomUUID(), session_id: "s", duration_ms: 1, num_turns: 1, is_error: false, result: "" });
+  await warming;
+  one.close();
 });
 
 // A turn in a git repository: the session records the working tree before Claude Code has your
