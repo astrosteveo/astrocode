@@ -127,9 +127,6 @@ const CHORD_MS = 3000;
 /** Steps Ctrl+_ can undo. */
 const UNDO_STEPS = 200;
 
-/** What the box says beside a suggestion, at its right edge: the key, then what it does. */
-const TAKE_HINT = { key: "tab", does: " to use" };
-
 
 /**
  * What a menu offers: a slash command, a word its first argument can be, or a file or folder
@@ -695,10 +692,13 @@ export function Prompt(props: Props) {
   // while ← is the box's to read; it speaks up while Claude works.
   const placeholder = busy ? "Claude is working. Type to queue a message" : props.hintAgents && active ? "← for conversations" : "";
   const offered = offer(buffer.current.text);
+  // The key to name beside a suggestion: the keymap goes first, so Tab only where keybindings.json leaves it free, else →.
+  const free = (stroke: string) => !props.keymap.has(stroke) && !startsChord(props.keymap, stroke);
+  const takeKey = free("tab") ? "tab" : free("right") ? "→" : null;
   // One row, so the box never grows: a long suggestion gives way to the hint, and the hint to a narrow box.
   const row = width - 4 - (active ? 1 : 0);
-  const hintCells = cellWidth(TAKE_HINT.key + TAKE_HINT.does) + 2;
-  const takeHint = offered !== undefined && active && row >= 3 * hintCells;
+  const hintCells = cellWidth(`${takeKey} to use`) + 2;
+  const takeHint = offered !== undefined && active && takeKey !== null && row >= 3 * hintCells;
   const suggested = offered === undefined ? "" : fit(offered.replace(/\s+/g, " "), takeHint ? row - hintCells : row, false);
   const caret = (character: string) =>
     active ? (
@@ -782,8 +782,8 @@ export function Prompt(props: Props) {
             {takeHint ? (
               <Box flexShrink={0} paddingLeft={2}>
                 <Text color={PALETTE.haze}>
-                  {TAKE_HINT.key}
-                  <Text color={PALETTE.dust}>{TAKE_HINT.does}</Text>
+                  {takeKey}
+                  <Text color={PALETTE.dust}> to use</Text>
                 </Text>
               </Box>
             ) : null}
