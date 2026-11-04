@@ -190,6 +190,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const othersWaiting = useSyncExternalStore(fleet.watch, () => needsYou(fleet.getSnapshot(), store));
   const [hintAgents, setHintAgents] = useState(false);
+  /** Whether the message box is empty: a click on `← N needs you` leaves only then, as ← does, so nothing typed is lost. */
+  const [boxEmpty, setBoxEmpty] = useState(true);
   useEffect(() => void agentsHint.then(setHintAgents), [agentsHint]);
   useModCards(session, state, store.emit);
   const { exit, suspendTerminal } = useApp();
@@ -1653,6 +1655,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onFollow={toggleFollow}
           onAgents={onAgents}
           hintAgents={hintAgents}
+          onEmpty={setBoxEmpty}
           workflows={state.ultracodeAvailable !== false}
           stash={stash}
           onStash={(text) => {
@@ -1686,7 +1689,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           keepWarm={keepWarm}
           usageMode={usageMode}
           needsYou={othersWaiting}
-          onNeedsYou={onAgents}
+          onNeedsYou={(boxKeys || focus === "transcript") && boxEmpty ? onAgents : undefined}
           follow={follow ? (inspected ? "paused" : "on") : undefined}
           onFollow={toggleFollow}
           onCache={toggleKeepWarm}
