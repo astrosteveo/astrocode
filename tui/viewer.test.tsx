@@ -239,6 +239,40 @@ test("the viewer has full screen's cursor: Enter on the turn's closing line open
   expect(screen()[row(/Searched +c in src/) + 1]).toContain("‹ 3 of 3 ›");
 });
 
+test("/diff in scrollback opens the viewer on the latest turn's ledger, with the cursor on its line, as in full screen", async () => {
+  const { out, press, screen, row } = await scrollback(finished());
+  const before = out();
+  await press("/diff");
+  await press(KEYS.enter);
+  expect(out().slice(before.length)).toContain(ENTER);
+  const cursor = () => screen().findIndex((line) => /^(?:.| {3})›/u.test(line));
+  expect(cursor()).toBe(row(/6s · 1 file \+2 −1/));
+  expect(row(/^ {4}src\/a\.ts +\+2 −1/)).toBe(cursor() + 1);
+  // Esc closes the ledger, and again goes back to the scrollback, where nothing of the ledger was written.
+  await press(KEYS.esc);
+  await press(KEYS.esc);
+  expect(out().lastIndexOf(LEAVE)).toBeGreaterThan(out().lastIndexOf(ENTER));
+  expect(scrollbackOf(out())).not.toContain("1.2k tokens");
+  expect(count(scrollbackOf(out()), "6s · 1 file +2 −1")).toBe(1);
+});
+
+test("Ctrl+O after the viewer /diff opened has closed puts the cursor on the last line, not back on that ledger", async () => {
+  const { press, screen, row, update } = await scrollback(finished());
+  await press("/diff");
+  await press(KEYS.enter);
+  await press("q");
+  const state = finished();
+  const more: Item[] = [
+    { kind: "prompt", key: "p2", text: "and again" },
+    { kind: "text", key: "r2", text: "Still quiet." },
+    { kind: "turn", key: "end2", outcome: "finished", durationMs: 3000, tokens: 0 },
+  ];
+  await update({ ...state, items: [...state.items, ...more] });
+  await press(KEYS.ctrlO);
+  const cursor = () => screen().findIndex((line) => /^(?:.| {3})›/u.test(line));
+  expect(cursor()).toBe(row(/─ 3s\b/));
+});
+
 test("the mouse works in the viewer, and goes back to the terminal with the scrollback", async () => {
   const { out, press, click, row, screen } = await scrollback(finished());
   expect(out()).not.toContain(MOUSE_ON);

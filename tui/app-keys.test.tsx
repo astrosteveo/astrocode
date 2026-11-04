@@ -166,51 +166,14 @@ test("Esc Esc clears the box into Claude Code's prompt history, where ↑ finds 
   expect(file).toContain('"display":"draft to keep"');
 });
 
-test("/diff in scrollback prints the latest turn's ledger whole at the end, and says so when no turn has ended", async () => {
+test("/diff in scrollback says so when no turn has ended yet", async () => {
   const { press, store, ink, written } = app();
   store.emit({ kind: "loaded", loaded: { version: "2.1.318" } });
   await settle(300);
   await press("/diff", KEYS.enter);
+  await store.prompts.written();
+  ink.unmount();
   expect(stripVTControlCharacters(written())).toContain("No turn has ended yet.");
-  const file = join(process.cwd(), "src/a.ts");
-  store.emit({ kind: "prompt", text: "fix it", starts: true });
-  store.emit({ kind: "ledger", files: [{ path: file, added: 2, removed: 1 }], commits: [], unseen: [] });
-  store.emit({ kind: "sdk", message: { type: "result", subtype: "success", uuid: "r", session_id: "s", duration_ms: 6000, num_turns: 1, is_error: false, result: "done" } as unknown as SDKMessage });
-  await settle(300);
-  const before = written().length;
-  await press("/diff", KEYS.enter);
-  await settle(300);
-  await store.prompts.written();
-  ink.unmount();
-  const printed = stripVTControlCharacters(written().slice(before));
-  // The closing line again, and under it the file with how it changed, and what it says of its diff.
-  expect(printed).toMatch(/6s · 1 file \+2 −1 · not committed/);
-  expect(printed).toMatch(/ {4}src\/a\.ts +\+2 −1/);
-  expect(printed).toContain("Its diff wasn't kept.");
-  expect(store.getSnapshot().items.at(-1)?.kind).toBe("review");
-});
-
-test("/diff in scrollback while Claude works says to run it again once Claude is done, and prints nothing into the turn", async () => {
-  const { press, store, ink, written } = app();
-  store.emit({ kind: "loaded", loaded: { version: "2.1.318" } });
-  await settle(300);
-  const end = (uuid: string) => store.emit({ kind: "sdk", message: { type: "result", subtype: "success", uuid, session_id: "s", duration_ms: 6000, num_turns: 1, is_error: false, result: "done" } as unknown as SDKMessage });
-  store.emit({ kind: "prompt", text: "fix it", starts: true });
-  store.emit({ kind: "ledger", files: [{ path: join(process.cwd(), "src/a.ts"), added: 2, removed: 1 }], commits: [], unseen: [] });
-  end("r1");
-  store.emit({ kind: "prompt", text: "and again", starts: true });
-  await settle(300);
-  await press("/diff", KEYS.enter);
-  await settle(300);
-  expect(store.getSnapshot().items.some((item) => item.kind === "review")).toBe(false);
-  expect(stripVTControlCharacters(written())).toContain("Run /diff again once it's done");
-  end("r2");
-  await settle(300);
-  await press("/diff", KEYS.enter);
-  await settle(300);
-  await store.prompts.written();
-  ink.unmount();
-  expect(store.getSnapshot().items.at(-1)?.kind).toBe("review");
 });
 
 test("/help shows the key sheet in scrollback too, with Ctrl+O's transcript and without full screen's mouse", async () => {
@@ -259,21 +222,23 @@ test("anything you send uses up the suggestion, a command astrocode runs itself 
   expect(stripVTControlCharacters(written().slice(before))).not.toContain("next one adds two numbers");
 });
 
-test("/diff in full screen keeps the suggestion, for Esc to give the box back with it, as the spec's review of a turn goes", async () => {
-  const { press, store, ink, written } = app({ fullscreen: true });
-  await settle();
-  store.emit({ kind: "prompt", text: "fix it", starts: true });
-  store.emit({ kind: "ledger", files: [{ path: join(process.cwd(), "src/a.ts"), added: 2, removed: 1 }], commits: [], unseen: [] });
-  store.emit({ kind: "sdk", message: { type: "result", subtype: "success", uuid: "r", session_id: "s", duration_ms: 6000, num_turns: 1, is_error: false, result: "done" } as unknown as SDKMessage });
-  store.emit(suggested("merge it"));
-  await settle(300);
-  await press("/diff", KEYS.enter);
-  // Esc closes the ledger, and Esc again gives the box back.
-  await press(KEYS.esc);
-  const before = written().length;
-  await press(KEYS.esc);
-  await store.prompts.written();
-  ink.unmount();
-  expect(store.getSnapshot().nextPrompt).toBe("merge it");
-  expect(stripVTControlCharacters(written().slice(before))).toMatch(/merge it +tab to use/);
-});
+for (const fullscreen of [true, false]) {
+  test(`/diff in ${fullscreen ? "full screen" : "scrollback"} keeps the suggestion, for Esc to give the box back with it, as the spec's review of a turn goes`, async () => {
+    const { press, store, ink, written } = app({ fullscreen });
+    await settle();
+    store.emit({ kind: "prompt", text: "fix it", starts: true });
+    store.emit({ kind: "ledger", files: [{ path: join(process.cwd(), "src/a.ts"), added: 2, removed: 1 }], commits: [], unseen: [] });
+    store.emit({ kind: "sdk", message: { type: "result", subtype: "success", uuid: "r", session_id: "s", duration_ms: 6000, num_turns: 1, is_error: false, result: "done" } as unknown as SDKMessage });
+    store.emit(suggested("merge it"));
+    await settle(300);
+    await press("/diff", KEYS.enter);
+    // Esc closes the ledger, and Esc again gives the box back.
+    await press(KEYS.esc);
+    const before = written().length;
+    await press(KEYS.esc);
+    await store.prompts.written();
+    ink.unmount();
+    expect(store.getSnapshot().nextPrompt).toBe("merge it");
+    expect(stripVTControlCharacters(written().slice(before))).toMatch(/merge it +tab to use/);
+  });
+}
