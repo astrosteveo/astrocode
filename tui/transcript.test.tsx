@@ -264,3 +264,28 @@ test("thinking between two lines stays between them once the step opens", () => 
   expect(thought).toBe(at(open, "math.ts") + 1);
   expect(at(open, "Ran ")).toBe(thought + 1);
 });
+
+/** A finished turn: your message, then for each of `steps` Claude's sentence and its one call, and the ledger. */
+function ended(steps: [string, ToolCall][]): State {
+  const items: Item[] = [
+    { kind: "prompt", key: "p", text: "make the tests pass" },
+    ...steps.flatMap(([said, one], i): Item[] => [
+      { kind: "text", key: `s${i}`, text: said, at: i * 1000 },
+      { kind: "tool", key: one.id, call: { startedAt: i * 1000, endedAt: i * 1000 + 500, ...one } },
+    ]),
+    { kind: "turn", key: "end", outcome: "finished", durationMs: 6000, tokens: 1200, commands: ["bun test"], tests: { passed: 3, failed: 1 } },
+  ];
+  const tools = Object.fromEntries(items.flatMap((item, i) => (item.kind === "tool" ? [[item.call.id, i]] : [])));
+  return { ...initialState("/p", "/home/u"), items, tools };
+}
+
+const suite = (id: string, result: string) => call(id, { name: "Bash", input: { command: "bun test", description: "Run the tests" }, status: "error", result });
+
+test("a folded step that shows all it has doesn't offer to open", () => {
+  const shut = layout(input(ended([["Running the tests.", suite("b", BUN_FAILED)]]), 118));
+  const lines = plain(shut);
+  const title = at(lines, "Running the tests");
+  expect(lines[title + 1]).toContain("the tests");
+  expect(lines[title]).not.toContain("▸");
+  expect(shut.rows[title]!.target).toBeUndefined();
+});

@@ -214,10 +214,10 @@ function split(step: StepRow) {
   return { lead, under: lead ? step.flow.slice(1) : step.flow };
 }
 
-/** Whether the step has more to show open than closed: its calls once folded, Claude's words, thinking, or lines past the most a closed step shows. */
+/** Whether the step has more to show open than closed: Claude's words, thinking, or lines a closed step leaves out. */
 export function opens(step: StepRow) {
   const { under } = split(step);
-  return step.folded || Boolean(step.more) || under.some((one) => one.kind !== "row") || under.length > MOST_ROWS;
+  return Boolean(step.more) || under.some((one) => one.kind !== "row") || under.length > closedRows(step).length;
 }
 
 /** The lines a closed step shows: once folded, only the one that failed, if the step did; else its first two and its last three. */
