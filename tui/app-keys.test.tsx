@@ -1,14 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "ink";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import type { AgentSession } from "../src/session";
 import { saved, settingsPath } from "../src/settings";
 import { App } from "./app";
+import { scratchConfig } from "./scratch-config";
 import { Store } from "./store";
 
 /** Keys as a terminal sends them. */
@@ -19,18 +17,10 @@ const CLEARED = "\x1b[2J\x1b[3J\x1b[H";
 
 const settle = (ms = 60) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// The settings a key might save go to a folder of the test's own, never yours.
-let config = "";
-const xdg = process.env.XDG_CONFIG_HOME;
-beforeEach(async () => {
-  config = await mkdtemp(join(tmpdir(), "astrocode-keys-"));
-  process.env.XDG_CONFIG_HOME = config;
-});
-afterEach(async () => {
-  if (xdg === undefined) delete process.env.XDG_CONFIG_HOME;
-  else process.env.XDG_CONFIG_HOME = xdg;
-  await rm(config, { recursive: true, force: true });
-});
+// The settings a key might save, and anything written into Claude Code's folder, go to a scratch folder, never yours.
+const config = scratchConfig();
+beforeEach(config.start);
+afterEach(config.stop);
 
 /** The app in scrollback on a fake terminal, with a session that does nothing but note what it's asked. */
 function app() {
