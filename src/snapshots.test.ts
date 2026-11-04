@@ -49,6 +49,13 @@ function snapshots(cwd: string, home = "/nowhere", deadline?: number) {
   return one;
 }
 
+/** What a scope of /diff lists, which must be files. */
+async function listed(edges: Snapshots, scope: "uncommitted" | "branch") {
+  const changes = await edges.changes(scope);
+  if (typeof changes !== "object" || !changes) throw new Error(`${scope}: ${changes}`);
+  return changes;
+}
+
 const lines = (count: number, word = "line") => Array.from({ length: count }, (_, i) => `${word} ${i + 1}\n`).join("");
 
 test("counts the audit's Python-heredoc edit, which no edit tool made", async () => {
@@ -323,12 +330,12 @@ test("gives what isn't committed, and the branch's changes against the branch it
   const edges = snapshots(top);
   await edges.start();
   write(top, "c.txt", lines(1));
-  const uncommitted = (await edges.changes("uncommitted"))!;
+  const uncommitted = await listed(edges, "uncommitted");
   expect(uncommitted.files).toEqual([
     { path: join(top, "b.txt"), added: 3, removed: 0, status: "new" },
     { path: join(top, "c.txt"), added: 1, removed: 0, status: "new" },
   ]);
-  const branch = (await edges.changes("branch"))!;
+  const branch = await listed(edges, "branch");
   expect(branch.base).toBe("main");
   expect(branch.files.map((file) => file.path)).toEqual([join(top, "a.txt"), join(top, "b.txt"), join(top, "c.txt")]);
   expect(await edges.patch(branch.trees, branch.files[0]!)).toContain("+line 2");
@@ -341,8 +348,30 @@ test("gives what's new in a repository with no commits yet, and no branch withou
   git(top, "init", "-q");
   write(top, "a.txt", lines(2));
   const edges = snapshots(top);
-  expect((await edges.changes("uncommitted"))?.files).toEqual([{ path: join(top, "a.txt"), added: 2, removed: 0, status: "new" }]);
-  expect(await edges.changes("branch")).toBeNull();
+  expect((await listed(edges, "uncommitted")).files).toEqual([{ path: join(top, "a.txt"), added: 2, removed: 0, status: "new" }]);
+  expect(await edges.changes("branch")).toBe("no base");
+});
+
+test("says when reading the branch's changes took too long, and goes on recording turns", async () => {
+  const top = repo({ "a.txt": lines(1) });
+  git(top, "branch", "-M", "main");
+  git(top, "switch", "-q", "-c", "feature");
+  write(top, "a.txt", lines(2));
+  git(top, "commit", "-q", "-am", "two");
+  // A git that takes its time to find where the branch started, as in a big repository.
+  const bin = folder();
+  writeFileSync(join(bin, "git"), `#!/bin/sh\ncase " $* " in *" merge-base "*) sleep 2 >/dev/null;; esac\nexec ${Bun.which("git")} "$@"\n`, { mode: 0o755 });
+  const path = process.env.PATH;
+  process.env.PATH = `${bin}:${path}`;
+  try {
+    const edges = snapshots(top, "/nowhere", 1000);
+    await edges.start();
+    expect(await edges.changes("branch")).toBe("slow");
+    write(top, "b.txt", lines(1));
+    expect((await edges.end())?.files.map((file) => file.path)).toEqual([join(top, "b.txt")]);
+  } finally {
+    process.env.PATH = path;
+  }
 });
 
 test("says nothing outside git", async () => {

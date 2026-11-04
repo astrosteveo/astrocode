@@ -101,20 +101,24 @@ export class Snapshots {
   /**
    * The working tree now against HEAD (`uncommitted`), or against where the branch left the one it
    * started from (`branch`), as /diff's scopes show them. Recording it moves nothing a turn counts
-   * from. Null outside git, or with no branch to compare with.
+   * from. `no base`: there's no branch to compare with. `slow`: comparing took longer than an edge
+   * may, which, unlike a slow edge, stops nothing. Null outside git, or when git failed.
    */
-  changes(scope: "uncommitted" | "branch"): Promise<Changes | null> {
-    return this.serial(async (signal) => {
-      const now = await this.edge(signal);
-      const repo = this.repo;
-      if (!now || !repo) return null;
-      // Before the first commit, everything is new.
-      const base = scope === "branch" ? await baseOf(repo, signal) : { ref: now.head ?? (await git(repo, ["hash-object", "-t", "tree", "--stdin"], signal, ""))?.trim() };
-      if (!base?.ref) return null;
-      const trees = { from: base.ref, to: now.tree };
-      const files = await filesBetween(repo, trees, now.big, signal);
-      return files && { files, trees, base: "branch" in base ? base.branch : undefined };
-    }, null);
+  async changes(scope: "uncommitted" | "branch"): Promise<Changes | "no base" | "slow" | null> {
+    const now = await this.serial((signal) => this.edge(signal), undefined);
+    const repo = this.repo;
+    if (!now || !repo) return null;
+    // Comparing reads only objects, not the index, so it runs outside the queue, on a deadline of
+    // its own: a big branch holds up no edge, and running out of time says nothing of the edges'.
+    const signal = AbortSignal.timeout(this.deadline);
+    // Before the first commit, everything is new.
+    const base = scope === "branch" ? await baseOf(repo, signal) : { ref: now.head ?? (await git(repo, ["hash-object", "-t", "tree", "--stdin"], signal, ""))?.trim() };
+    if (signal.aborted) return "slow";
+    if (!base?.ref) return scope === "branch" ? "no base" : null;
+    const trees = { from: base.ref, to: now.tree };
+    const files = await filesBetween(repo, trees, now.big, signal);
+    if (!files) return signal.aborted ? "slow" : null;
+    return { files, trees, base: "branch" in base ? base.branch : undefined };
   }
 
   /**

@@ -30,9 +30,15 @@ const LABELS: Record<Scope, string> = { turn: "this turn", uncommitted: "uncommi
 
 /**
  * The files a scope lists, with the trees their diffs run between and the branch it's against; or
- * that git is being asked, or couldn't say.
+ * that git is being asked, couldn't say, took too long to, or found no branch to compare with.
  */
-export type Listed = { files: FileChange[]; trees?: Trees; base?: string } | "reading" | "failed";
+export type Listed = { files: FileChange[]; trees?: Trees; base?: string } | "reading" | "failed" | "slow" | "no base";
+const SAYS: Record<Exclude<Listed, object>, string> = {
+  reading: "Reading what changed…",
+  failed: "Git couldn't say what changed.",
+  slow: "Git took too long to say what changed.",
+  "no base": "There's no main or master branch to compare with.",
+};
 
 /** A file's diff: its lines, or that they're being read, or that they weren't kept. */
 export type FileDiff = DiffLine[] | "reading" | "gone";
@@ -98,8 +104,7 @@ export function ledgerPieces({ turn, scope, listed, open, whole, diff, commands,
   const note = (key: string, text: string): LedgerPiece => ({ key, target: turn.key, node: at(<Text color={PALETTE.dust}>{text}</Text>) });
   const pieces: LedgerPiece[] = [];
   if (scope) pieces.push({ key: "scopes", target: turn.key, node: at(<Scopes scope={scope} base={typeof listed === "object" ? listed.base : undefined} />), spots: scopeSpots(turn.key) });
-  if (listed === "reading") pieces.push(note("reading", "Reading what changed…"));
-  else if (listed === "failed") pieces.push(note("failed", scope === "branch" ? "There's no main or master branch to compare with." : "Git couldn't say what changed."));
+  if (typeof listed === "string") pieces.push(note(listed, SAYS[listed]));
   else {
     if (!listed.files.length && scope && scope !== "turn") pieces.push(note("none", "No changes yet"));
     for (const file of listed.files) {

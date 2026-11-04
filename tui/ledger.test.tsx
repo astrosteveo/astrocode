@@ -146,7 +146,7 @@ test("in git it offers the turn, what isn't committed and the branch, each tab w
   expect(plain(draw(ended(), 118)).some((line) => line.includes("uncommitted"))).toBe(false);
 });
 
-test("another scope lists what git says, without the turn's commands, and says when there's nothing to compare with", () => {
+test("another scope lists what git says, without the turn's commands, and says when there's nothing to compare with, or git failed or took too long", () => {
   const scoped = (scope: "uncommitted" | "branch", listed: Listed) => plain(draw(ended(), 118, { review: { ...NO_REVIEW, git: true, scopes: new Map([["end", scope]]), lists: new Map([[scope, listed]]) } }));
   const uncommitted = scoped("uncommitted", { files: [{ path: "/p/notes.md", added: 4, removed: 0, status: "new" }], trees: { from: "h", to: "w" } });
   expect(uncommitted).toContainEqual(expect.stringContaining("this turn  ▐uncommitted▌  branch   git diff HEAD"));
@@ -154,7 +154,9 @@ test("another scope lists what git says, without the turn's commands, and says w
   expect(uncommitted.some((line) => line.includes("bun test") || line.includes("tokens"))).toBe(false);
   expect(scoped("branch", { files: [], base: "main" })).toContainEqual(expect.stringContaining("vs main"));
   expect(scoped("branch", { files: [], base: "main" })).toContainEqual(expect.stringContaining("No changes yet"));
-  expect(scoped("branch", "failed")).toContainEqual(expect.stringContaining("There's no main or master branch to compare with."));
+  expect(scoped("branch", "no base")).toContainEqual(expect.stringContaining("There's no main or master branch to compare with."));
+  expect(scoped("branch", "failed")).toContainEqual(expect.stringContaining("Git couldn't say what changed."));
+  expect(scoped("branch", "slow")).toContainEqual(expect.stringContaining("Git took too long to say what changed."));
   expect(scoped("uncommitted", "reading")).toContainEqual(expect.stringContaining("Reading what changed…"));
 });
 

@@ -14,7 +14,7 @@ import { fileTarget, SCOPES, type FileDiff, type Listed, type Scope, type TurnIt
 
 /** Where the ledger's git comes from: the session, which keeps the turns' trees. */
 export type Reader = {
-  changes(scope: "uncommitted" | "branch"): Promise<Changes | null>;
+  changes(scope: "uncommitted" | "branch"): Promise<Changes | "no base" | "slow" | null>;
   patch(trees: Trees, file: FileChange): Promise<string | null>;
 };
 
