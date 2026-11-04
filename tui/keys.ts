@@ -208,9 +208,15 @@ export function keyFor(keymap: Keymap, action: Action) {
   return null;
 }
 
-/** The first key bound to an action as the lowercase hints write keys, `alt+l` for `meta+l`, or null when nothing is. */
+/** A binding as the lowercase hints write keys: `alt+l` for `meta+l`, `shift+↑` for `shift+up`. */
+export function hintOf(chord: string) {
+  return chord.replace(/\bmeta\b/g, "alt").replace(/\b(up|down|left|right)\b/g, (name) => ARROWS[name] ?? name);
+}
+
+/** The first key bound to an action as the lowercase hints write keys, or null when nothing is. */
 export function hintKey(keymap: Keymap, action: Action) {
-  return keyFor(keymap, action)?.replace(/\bmeta\b/g, "alt") ?? null;
+  const chord = keyFor(keymap, action);
+  return chord === null ? null : hintOf(chord);
 }
 
 /** The key that turns Follow Claude on and off, as the lowercase hints write keys: `alt+l`. */

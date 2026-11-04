@@ -42,7 +42,7 @@ import { ItemView, LiveView, StepView, targetCall } from "./entries";
 import { commandRows, fileTarget, ledgerTarget } from "./ledger";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
-import { keyFor, keyLabel, strokeOf } from "./keys";
+import { DEFAULT_KEYMAP, keyFor, keyLabel, strokeOf } from "./keys";
 import { galleryOf, linkedBy, pageFile } from "./figure";
 import { Lightbox } from "./lightbox";
 import { copiedBy, openFile, openLink, ranBy } from "./links";
@@ -69,6 +69,7 @@ import { RemotePanel } from "./remote";
 import { GUTTER } from "./rail";
 import { SandboxPanel } from "./sandbox";
 import { Screen, transcriptHint } from "./screen";
+import { KeySheet, sheetOf, type Place } from "./sheet";
 import { arrange, type Entry } from "./arrange";
 import { SessionPreview } from "./session-preview";
 import { SkillsPanel } from "./skills";
@@ -119,6 +120,8 @@ type Overlay =
   | { kind: "find" }
   /** The conversation's pictures, as large as they go, opened on one of them. */
   | { kind: "picture"; image: ImageAttachment }
+  /** Every key, for what had your keys when `?` or /help opened it. */
+  | { kind: "keys"; place: Place }
   | null;
 
 /** Why fast mode can't be on, by Claude Code's reason. */
@@ -139,43 +142,6 @@ const ULTRACODE_UNAVAILABLE = "Ultracode isn't available here: it needs dynamic 
 const TOAST_MS = 2000;
 /** As much of a `!` command's output as goes to Claude, its end, as Claude Code cuts its own shell output. */
 const MAX_SHELL_OUTPUT = 30_000;
-
-const HELP = [
-  "Enter sends. Shift+Enter, Alt+Enter, Ctrl+J, or \\ then Enter starts a new line. Type / for commands; partway through a message, choosing one writes it in.",
-  "Esc stops Claude. Esc twice clears the box, and ↑ brings back what it had; on an empty box, Esc twice rewinds to an earlier message (/rewind).",
-  "A message sent while Claude works waits above the box until Claude takes it; until then, ↑ in an empty box takes it back to edit.",
-  "Shift+Tab changes the permission mode. Alt+P switches the model and its effort, Shift+↑ and Shift+↓ raise and lower the effort for this session, Alt+T turns thinking off and on, Alt+O turns fast mode on and off. ↑ and ↓ recall earlier messages; Ctrl+R searches them.",
-  "ultrathink in a message asks for deeper reasoning that turn, and ultracode for a workflow of agents; Alt+W keeps the message's ultracode from starting one. /effort ultracode has Claude run a workflow on every task, for this session.",
-  "Ctrl+S puts the message aside, and it stays there until Ctrl+S brings it back. Pressed with a message in the box, the two trade places.",
-  "Ctrl+_ undoes. Ctrl+K, Ctrl+U, Ctrl+W and Alt+D cut, Ctrl+Y puts back what they cut. Alt+B and Alt+F move by words. Ctrl+L redraws the screen, keeping what you've typed.",
-  "! runs a command in your shell. Its output streams in as it runs, you can keep talking meanwhile, and Claude sees it once it ends. /play runs one from Claude's shell code blocks the same way. # adds a note to a CLAUDE.md.",
-  "Ctrl+V attaches the clipboard's image; a pasted or dropped image file attaches too. Ctrl+G or Ctrl+X Ctrl+E edits the message in $EDITOR.",
-  "Ctrl+B moves a command or subagent Claude is waiting on to the background. /tasks lists what runs there and your ! commands: open one to watch it (a subagent shows its transcript, a workflow its phases), and x stops it. Esc stops Claude's turn but not what runs in the background; Ctrl+X Ctrl+K twice stops it all. Ctrl+T shows or hides the to-dos.",
-  "Ctrl+Enter or Ctrl+X Ctrl+S sends what you've queued now, with what's typed behind it: Claude reads it in this turn, with what it runs moved to the background, or else stops and takes it next; Ctrl+X Enter sends it to wait for the end of Claude's turn. Ctrl+Z suspends astrocode until the shell's fg.",
-  "Ctrl+O picks a tool call to inspect: its exact command or input, its whole output and what Claude got back, in tabs. In the inspector ← and → move between calls, Tab between tabs, c copies, Esc closes. In full screen Ctrl+O moves your keys to the transcript instead. Ctrl+C clears the box, stops Claude, or exits when pressed twice. Ctrl+D pressed twice on an empty box exits too; with text, it deletes the character after the cursor.",
-  "Alt+L follows Claude: a dock above the message box shows each tool call as Claude makes it. Opening a call yourself pauses it; closing the call, or Alt+L, follows Claude again.",
-  "← in an empty box opens the agents view, as `claude agents` does: astrocode's conversations, which carry on while you're away from them, and Claude Code's background sessions. Type a task there and press Enter to start another conversation alongside this one, Ctrl+Enter to start it and open it; Enter on a row opens one, Esc comes back here.",
-  "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
-  "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
-  "/mcp, /permissions, /memory, /skills, /hooks, /sandbox and /status show Claude Code's MCP servers, permission rules, memory, skills, hooks, sandbox and status, and change what can be changed.",
-  "/btw asks a question on the side while Claude works. /copy copies Claude's last reply, /export saves or copies the conversation, and /output-style picks how Claude writes.",
-  "/pictures shows the conversation's pictures as large as they go: ← and → flip through them, o opens one in your image viewer, b opens a mockup in your browser.",
-  "/remote-control (or /rc) lets you carry on with this session from claude.ai or the Claude app: it shows the session's link and a QR code to scan with your phone. ⇄ remote in the status bar says it's on, and /remote-control off turns it off.",
-  "/config changes the model, effort, thinking, mode, to-do list, full screen, notifications, when plan usage shows, keeping the cache warm, agent progress and Remote Control, and keeps them for next time, except plan mode, max effort and ultracode. /fullscreen switches layouts.",
-  "The status bar's cache says how long the prompt cache stays warm; past that, your next message re-caches the conversation. With keep warm on (/config, or click it in full screen) it shows ↻, and astrocode refreshes the cache before it expires while you're away, for up to 8 hours.",
-].join("\n");
-
-const FULLSCREEN_HELP = [
-  "Full screen: the wheel, PgUp and PgDn scroll; Ctrl+Home and Ctrl+End go to the top and the end.",
-  "Ctrl+O, or a click on a line, moves your keys to the transcript: ↑ and ↓ move its cursor, and Enter opens or closes the line it's on, a call under its own line. PgUp and PgDn move it half a screen, Home and End to the top and the end, { and } (or Alt+↑ and Alt+↓) to your message before or after. In an opened call ← and → open the call before or after, Tab its next tab, c copies the tab and e opens it in $EDITOR. Esc closes what's open, then gives your keys back to the box, as Ctrl+O and q do. Ctrl+C, Shift+Tab, Alt+L, Ctrl+L and the other keys that work anywhere still work there, and none of them touches what's typed in the box: Ctrl+C stops Claude or exits on a second press, and Ctrl+D exits on a second press only with the box empty.",
-  "A turn's closing line opens its ledger, as /diff opens the latest: Enter on a file opens its diff, a opens them all, ← and → move between files, and [ and ] switch it to what isn't committed or to the branch. Elsewhere [ and ] go to the ledger before or after.",
-  "Ctrl+F finds text in the conversation: Enter or ↑ goes to the match before, ↓ to the one after. Alt+↑ and Alt+↓ jump between your messages, Alt+Shift+↑ and Alt+Shift+↓ between tool calls and commands.",
-  "Drag to copy, double-click to copy a word, triple-click to copy a line.",
-  "Click a line of a step to open that call under it, at any width, and again to close it; a step's name to open it with Claude's thinking and every line, a command of yours to open it (a running one shows its live output), an option to choose it, the mode, the model or the effort to change it.",
-  "Click copy on a code block to copy it, ▶ run on a shell block to run it as a ! command, and a turn's closing line to list the files it changed and the commands it ran.",
-  "Click a picture to enlarge it, with ← and → to flip through the others.",
-  "Hold Shift to select with the terminal's own selection instead.",
-].join("\n");
 
 type Props = {
   store: Store;
@@ -926,7 +892,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         session.start();
         return;
       case "/help":
-        return store.emit({ kind: "notice", tone: "info", text: fullscreen ? `${HELP}\n${FULLSCREEN_HELP}` : HELP });
+        return setOverlay({ kind: "keys", place: "box" });
       case "/resume":
         return argument ? resumeSession(argument) : openResume();
       case "/model":
@@ -1230,12 +1196,14 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       description: fullscreen ? "Go back to the terminal's own scrollback" : "Use the whole terminal, with the mouse",
       argumentHint: "",
     },
-    { name: "help", description: "Keys and commands", argumentHint: "" },
+    { name: "help", description: "Every key, as you've bound them (? in an empty box)", argumentHint: "" },
     { name: "exit", description: "Quit astrocode", argumentHint: "" },
   ];
 
   const picker = () => {
     switch (overlay?.kind) {
+      case "keys":
+        return <KeySheet sections={sheetOf(overlay.place, store.keymap, fullscreen)} custom={store.keymap !== DEFAULT_KEYMAP} width={width} rows={Math.max(3, rows - 13)} onClose={close} />;
       case "picture":
         return (
           <Lightbox
@@ -1608,10 +1576,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const inspectedAt = inspect ? state.tools[inspect.id] : undefined;
   const inspectedItem = inspectedAt === undefined ? undefined : state.items[inspectedAt];
   const inspected = inspectedItem?.kind === "tool" ? inspectedItem.call : undefined;
+  // The key sheet a decision's `?` opened stands in the decision's place until it closes.
+  const sheet = overlay?.kind === "keys" && overlay.place === "decision";
   // Your keys are in one place: a decision, else an overlay (scrollback's inspector among them), else
   // the transcript once it's been given them, else the box.
   const focus = focusOf({
-    decision: Boolean(question || elicitation || request),
+    decision: Boolean(question || elicitation || request) && !sheet,
     overlay: Boolean(overlay) || Boolean(!fullscreen && inspected && inspect?.focus),
     transcript: fullscreen && transcriptKeys,
   });
@@ -1621,11 +1591,17 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     if (event.type === "press" && event.button === "left" && !event.handled && focus === "transcript" && hit(panelBox.current, event)) setTranscriptKeys(false);
   });
   const boxKeys = focus === "box";
+  // `?` lists the keys where yours are: the box reads its own, and an overlay's filter, a question's
+  // answer or a form's field take it as typed.
+  const keysHere: Place | null =
+    focus === "transcript" || inspectorKeys ? (inspected ? "opened" : "transcript") : focus === "decision" && request && !question && !elicitation && !overlay ? "decision" : null;
   // Ctrl+L redraws wherever the keys are, the transcript too, as a garbled screen can't wait for an
   // overlay to close. The message box reads its own, chords and all.
   useInput(
     (input, key) => {
-      if (key.eventType !== "release" && store.keymap.get(strokeOf(input, key) ?? "") === "chat:clearInput") redrawScreen();
+      if (key.eventType === "release") return;
+      if (store.keymap.get(strokeOf(input, key) ?? "") === "chat:clearInput") redrawScreen();
+      else if (input === "?" && !key.ctrl && !key.meta && keysHere) setOverlay({ kind: "keys", place: keysHere });
     },
     { isActive: !boxKeys },
   );
@@ -1642,8 +1618,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     setToast(`Copied the ${what}, ${plural(text.split("\n").length, "line")}`);
   };
   const overlaid = picker();
-  // A decision takes the box's place until you answer it.
-  const decision = question ? (
+  // A decision takes the box's place until you answer it, and the key sheet its `?` opened takes the decision's.
+  const decision = sheet ? (
+    overlaid
+  ) : question ? (
     <QuestionPrompt key={question.id} request={question} width={width} rows={rows} onAnswer={(answers) => session.answer(question.id, answers)} />
   ) : elicitation ? (
     <ElicitationPrompt
@@ -1754,6 +1732,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onFind={fullscreen ? () => setOverlay({ kind: "find" }) : undefined}
           onFollow={toggleFollow}
           onAgents={onAgents}
+          onKeys={() => setOverlay({ kind: "keys", place: "box" })}
           hintAgents={hintAgents}
           onEmpty={setBoxEmpty}
           workflows={state.ultracodeAvailable !== false}

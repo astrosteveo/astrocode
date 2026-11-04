@@ -13,7 +13,7 @@ import { scratchConfig } from "./scratch-config";
 import { Store } from "./store";
 
 /** Keys as a terminal sends them. */
-const KEYS = { enter: "\r", ctrlL: "\x0c", shiftUp: "\x1b[1;2A", esc: "\x1b", up: "\x1b[A" };
+const KEYS = { enter: "\r", ctrlL: "\x0c", ctrlO: "\x0f", shiftUp: "\x1b[1;2A", esc: "\x1b", up: "\x1b[A" };
 
 /** What Ctrl+L writes in scrollback: the screen and its scrollback cleared, for the conversation to be written again. */
 const CLEARED = "\x1b[2J\x1b[3J\x1b[H";
@@ -211,4 +211,35 @@ test("/diff in scrollback while Claude works says to run it again once Claude is
   await store.prompts.written();
   ink.unmount();
   expect(store.getSnapshot().items.at(-1)?.kind).toBe("review");
+});
+
+test("/help shows the key sheet in scrollback too, with Ctrl+O's tool output and without full screen's mouse", async () => {
+  const { press, store, ink, written } = app();
+  await settle();
+  await press("/help", KEYS.enter);
+  // /help went into the scratch prompt history; the line has to land before the scratch folder goes.
+  await store.prompts.written();
+  ink.unmount();
+  const sheet = stripVTControlCharacters(written());
+  expect(sheet).toContain("In the box");
+  expect(sheet).toMatch(/ctrl\+o +tool output/);
+  expect(sheet).not.toContain("click a line");
+});
+
+test("? in scrollback's inspector lists an opened call's keys, with nothing from the box", async () => {
+  const { press, store, ink, written } = app();
+  await settle();
+  const sdk = (message: Record<string, unknown>) => store.emit({ kind: "sdk", message: message as unknown as SDKMessage });
+  sdk({ type: "assistant", uuid: "a", session_id: "s", parent_tool_use_id: null, message: { id: "m", model: "claude-opus-5-5", role: "assistant", content: [{ type: "tool_use", id: "t", name: "Grep", input: { pattern: "deadline" } }] } });
+  sdk({ type: "user", uuid: "u", session_id: "s", parent_tool_use_id: null, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: "src/retry.ts" }] } });
+  await settle();
+  // Ctrl+O lists the calls, and Enter opens the newest in the inspector, which has your keys.
+  await press(KEYS.ctrlO, KEYS.enter);
+  const before = written().length;
+  await press("?");
+  ink.unmount();
+  const sheet = stripVTControlCharacters(written().slice(before));
+  expect(sheet).toContain("In an opened call");
+  expect(sheet).toMatch(/1, 2, … +that tab/);
+  expect(sheet).not.toContain("In the box");
 });

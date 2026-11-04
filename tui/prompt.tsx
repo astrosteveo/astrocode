@@ -97,6 +97,8 @@ type Props = {
   onFollow?: () => void;
   /** ← in an empty box: the agents view, as in Claude Code. */
   onAgents?: () => void;
+  /** `?` in an empty box: the key sheet, as in Claude Code. */
+  onKeys?: () => void;
   /** Whether the empty box mentions ←: there are other conversations, and you've never opened the view. */
   hintAgents?: boolean;
   /** Called as the box empties or gets something in it. */
@@ -626,6 +628,7 @@ export function Prompt(props: Props) {
         return;
       }
       if (key.ctrl || key.meta || !input) return;
+      if (input === "?" && !text && props.onKeys) return props.onKeys();
       insert(input);
     },
     { isActive: active || Boolean(props.anywhere) },

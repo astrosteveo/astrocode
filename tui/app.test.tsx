@@ -915,3 +915,67 @@ test("Shift+↑ in the transcript steps the effort and leaves the cursor where i
   expect(asked).toContain("setEffort");
   expect(cursor()).toBe(at);
 });
+
+/** The first section of the key sheet on screen, or undefined when it isn't open: its title, under the sheet's own and a blank row. */
+const sheetFirst = (lines: string[]) => {
+  const title = lines.findIndex((line) => /^ Keys\b/.test(line));
+  return title === -1 ? undefined : lines[title + 2]?.trim().split(/ {2,}/)[0];
+};
+
+test("? in an empty box shows the box's keys over it; Esc gives the box its keys back, and ? after text is typed", async () => {
+  const { press, screen, boxKeys, row } = await launch(THREE);
+  await press("?");
+  expect(sheetFirst(screen())).toBe("In the box");
+  expect(boxKeys()).toBe(false);
+  // Typing filters it.
+  await press("redraw");
+  expect(row(/ctrl\+l +redraw/)).not.toBe(-1);
+  expect(row(/alt\+p +model/)).toBe(-1);
+  await press(KEYS.esc);
+  expect(sheetFirst(screen())).toBeUndefined();
+  expect(boxKeys()).toBe(true);
+  await press("why?");
+  expect(row(/❯ why\?/)).not.toBe(-1);
+  expect(sheetFirst(screen())).toBeUndefined();
+});
+
+test("? in the transcript lists its keys first, and an opened call's while one is open; Esc gives the transcript its keys back", async () => {
+  const { press, screen, cursor } = await launch(THREE);
+  await press(KEYS.ctrlO);
+  await press("?");
+  expect(sheetFirst(screen())).toBe("In the transcript");
+  expect(cursor()).toBe(-1);
+  await press(KEYS.esc);
+  expect(sheetFirst(screen())).toBeUndefined();
+  expect(cursor()).not.toBe(-1);
+  await press(KEYS.enter);
+  await press("?");
+  expect(sheetFirst(screen())).toBe("In an opened call");
+  await press(KEYS.esc);
+  // The call stays open under its line.
+  expect(screen().some((line) => line.includes("‹ 3 of 3 ›"))).toBe(true);
+  expect(cursor()).not.toBe(-1);
+});
+
+test("? in a permission prompt shows its keys in its place, and Esc goes back to it without saying no", async () => {
+  const { press, screen, update, row, asked } = await launch(THREE);
+  await update({ ...THREE, pending: [{ id: "c", toolName: "Bash", input: { command: "rm -rf build" } }] });
+  await press("?");
+  expect(sheetFirst(screen())).toBe("In a permission prompt");
+  expect(row(/rm -rf build/)).toBe(-1);
+  await press(KEYS.esc);
+  expect(sheetFirst(screen())).toBeUndefined();
+  expect(row(/rm -rf build/)).not.toBe(-1);
+  expect(asked).not.toContain("decide");
+});
+
+test("a decision that comes while the box's key sheet is open takes its place, and the sheet is back once it's answered", async () => {
+  const { press, screen, update, row } = await launch(THREE);
+  await press("?");
+  expect(sheetFirst(screen())).toBe("In the box");
+  await update({ ...THREE, pending: [{ id: "c", toolName: "Bash", input: { command: "rm -rf build" } }] });
+  expect(row(/rm -rf build/)).not.toBe(-1);
+  expect(sheetFirst(screen())).toBeUndefined();
+  await update(THREE);
+  expect(sheetFirst(screen())).toBe("In the box");
+});
