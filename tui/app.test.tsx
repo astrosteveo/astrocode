@@ -1000,6 +1000,32 @@ test("the key sheet over a permission prompt keeps its choice: No is still chose
   expect(asked).toContain("decide");
 });
 
+test("? in a permission prompt's comment, or in a plan's row of what to change, is typed there and opens no key sheet", async () => {
+  const { press, screen, update, row } = await launch(THREE);
+  await update({ ...THREE, pending: [{ id: "c", toolName: "Bash", input: { command: "rm -rf build" } }] });
+  // Past the half second in which a new prompt takes no typing.
+  await settle(500);
+  // ↑ goes round to No, and Tab opens its comment.
+  await press(KEYS.up);
+  await press(KEYS.tab);
+  await press("why");
+  await press("?");
+  expect(sheetFirst(screen())).toBeUndefined();
+  expect(row(/No, why\?/)).not.toBe(-1);
+  await update({ ...THREE, pending: [{ id: "p", toolName: "ExitPlanMode", input: { plan: "# Plan\n\nRename the cache." } }] });
+  await settle(500);
+  // ↑ goes round to the plan's last row, which you type in.
+  await press(KEYS.up);
+  await press("why not");
+  await press("?");
+  expect(sheetFirst(screen())).toBeUndefined();
+  expect(row(/why not\?/)).not.toBe(-1);
+  // On a row you pick, ? is the key sheet's.
+  await press(KEYS.down);
+  await press("?");
+  expect(sheetFirst(screen())).toBe("In a permission prompt");
+});
+
 test("the key sheet over a permission prompt closes with it, when it's answered elsewhere or another takes its place", async () => {
   const { press, screen, update, row, boxKeys } = await launch(THREE);
   await update({ ...THREE, pending: [{ id: "c", toolName: "Bash", input: { command: "rm -rf build" } }] });
