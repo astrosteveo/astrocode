@@ -123,6 +123,23 @@ test("leaves your index, your stash and the repository's objects as they were", 
   expect(fingerprint()).toEqual(before);
 });
 
+test("doesn't run your clean filters, such as Git LFS's, which write into .git", async () => {
+  const top = repo({ "a.dat": lines(1), ".gitattributes": "*.dat filter=mark\n" });
+  const marks = join(folder(), "marks");
+  // Like LFS's: it keeps a copy of what it cleans, and must succeed.
+  git(top, "config", "filter.mark.clean", `sh -c 'cat >> ${marks}; echo cleaned'`);
+  git(top, "config", "filter.mark.required", "true");
+  const edges = snapshots(top);
+  await edges.start();
+  write(top, "a.dat", lines(2));
+  write(top, "b.dat", lines(3));
+  expect((await edges.end())?.files).toEqual([
+    { path: join(top, "a.dat"), added: 1, removed: 0 },
+    { path: join(top, "b.dat"), added: 3, removed: 0 },
+  ]);
+  expect(existsSync(marks)).toBe(false);
+});
+
 test("sees the whole repository from a folder inside it", async () => {
   const top = repo({ "a.txt": lines(1), "src/b.txt": lines(1) });
   const edges = snapshots(join(top, "src"));

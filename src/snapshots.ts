@@ -5,6 +5,7 @@
 // The index starts as a copy of yours and is kept from edge to edge, so git hashes only what changed
 // since, and your objects are read as alternates. Nothing in .git changes or is added: your index,
 // refs and stash stay as they were, though git may touch the mtime of an object it already has.
+// Clean filters, such as Git LFS's, don't run: files are hashed as they are on disk.
 // A file over 10 MB isn't read: a stub of its size and mtime stands in for it, so a turn that writes
 // one still counts it. Files under ~/.claude don't count, unless the repository is in it.
 import { rmSync } from "node:fs";
@@ -127,7 +128,7 @@ export class Snapshots {
       top,
       index,
       folder,
-      env: { ...process.env, GIT_INDEX_FILE: join(folder, "index"), GIT_OBJECT_DIRECTORY: join(folder, "objects"), GIT_ALTERNATE_OBJECT_DIRECTORIES: objects },
+      env: { ...process.env, ...(await unfiltered(top)), GIT_INDEX_FILE: join(folder, "index"), GIT_OBJECT_DIRECTORY: join(folder, "objects"), GIT_ALTERNATE_OBJECT_DIRECTORIES: objects },
       claude: claude && !claude.startsWith("..") && !isAbsolute(claude) ? claude : undefined,
     };
   }
@@ -180,6 +181,29 @@ export class Snapshots {
     const tree = (await run(["write-tree"]))?.trim();
     return tree ? { tree, head: head?.trim() || undefined } : null;
   }
+}
+
+/**
+ * Settings that turn off the repository's clean filters for the edges: Git LFS's keeps a copy of
+ * each file it cleans in .git, and another filter could be as slow or write elsewhere. Their files
+ * are hashed as they are on disk, as git sets them as config through the environment.
+ */
+async function unfiltered(top: string): Promise<Record<string, string>> {
+  const names = (await git({ top, env: process.env }, ["config", "--name-only", "--get-regexp", "^filter\\."])) ?? "";
+  const drivers = new Set(names.split("\n").flatMap((name) => /^filter\.(.+)\.[^.]+$/.exec(name)?.[1] ?? []));
+  const settings = [...drivers].flatMap((driver) => [
+    [`filter.${driver}.clean`, ""],
+    [`filter.${driver}.process`, ""],
+    [`filter.${driver}.required`, "false"],
+  ]);
+  // Settings already given through the environment stay first.
+  const given = Number(process.env.GIT_CONFIG_COUNT) || 0;
+  const env: Record<string, string> = { GIT_CONFIG_COUNT: String(given + settings.length) };
+  settings.forEach(([key, value], i) => {
+    env[`GIT_CONFIG_KEY_${given + i}`] = key!;
+    env[`GIT_CONFIG_VALUE_${given + i}`] = value!;
+  });
+  return settings.length ? env : {};
 }
 
 /** What git printed, or null when it failed, or ran past the edge's deadline and was stopped. */
