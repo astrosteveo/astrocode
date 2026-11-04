@@ -20,6 +20,8 @@ const BIG = 10 * 1024 * 1024;
 /**
  * An edge that takes longer is stopped with SIGTERM, on which git removes its index lock (SIGKILL
  * would leave it, and the next edge would fail), and the turn's ledger comes from its edits' diffs.
+ * So do the ledgers of the session's later turns: their edges would most likely run out of time
+ * too, and each would hold up your message, or the turn's result, as long.
  */
 const DEADLINE = 2000;
 
@@ -57,13 +59,12 @@ export class Snapshots {
   constructor(
     private readonly cwd: string,
     private readonly home: string,
+    private readonly deadline = DEADLINE,
   ) {}
 
   /** Records the tree a turn starts from. */
-  start(): Promise<void> {
-    return this.serial(async (signal) => {
-      this.last = await this.edge(signal);
-    }, undefined);
+  async start(): Promise<void> {
+    await this.serial(async (signal) => (this.last = await this.edge(signal)), undefined);
   }
 
   /**
@@ -98,9 +99,21 @@ export class Snapshots {
     this.seed = true;
   }
 
-  /** Runs an edge after the one before it. One that throws, as when its folder can't be made, gives `failed`, so the message or result waiting on it still goes. */
+  /**
+   * Runs an edge after the one before it. One that fails gives `failed`, so the message or result
+   * waiting on it still goes, even when it threw, as when its folder can't be made.
+   */
   private serial<T>(edge: (signal: AbortSignal) => Promise<T>, failed: T): Promise<T> {
-    const next = this.queue.then(() => edge(AbortSignal.timeout(DEADLINE))).catch(() => failed);
+    const next = this.queue.then(async () => {
+      const signal = AbortSignal.timeout(this.deadline);
+      const done = await edge(signal).catch(() => failed);
+      // It ran out of time: no edge is recorded for the rest of the session.
+      if (done === failed && signal.aborted) {
+        this.close();
+        this.repo = null;
+      }
+      return done;
+    });
     this.queue = next;
     return next;
   }

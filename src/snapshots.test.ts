@@ -42,8 +42,8 @@ function write(top: string, path: string, text: string | Buffer) {
   writeFileSync(join(top, path), text);
 }
 
-function snapshots(cwd: string, home = "/nowhere") {
-  const one = new Snapshots(cwd, home);
+function snapshots(cwd: string, home = "/nowhere", deadline?: number) {
+  const one = new Snapshots(cwd, home, deadline);
   opened.push(one);
   return one;
 }
@@ -262,5 +262,20 @@ test("says nothing, rather than failing, when it can't make its folder", async (
     await edges.start();
     write(top, "a.txt", lines(2));
     expect(await edges.end()).toBeNull();
+  });
+});
+
+test("stops recording for the session once an edge runs out of time, so no turn waits on it again", async () => {
+  const top = repo({ "a.txt": lines(1) });
+  const temp = folder();
+  await withTemp(temp, async () => {
+    // No edge can finish in a millisecond.
+    const edges = snapshots(top, "/nowhere", 1);
+    await edges.start();
+    expect(readdirSync(temp)).toEqual([]);
+    write(top, "a.txt", lines(2));
+    expect(await edges.end()).toBeNull();
+    await edges.start();
+    expect(readdirSync(temp)).toEqual([]);
   });
 });
