@@ -133,6 +133,8 @@ export function Prompt(props: Props) {
   const { active, busy, width, cwd, history, commands } = props;
   const buffer = useRef({ text: "", cursor: 0 });
   const recall = useRef<{ index: number; draft: string } | null>(null);
+  /** The box as ↑ or ↓ last brought a message back: until it changes, ↑ and ↓ go on to other messages, not along its lines. */
+  const recalled = useRef<{ text: string; cursor: number } | null>(null);
   /**
    * The highlighted suggestion, whether you moved to it with the arrows or the wheel, and whether
    * Esc closed the menu for the text as it is.
@@ -282,15 +284,17 @@ export function Prompt(props: Props) {
   const room = useRef(0);
   room.current = props.fullscreen || !active ? 0 : Math.max(room.current, unfolded, showing ? menuHeight(matches.length) : 0);
 
-  /** Steps through earlier messages; past the newest one is what you were typing. */
+  /** Steps through earlier messages; past the newest one is what you were typing. False when there's none further. */
   const recallHistory = (step: -1 | 1) => {
-    if (history.length === 0) return;
+    if (history.length === 0) return false;
     const current = recall.current ?? { index: history.length, draft: buffer.current.text };
     const index = Math.min(history.length, Math.max(0, current.index + step));
-    if (index === current.index) return;
+    if (index === current.index) return false;
     recall.current = { index, draft: current.draft };
     const value = index === history.length ? current.draft : (history[index] ?? "");
     set(value, value.length);
+    recalled.current = buffer.current;
+    return true;
   };
 
   /** Moves to the line above or below, keeping the column. False on the first or last line. */
@@ -606,10 +610,13 @@ export function Prompt(props: Props) {
       if (key.ctrl && input === "w") return cut(wordStart(text, cursor), cursor);
       if (key.upArrow) {
         if (text === "" && !recall.current && props.onEditQueued?.()) return;
+        // A message brought back can be hundreds of lines, as a long paste in `claude` is.
+        if (buffer.current === recalled.current && recallHistory(-1)) return;
         if (!moveLine(-1)) recallHistory(-1);
         return;
       }
       if (key.downArrow) {
+        if (buffer.current === recalled.current && recallHistory(1)) return;
         if (!moveLine(1)) recallHistory(1);
         return;
       }
