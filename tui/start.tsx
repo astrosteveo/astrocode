@@ -60,7 +60,7 @@ export function startOf(state: State, branch: string | undefined, keymap: Keymap
       ...count(loaded?.plugins, "plugin"),
       ...count(loaded?.mcpServers, "MCP server"),
       ...count(loaded?.skills, "skill"),
-      // loadKeymap() hands back the defaults themselves when there's no keybindings.json.
+      // loadKeymap() hands back the defaults themselves when there's no keybindings.json, or it was turned down.
       ...(keymap === DEFAULT_KEYMAP ? [] : ["your keybindings"]),
     ],
     recent: (state.recent ?? []).map((saved) => ({ title: saved.title.replace(/\s+/g, " ").trim(), when: ago(saved.modified, now) })),
