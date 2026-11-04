@@ -57,12 +57,14 @@ function flowOf(step: Step, state: State, waiting: ReadonlySet<string>): Flow[] 
 export function arrange(state: State, waiting: ReadonlySet<string>, toggled: ReadonlySet<string>): Entry[] {
   const placed = rails(state.items);
   const found = steps(state.items);
+  // Words Claude is writing close the step before them: they're the next one's sentence, or the reply.
+  const writing = state.live?.blocks.slice(state.live.finalized).some((block) => block?.kind === "text") ?? false;
   const entries: Entry[] = [];
   for (let i = 0; i < state.items.length; i++) {
     const item = state.items[i]!;
     const step = found.get(i);
     if (step) {
-      const row = stepRow(step, state, waiting, isCurrent(state.items, step, state.busy));
+      const row = stepRow(step, state, waiting, isCurrent(state.items, step, state.busy) && !writing);
       entries.push({ kind: "step", key: step.key, row, open: toggled.has(step.key), rail: placed[i]!, index: i, end: step.end, first: item });
       i = step.end - 1;
       continue;

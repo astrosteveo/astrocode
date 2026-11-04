@@ -1307,6 +1307,16 @@ for (const fullscreen of [true, false]) {
   });
 }
 
+test("while Claude writes its reply, the step before it is done and still: only the now line's mark turns", async () => {
+  const live = { messageId: "m", blocks: [{ kind: "text" as const, text: "All three searches came back." }], finalized: 0 };
+  const { writes } = await launch({ ...THREE, busy: true, live }, { columns: 120, rows: 30 });
+  const frames = (await framesOver(writes, 600)).map((frame) => stripVTControlCharacters(frame).split("\n"));
+  for (const lines of frames) {
+    expect(lines.find((line) => line.includes("Looking around"))?.[0]).toBe("✓");
+    expect(lines.find((line) => line.includes("esc to stop"))).toMatch(/^. Writing · /);
+  }
+});
+
 test("an idle screen stays as it was drawn", async () => {
   const { writes } = await launch(THREE);
   expect(new Set(await framesOver(writes, 1100)).size).toBe(1);
