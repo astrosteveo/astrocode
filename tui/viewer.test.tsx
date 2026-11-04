@@ -212,9 +212,11 @@ test("what settles while the viewer is open goes into the scrollback once it clo
 test("the viewer has full screen's cursor: Enter on the turn's closing line opens its ledger, and Enter on a file there its diff", async () => {
   const { press, screen, row } = await scrollback(finished());
   await press(KEYS.ctrlO);
-  // The cursor's `›` stands in the rail, or under the closing line where the ledger's rows start.
+  // The cursor's `›` stands in the gutter after a line's mark, or under the closing line where the ledger's rows start.
   const cursor = () => screen().findIndex((line) => /^(?:.| {3})›/u.test(line));
   expect(cursor()).toBe(row(/6s · 1 file \+2 −1/));
+  // On the closing line it stands beside the ledger's `╰`, which stays.
+  expect(screen()[cursor()]).toMatch(/^╰›6s · 1 file/);
   await press(KEYS.enter);
   // The ledger, as full screen opens it: the file and how it changed, the command the turn ran, its tokens.
   expect(row(/^ {4}src\/a\.ts +\+2 −1/)).toBe(cursor() + 1);
@@ -269,7 +271,7 @@ test("Ctrl+O after the viewer /diff opened has closed puts the cursor on the las
   await update({ ...state, items: [...state.items, ...more] });
   await press(KEYS.ctrlO);
   const cursor = () => screen().findIndex((line) => /^(?:.| {3})›/u.test(line));
-  expect(cursor()).toBe(row(/─ 3s\b/));
+  expect(cursor()).toBe(row(/^╰›3s\b/));
 });
 
 test("? on a call opened in the viewer lists full screen's keys for it, then the transcript's and the mouse", async () => {

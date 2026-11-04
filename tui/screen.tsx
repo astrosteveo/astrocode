@@ -164,8 +164,8 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   // left blank, so a row held where it was clicked doesn't move as its output opens below it.
   const wanted = anchored === null ? null : anchored - (anchor?.y ?? 0);
   const top = wanted === null ? maxTop : Math.max(0, Math.min(maxTop, wanted));
-  // A conversation shorter than the screen sits at the bottom, next to the message box, so the
-  // rail runs on into what Claude is doing now.
+  // A conversation shorter than the screen sits at the bottom, next to the message box, so it runs
+  // on into what Claude is doing now.
   const pad = wanted === null ? Math.max(0, view - total) : Math.max(0, -wanted);
   const below = Math.max(0, total - top - (view - pad));
   usePictureRows([...Array<string>(pad).fill(""), ...rows.slice(top, top + view - pad).map((row) => row.text)]);
@@ -887,7 +887,7 @@ function matchesIn(rows: Row[], query: string) {
   return rows.flatMap((row, index) => findIn(row.text, query).map(([from, to]) => ({ index, from, to })));
 }
 
-/** A line the cursor stops on: one with something past the rail. */
+/** A line the cursor stops on: one with something past the gutter. */
 function isStop(row: Row | undefined) {
   return row !== undefined && row.inset > 0 && hasContent(row.text, row.inset);
 }

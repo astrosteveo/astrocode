@@ -1,6 +1,6 @@
 // Selecting text in full screen's transcript, which is lines of styled text. A selection runs from
-// one cell to another like a terminal's, but only over content: it leaves out the rail and its
-// gutter, a panel's padding and edges, the hairline before a quote, and pictures, so copying code
+// one cell to another like a terminal's, but only over content: it leaves out the gutter and its
+// marks, a panel's padding and edges, the hairline before a quote, and pictures, so copying code
 // brings only the code. What's highlighted is what's copied. It also finds a row's links, lights
 // up the words of what the pointer is over, and draws the row the cursor is on.
 import { cellsOf, cellWidth } from "./markdown";
@@ -159,7 +159,7 @@ const MATCH = `\x1b[48;2;${rgb(PALETTE.goldDeep).join(";")}m\x1b[38;2;${rgb(PALE
  */
 export function findIn(line: string, query: string): [number, number][] {
   if (!query) return [];
-  if (PICTURE.test(plain(line).trimStart().replace(/^[│ ]+/, ""))) return [];
+  if (PICTURE.test(plain(line).trimStart())) return [];
   // The row's text, and the cells each of its characters takes.
   let text = "";
   const starts: number[] = [];
@@ -194,7 +194,7 @@ export function markMatches(line: string, matches: [number, number][], current: 
 
 /** A picture's placeholder cell (`pictures.tsx`), whose color says which image it shows. */
 const PLACEHOLDER = "\u{10EEEE}";
-/** Box drawing: the rail's lines and the like, which aren't words. */
+/** Box drawing: the ledger's `╰`, a diff's rule and the like, which aren't words. */
 const LINE_DRAWING = /^[\u2500-\u257F]/;
 /** A foreground as the parameters of its color code, such as `38;2;240;184;90`. */
 const foregroundOf = (hex: string) => `38;2;${rgb(hex).join(";")}`;
@@ -238,7 +238,7 @@ const RAISED = rgb(PALETTE.raised).join(";");
  * A row under the pointer, which a click acts on, with its words lit in gold from cell `from` on.
  * The terminal's own text and the quiet colors turn gold, and the accents that say how something
  * went (teal, rose, ember) keep theirs. Nothing behind the words changes, so it reads as part of
- * the app rather than a selection. Lines such as the rail's stay as they are, and so do a picture's
+ * the app rather than a selection. Lines such as a diff's rule stay as they are, and so do a picture's
  * cells, whose color says which image they show.
  */
 export function lit(line: string, from: number) {
@@ -284,7 +284,7 @@ function light(line: string, runs: [number, number][]) {
 }
 
 /**
- * Where a row's content starts, past `inset` cells of rail, a panel's padding and a quote's
+ * Where a row's content starts, past `inset` cells of gutter, a panel's padding and a quote's
  * hairline, where its text ends, and whether the row is a panel's edge. Null for a picture's row,
  * which has none.
  */
@@ -306,7 +306,7 @@ const margins = cached(1000, (key) => {
   return { from: inset, edge: false, end };
 });
 
-/** Whether a row has something past `inset` cells of rail for the cursor to stop on: not a blank row, a panel's edge or a picture's row. */
+/** Whether a row has something past `inset` cells of gutter for the cursor to stop on: not a blank row, a panel's edge or a picture's row. */
 export function hasContent(line: string, inset: number) {
   const content = margin(line, inset);
   return content !== null && !content.edge && content.end > content.from;
@@ -345,7 +345,7 @@ export function cursorOn(line: string, at: number, width: number) {
 
 /**
  * The cells of a row that a selection from `start` to `end` covers, or null for none. `end` is
- * included. `inset` is how many cells the rail takes at the start of the row. The selection
+ * included. `inset` is how many cells the gutter takes at the start of the row. The selection
  * starts after decoration and stops where the row's text does, since the spaces after it aren't
  * copied.
  */
@@ -363,7 +363,7 @@ const WORD_GAP = 2;
 
 /**
  * Whether the cell at `col` is text, which a double click would copy: the row's words and the
- * spaces between them, where a selection would take them, so not the rail, a panel's padding or
+ * spaces between them, where a selection would take them, so not the gutter, a panel's padding or
  * edges, or a quote's hairline. Indentation, the cells after the text and a wide gap are empty.
  */
 export function isTextAt(line: string, col: number, inset = 0) {

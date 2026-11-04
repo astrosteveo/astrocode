@@ -21,18 +21,19 @@ test("finds words that run into inline code", () => {
 });
 
 test("the cursor's row has a gold mark in the gutter and is raised to the edge, a panel's cells keeping their own", () => {
-  const row = `${fg(PALETTE.dust)}│\x1b[39m see ${bg(PALETTE.surface)}code\x1b[49m after`;
+  const row = `${fg(PALETTE.dust)}╰\x1b[39m see ${bg(PALETTE.surface)}code\x1b[49m after`;
   const drawn = cursorOn(row, 1, 24);
-  expect(plain(drawn)).toBe("│›see code after        ");
+  expect(plain(drawn)).toBe("╰›see code after        ");
   expect(drawn).toContain(`${bg(PALETTE.raised)}${fg(PALETTE.gold)}›`);
   // The panel's own background stays on its cells, and the raise comes back after it.
   expect(drawn).toContain(`${bg(PALETTE.surface)}code\x1b[49m${bg(PALETTE.raised)} after`);
 });
 
-test("the cursor stops on rows with something past the rail, not on blank rows, panels' edges or pictures", () => {
-  expect(hasContent(`${fg(PALETTE.dust)}│\x1b[39m`, 2)).toBe(false);
-  expect(hasContent("│   Read  a.ts", 2)).toBe(true);
-  expect(hasContent(`│ ${fg(PALETTE.surface)}▄▄▄▄\x1b[39m`, 2)).toBe(false);
-  expect(hasContent(`│ ${bg(PALETTE.surface)}      \x1b[49m`, 2)).toBe(false);
-  expect(hasContent("│ \u{10EEEE}\u{10EEEE}", 2)).toBe(false);
+test("the cursor stops on rows with something past the gutter, not on blank rows, panels' edges or pictures", () => {
+  expect(hasContent(`${fg(PALETTE.teal)}✓\x1b[39m`, 2)).toBe(false);
+  expect(hasContent("", 2)).toBe(false);
+  expect(hasContent("    Read  a.ts", 2)).toBe(true);
+  expect(hasContent(`  ${fg(PALETTE.surface)}▄▄▄▄\x1b[39m`, 2)).toBe(false);
+  expect(hasContent(`  ${bg(PALETTE.surface)}      \x1b[49m`, 2)).toBe(false);
+  expect(hasContent("  \u{10EEEE}\u{10EEEE}", 2)).toBe(false);
 });

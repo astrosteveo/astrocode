@@ -41,7 +41,7 @@ test("a call opens under its own line, inside the column, at every width", () =>
     expect(lines[at]).toContain("the tests");
     // The header, then the tabs, right under the line, on a panel from column 4 with a cell of
     // padding: nothing stands beside the column.
-    expect(lines[at + 1]).toMatch(/^│ {4}\S/);
+    expect(lines[at + 1]).toMatch(/^ {5}\S/);
     expect(lines[at + 1]).toContain("‹ 2 of 3 ›");
     expect(lines[at + 2]).toContain("Output");
     expect(lines[at + 2]).toContain("Command");
@@ -128,4 +128,25 @@ test("an activity line ends at its result, with no › after it and no meter for
     expect(line).not.toMatch(/›\s*$/);
     expect(line).not.toContain("■");
   }
+});
+
+test("no rail: each entry's mark stands alone in the gutter, a blank row sets entries apart, and the ledger closes the reply right under it", () => {
+  const state = turn([call("a"), call("b", { name: "Bash", input: { command: "bun test", description: "Run the tests" }, result: "3 pass" })]);
+  state.items.push(
+    { kind: "text", key: "r", text: "All quiet in here." },
+    { kind: "turn", key: "end", outcome: "finished", durationMs: 6000, tokens: 1200, files: [{ path: "/p/src/a.ts", added: 2, removed: 1 }] },
+  );
+  const transcript = layout(input(state, 118));
+  const lines = plain(transcript).slice(transcript.starts.get("p"));
+  for (const line of lines) expect(line).not.toMatch(/[│╭╮╯]/);
+  // A blank row before your message, the step and the reply, and none inside the step.
+  expect(lines.map((line) => line.trim() === "")).toEqual([true, false, true, false, false, false, true, false, false]);
+  expect(lines[1]).toMatch(/^● look around/);
+  expect(lines[7]).toMatch(/^◆ All quiet in here\./);
+  // The ledger's mark, then its readings from where text starts.
+  expect(lines[8]).toMatch(/^╰ 6s · 1 file \+2 −1/);
+  // An opened call's panel starts at column 4, with nothing in the gutter beside it.
+  const opened = plain(layout(input(state, 118, { id: "b" })));
+  const at = layout(input(state, 118, { id: "b" })).starts.get("b")!;
+  expect(opened[at + 1]).toMatch(/^ {5}Run the tests/);
 });

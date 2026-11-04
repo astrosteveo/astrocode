@@ -1,6 +1,7 @@
-// The transcript's entries, each on the rail with its own node: a gold dot for what you sent, a
-// teal diamond for Claude's replies, hexagons for tool calls, and a curve that closes the turn.
-// The scrollback layout writes them through Ink's <Static>; full screen draws them as lines.
+// The transcript's entries, each with its mark in the gutter: a gold dot for what you sent, a teal
+// diamond for Claude's replies, hexagons for tool calls, and `╰` for the turn's ledger. A blank row
+// sets an entry apart from the one before. The scrollback layout writes them through Ink's
+// <Static>; full screen draws them as lines.
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
@@ -15,19 +16,22 @@ import { ModTree } from "./mod-tree";
 import { OutputBody } from "./output";
 import { hyperlink } from "./links";
 import { ImageView, isReady } from "./pictures";
-import { GUTTER, LIVE, Railed, type Rail } from "./rail";
 import { ShellCard } from "./shell-card";
 import { BODY, PALETTE } from "./theme";
 import { DraftRow, SubagentLines, toolNode, ToolRow } from "./tool-row";
 import { Figure, hasPictures, shownOf, type FigureLinks } from "./figure";
 import { PROMPT_LINK } from "./window";
 
+/** The gutter's columns, the mark's and the space after it. Content starts after this. */
+export const GUTTER = 2;
+
 /** `pictureRows`: how tall a picture in an entry may be. */
 export type ViewProps = { cwd: string; home: string; width: number; pictureRows: number };
 
 type ItemProps = {
   item: Item;
-  rail: Rail;
+  /** With a blank row before it, which sets it apart from the entry before. */
+  spaced: boolean;
   /** With what matters from a finished tool call's result under its row. */
   detailed?: boolean;
   waiting?: boolean;
@@ -45,27 +49,27 @@ type ItemProps = {
   copyable?: boolean;
 } & ViewProps;
 
-export function ItemView({ item, rail, detailed = false, waiting = false, expanded: open, scrollback = false, copyable = false, ...view }: ItemProps) {
+export function ItemView({ item, spaced, detailed = false, waiting = false, expanded: open, scrollback = false, copyable = false, ...view }: ItemProps) {
   const inner = { ...view, width: view.width - GUTTER };
   const expanded = open ?? opensByDefault(item);
   const links = scrollback ? "scrollback" : copyable ? "screen" : undefined;
   switch (item.kind) {
     case "prompt":
       return (
-        <Railed node={scrollback ? hyperlink(PROMPT_LINK, "●") : "●"} color={PALETTE.gold} rail={rail}>
+        <Marked node={scrollback ? hyperlink(PROMPT_LINK, "●") : "●"} color={PALETTE.gold} spaced={spaced}>
           <Message text={item.text} images={item.images} width={inner.width} rows={view.pictureRows} />
           {item.remote ? <Text color={PALETTE.dust}>via Remote Control</Text> : null}
-        </Railed>
+        </Marked>
       );
     case "shell":
       return (
-        <Railed node="!" color={item.status === "error" ? PALETTE.rose : item.status === "stopped" ? PALETTE.ember : PALETTE.gold} rail={rail}>
+        <Marked node="!" color={item.status === "error" ? PALETTE.rose : item.status === "stopped" ? PALETTE.ember : PALETTE.gold} spaced={spaced}>
           <ShellCard run={runOfShell(item)} width={inner.width} expanded={expanded} />
-        </Railed>
+        </Marked>
       );
     case "text":
       return (
-        <Railed node="◆" color={PALETTE.teal} rail={rail}>
+        <Marked node="◆" color={PALETTE.teal} spaced={spaced}>
           {/* A command's output a mod drew is drawn as it drew it. The transcript's rows are text, so its buttons don't press. */}
           {item.drawing ? (
             <ModTree node={item.drawing} width={inner.width} onPress={() => {}} />
@@ -73,26 +77,26 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
             // A diagram may take the whole screen, since shrinking it shrinks its words.
             <Markdown text={item.text} width={inner.width} copyable={copyable} diagrams={{ rows: view.pictureRows * 2, links }} />
           )}
-        </Railed>
+        </Marked>
       );
     case "thinking":
       return (
-        <Railed node="∴" color={PALETTE.haze} rail={rail}>
+        <Marked node="∴" color={PALETTE.haze} spaced={spaced}>
           <Markdown text={item.text} width={inner.width} voice="thinking" />
-        </Railed>
+        </Marked>
       );
     case "tool": {
       const { glyph, color } = toolNode(item.call, waiting);
       if (item.call.name === "Bash") {
         return (
-          <Railed node={glyph} color={color} rail={rail}>
+          <Marked node={glyph} color={color} spaced={spaced}>
             <ShellCard run={runOfCall(item.call, waiting)} width={inner.width} expanded={expanded} />
             {detailed || expanded ? <Figure shown={shownOf(item.call)} width={inner.width} rows={view.pictureRows} links={links} /> : null}
-          </Railed>
+          </Marked>
         );
       }
       return (
-        <Railed node={glyph} color={color} rail={rail}>
+        <Marked node={glyph} color={color} spaced={spaced}>
           <ToolRow call={item.call} waiting={waiting} detailed={detailed && !expanded} fileLink={scrollback} links={links} {...inner} />
           {expanded ? (
             <OutputBody call={item.call} width={inner.width} pictureRows={view.pictureRows} />
@@ -102,24 +106,44 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
               <ModTree node={item.call.drawing} width={inner.width} onPress={() => {}} />
             </Box>
           ) : null}
-        </Railed>
+        </Marked>
       );
     }
     case "turn":
       return (
-        <Railed node="╰─" color={PALETTE.dust} rail={rail}>
+        <Marked node="╰" color={PALETTE.dust} spaced={spaced}>
           <TurnEnd item={item} />
-        </Railed>
+        </Marked>
       );
     case "notice": {
       const { node, color, text } = NOTICE_TONES[item.tone];
       return (
-        <Railed node={node} color={color} rail={rail}>
+        <Marked node={node} color={color} spaced={spaced}>
           <Text color={text}>{item.text}</Text>
-        </Railed>
+        </Marked>
       );
     }
   }
+}
+
+/**
+ * An entry: its mark in the gutter and its content after it, from column GUTTER. `spaced`: a blank
+ * row before it, which sets it apart from the entry before.
+ */
+function Marked({ node, color, spaced, children }: { node: string; color: string; spaced: boolean; children: ReactNode }) {
+  return (
+    <Box flexDirection="column">
+      {spaced ? <Text> </Text> : null}
+      <Box>
+        <Box width={GUTTER} flexShrink={0}>
+          <Text color={color}>{node}</Text>
+        </Box>
+        <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+          {children}
+        </Box>
+      </Box>
+    </Box>
+  );
 }
 
 /** A notice's node and colors: by the way in quiet gray, a warning in ember, a failure in rose. */
@@ -188,7 +212,6 @@ export const targetCall = (target: string) => (target.startsWith("call:") ? targ
 
 type StepProps = {
   step: StepRow;
-  rail: Rail;
   open: boolean;
   width: number;
   /** The call opened under its line, whose line is marked. */
@@ -219,9 +242,11 @@ export function leavesOut(step: StepRow, line: ActivityRow) {
  * a running subagent shows its latest calls, and pictures a call returned show under it. Open, the
  * step shows Claude's thinking between its calls too, and every line.
  */
-export function StepView(props: StepProps) {
+export function StepView({ spaced, ...props }: StepProps & { spaced: boolean }) {
   return (
     <Box flexDirection="column">
+      {/* The row that sets it apart from the entry before. */}
+      {spaced ? <Text> </Text> : null}
       {stepPieces(props).map((piece) => (
         <Box key={piece.key} flexDirection="column">
           {piece.node}
@@ -232,28 +257,24 @@ export function StepView(props: StepProps) {
 }
 
 /** The step's pieces, top to bottom, each with what a click on it acts on. */
-export function stepPieces({ step, rail, open, width, picked, pictureRows, links, cwd, home, clickable = true }: StepProps): Piece[] {
+export function stepPieces({ step, open, width, picked, pictureRows, links, cwd, home, clickable = true }: StepProps): Piece[] {
   const { node, color } = STEP_NODES[step.status];
   const inner = width - GUTTER;
   const openable = clickable && opens(step);
   const tail = `${timed(step.span) ? took(step.span) : ""}${openable ? `  ${open ? "▾" : "▸"}` : ""}`;
   const live = step.status === "running" || step.status === "waiting";
-  const on: Rail = { spaced: false, joined: true, through: rail.through };
-  const railed = (key: string, child: ReactNode, target?: string): Piece => ({
+  // The step's lines start where text does, past the gutter.
+  const lined = (key: string, child: ReactNode, target?: string): Piece => ({
     key,
     target,
-    node: (
-      <Railed node="│" color={PALETTE.dust} rail={on}>
-        {child}
-      </Railed>
-    ),
+    node: <Box paddingLeft={GUTTER}>{child}</Box>,
   });
   const pieces: Piece[] = [
     {
       key: "title",
       target: openable ? step.key : undefined,
       node: (
-        <Railed node={node} color={color} rail={rail}>
+        <Marked node={node} color={color} spaced={false}>
           <Box justifyContent="space-between" width={inner}>
             <Text wrap="truncate-end" color={step.made ? PALETTE.haze : PALETTE.star} italic={step.made} bold={live && !step.made}>
               {fit(step.title, inner - cellWidth(tail) - 2, false)}
@@ -261,7 +282,7 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
             <Text color={PALETTE.dust}>{tail}</Text>
           </Box>
           {open && step.more ? <Markdown text={step.more} width={inner} /> : null}
-        </Railed>
+        </Marked>
       ),
     },
   ];
@@ -282,7 +303,7 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
     if (one.kind !== "row") verb = "";
     if (one.kind === "thinking") {
       pieces.push(
-        railed(
+        lined(
           one.key,
           <Box paddingLeft={INDENT}>
             <Text color={PALETTE.haze}>∴ </Text>
@@ -293,7 +314,7 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
       return;
     }
     if (one.kind === "notice") {
-      pieces.push(railed(one.key, <Box paddingLeft={INDENT}><Text color={one.tone === "error" ? PALETTE.rose : one.tone === "warning" ? PALETTE.ember : PALETTE.haze}>{one.text}</Text></Box>));
+      pieces.push(lined(one.key, <Box paddingLeft={INDENT}><Text color={one.tone === "error" ? PALETTE.rose : one.tone === "warning" ? PALETTE.ember : PALETTE.haze}>{one.text}</Text></Box>));
       return;
     }
     const { row } = one;
@@ -304,7 +325,7 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
       verb = "";
       const failed = hidden.filter((one) => one.status === "error").length;
       pieces.push(
-        railed(
+        lined(
           "more",
           <Text wrap="truncate-end">
             <Text color={PALETTE.dust}>{`${" ".repeat(INDENT)}… ${hidden.length} more`}</Text>
@@ -315,12 +336,12 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
       );
     }
     const isPicked = picked !== undefined && row.calls.some((call) => call.id === picked);
-    pieces.push(railed(`row:${id}`, <ActivityLine row={row} width={inner} picked={isPicked} again={row.verb === verb} />, target));
+    pieces.push(lined(`row:${id}`, <ActivityLine row={row} width={inner} picked={isPicked} again={row.verb === verb} />, target));
     // What goes under the line sets the next one apart, which then says its verb again.
     verb = row.failure || row.calls.some((call) => (call.status === "running" && call.subagent) || hasPictures(call)) ? "" : row.verb;
     if (row.failure) {
       pieces.push(
-        railed(
+        lined(
           `why:${id}`,
           <Text wrap="truncate-end" color={PALETTE.rose}>
             {`${" ".repeat(UNDER)}${fit(row.failure, inner - UNDER, false)}`}
@@ -332,7 +353,7 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
     const agent = row.calls.find((call) => call.status === "running" && call.subagent);
     if (agent) {
       pieces.push(
-        railed(
+        lined(
           `agent:${id}`,
           <Box paddingLeft={UNDER}>
             <SubagentLines call={agent} cwd={cwd} home={home} width={inner - UNDER} />
@@ -343,7 +364,7 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
     }
     for (const call of row.calls.filter(hasPictures)) {
       pieces.push(
-        railed(
+        lined(
           `pictures:${call.id}`,
           <Box paddingLeft={UNDER}>
             <Figure shown={shownOf(call)} width={inner - UNDER} rows={Math.max(4, Math.floor(pictureRows / 2))} links={links} />
@@ -484,15 +505,14 @@ function Message({ text, images = {}, width, rows }: { text: string; images?: Re
 }
 
 /**
- * `╰── 1m 40s · 3 files +58 −3 · 7 passed 1 failed · not committed`: the turn's ledger, closing the
- * rail. Opened, it lists what the turn changed under it (`ledgerPieces()`).
+ * `╰ 1m 40s · 3 files +58 −3 · 7 passed 1 failed · not committed`: the turn's ledger, which closes
+ * it. Opened, it lists what the turn changed under it (`ledgerPieces()`).
  */
 function TurnEnd({ item }: { item: Extract<Item, { kind: "turn" }> }) {
   const reason = item.detail?.split("\n").slice(1).join("\n");
   return (
     <Box flexDirection="column">
       <Text>
-        <Text color={PALETTE.dust}>─ </Text>
         {ledgerLine(item).map((part, i) => (
           <Text key={i} color={TONES[part.tone]}>
             {part.text}
@@ -506,7 +526,7 @@ function TurnEnd({ item }: { item: Extract<Item, { kind: "turn" }> }) {
 }
 
 /**
- * What Claude is writing right now, at the tip of the rail. In scrollback only the end fits,
+ * What Claude is writing right now, at the end of the transcript. In scrollback only the end fits,
  * `room` rows of it, and the whole reply lands there when it's done; full screen shows all of it.
  */
 export function LiveView({ live, width, room }: { live: Live | null; width: number; room?: number }) {
@@ -523,14 +543,14 @@ export function LiveView({ live, width, room }: { live: Live | null; width: numb
   return (
     <Box flexDirection="column">
       {text ? (
-        <Railed node="◆" color={PALETTE.teal} rail={LIVE}>
+        <Marked node="◆" color={PALETTE.teal} spaced>
           <Markdown text={room === undefined ? text : tail(text, inner, room)} width={inner} diagrams="start" />
-        </Railed>
+        </Marked>
       ) : null}
       {tool?.name ? (
-        <Railed node="⬡" color={PALETTE.haze} rail={LIVE}>
+        <Marked node="⬡" color={PALETTE.haze} spaced>
           <DraftRow name={tool.name} />
-        </Railed>
+        </Marked>
       ) : null}
     </Box>
   );

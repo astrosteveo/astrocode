@@ -8,7 +8,7 @@ import type { Retry, State } from "../src/view/state";
 import { toolLabel, toolTarget } from "../src/view/tools";
 import { cellWidth } from "./markdown";
 import { fit } from "./markdown-view";
-import { GUTTER } from "./rail";
+import { GUTTER } from "./entries";
 import { mix, PALETTE } from "./theme";
 
 /**

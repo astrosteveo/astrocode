@@ -5,12 +5,11 @@ import { renderToString } from "ink";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Item, State, ToolCall } from "../src/view/state";
 import { arrange } from "./arrange";
-import { callTarget, ItemView, leavesOut, LiveView, opensByDefault, stepPieces, type Piece, type StepRow } from "./entries";
+import { callTarget, GUTTER, ItemView, leavesOut, LiveView, opensByDefault, stepPieces, type Piece, type StepRow } from "./entries";
 import { placeOf } from "./inspector";
 import { commandRows, fileTarget, ledgerPieces, moreTarget, opensLedger, type LedgerPiece, type TurnItem } from "./ledger";
 import { OPEN_INSET, openedRows, type Opened, type OpenedRows, type Spot } from "./opened";
 import { imagesOf, isReady, wantPictures } from "./pictures";
-import { GUTTER } from "./rail";
 import { diffKey, listedIn, NO_REVIEW, scopeOf, type Review } from "./review";
 import { StartScreen, type Start } from "./start";
 
@@ -31,7 +30,7 @@ export type Row = {
   spots?: Spot[];
   /** The entry is open, with its whole output under its first row. */
   open: boolean;
-  /** Cells the rail takes at the start of the row, which a selection leaves out. */
+  /** Cells the gutter takes at the start of the row, which a selection leaves out. */
   inset: number;
 };
 
@@ -123,7 +122,7 @@ export function layout({ state, width, pictureRows, start, expanded, waiting, op
   let shown: Transcript["opened"];
 
   /** The opened call's rows, under the line `call` stands for in the entry `key`, numbered on from `line`. */
-  const openUnder = (key: string, call: ToolCall, line: number, through: boolean) => {
+  const openUnder = (key: string, call: ToolCall, line: number) => {
     const drawn = openedRows({
       call,
       opened: opened!,
@@ -131,7 +130,6 @@ export function layout({ state, width, pictureRows, start, expanded, waiting, op
       waiting: waiting.has(call.id),
       log: state.agentLogs[call.id],
       width,
-      through,
       cwd: state.cwd,
       home: state.home,
     });
@@ -180,8 +178,7 @@ export function layout({ state, width, pictureRows, start, expanded, waiting, op
 
   add("banner", draw(START, `${width}|${JSON.stringify(start)}`, width, () => <StartScreen start={start} width={width} />), 0, 0);
   for (const entry of arrange(state, waiting, expanded)) {
-    const { rail } = entry;
-    const railed = `${rail.spaced}${rail.joined}${rail.through}`;
+    const { spaced } = entry;
     if (entry.kind === "step") {
       const { row } = entry;
       // The line of the opened call, if it's in this step, which opens the step if a closed one leaves it out.
@@ -189,24 +186,26 @@ export function layout({ state, width, pictureRows, start, expanded, waiting, op
       const mine = found?.kind === "row" ? found.row : undefined;
       const open = entry.open || (mine !== undefined && leavesOut(row, mine));
       const picked = mine && opened?.id;
-      const drawn = drawStep(stepOwner(entry.first), `${width}|${pictureRows}|${open}|${picked}|${railed}|${signature(row)}`, width, () =>
-        stepPieces({ step: row, rail, open, width, picked, pictureRows, links: "screen", cwd: state.cwd, home: state.home }),
+      const drawn = drawStep(stepOwner(entry.first), `${width}|${pictureRows}|${open}|${picked}|${signature(row)}`, width, () =>
+        stepPieces({ step: row, open, width, picked, pictureRows, links: "screen", cwd: state.cwd, home: state.home }),
       );
       // The opened call goes under its line and what's drawn under that: why it failed, a subagent's calls, pictures.
       const under = mine ? new Set([`row:${mine.calls[0]!.id}`, `why:${mine.calls[0]!.id}`, `agent:${mine.calls[0]!.id}`, ...mine.calls.map((call) => `pictures:${call.id}`)]) : null;
       const after = under ? drawn.pieces.findLastIndex((piece) => under.has(piece)) + 1 : drawn.lines.length;
+      // The row that sets the step apart from the entry before, which a click doesn't act on.
+      const gap = spaced ? 1 : 0;
       const call = mine?.calls.find((one) => one.id === opened?.id);
-      const added = call ? openUnder(entry.key, call, after, rail.through) : [];
+      const added = call ? openUnder(entry.key, call, gap + after) : [];
       const start = rows.length;
       starts.set(entry.key, start);
+      if (spaced) rows.push({ text: "", key: entry.key, line: 0, head: false, hot: false, open: false, inset: GUTTER });
       // A line for several calls stands for the one it opens, or for the one of them that's open, which a click on it closes.
       const standsFor = mine && callTarget(mine.opens);
       drawn.lines.forEach((text, i) => {
-        // The row that sets the step apart from the entry before isn't part of what a click acts on.
-        const drawnTarget = rail.spaced && i === 0 ? undefined : drawn.targets[i];
+        const drawnTarget = drawn.targets[i];
         const target = call && drawnTarget === standsFor ? callTarget(call.id) : drawnTarget;
         if (i === after) rows.push(...added);
-        const line = i < after ? i : i + added.length;
+        const line = gap + (i < after ? i : i + added.length);
         rows.push({ text, key: entry.key, line, head: target !== undefined, hot: target !== undefined, open: false, inset: GUTTER, target });
       });
       if (after === drawn.lines.length) rows.push(...added);
@@ -218,7 +217,7 @@ export function layout({ state, width, pictureRows, start, expanded, waiting, op
         for (const call of one.row.calls) {
           const index = state.tools[call.id];
           const item = index === undefined ? undefined : state.items[index];
-          if (item) starts.set(item.key, at === -1 ? start : start + (at < after ? at : at + added.length));
+          if (item) starts.set(item.key, at === -1 ? start : start + gap + (at < after ? at : at + added.length));
         }
       }
       continue;
@@ -229,11 +228,11 @@ export function layout({ state, width, pictureRows, start, expanded, waiting, op
     const opens = item.kind === "tool" || item.kind === "shell" || (item.kind === "turn" && opensLedger(item, review.git));
     const isOpen = opens && opensByDefault(item) !== expanded.has(item.key);
     const pictures = imagesOf(item).length ? pictureRows : "";
-    const lines = draw(item, `${width}|${pictures}|${isWaiting}|${isOpen}|${railed}`, width, () => (
-      <ItemView item={item} rail={rail} detailed waiting={isWaiting} expanded={isOpen} copyable {...view} />
+    const lines = draw(item, `${width}|${pictures}|${isWaiting}|${isOpen}|${spaced}`, width, () => (
+      <ItemView item={item} spaced={spaced} detailed waiting={isWaiting} expanded={isOpen} copyable {...view} />
     ));
-    add(item.key, lines, rail.spaced ? 1 : 0, GUTTER, opens, isOpen);
-    if (item.kind === "tool" && item.call.id === opened?.id) rows.push(...openUnder(item.key, item.call, lines.length, rail.through));
+    add(item.key, lines, spaced ? 1 : 0, GUTTER, opens, isOpen);
+    if (item.kind === "tool" && item.call.id === opened?.id) rows.push(...openUnder(item.key, item.call, lines.length));
     if (item.kind === "turn" && isOpen) rows.push(...ledgerUnder(item, entry.index, lines.length));
   }
   const live = state.live;

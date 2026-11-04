@@ -12,7 +12,6 @@ import { callTarget } from "./entries";
 import { bodyFor, firstTab, LABELS, spentOn, statusOf, tabsOf, titleOf, type Place, type TabId } from "./inspector";
 import { cellWidth } from "./markdown";
 import { fit } from "./markdown-view";
-import { GUTTER, Railed } from "./rail";
 import type { TaskRead } from "./tasks";
 import { PALETTE } from "./theme";
 
@@ -48,8 +47,6 @@ type Input = {
   log?: AgentLine[];
   /** The transcript's width. */
   width: number;
-  /** Whether the rail runs on down the left edge past the call. */
-  through: boolean;
   cwd: string;
   home: string;
 };
@@ -72,36 +69,34 @@ export type OpenedRows = {
  */
 const drawn = new WeakMap<ToolCall, { header: { key: string; lines: string[] }; body: { key: string; lines: string[]; folded: boolean; copy: string } }>();
 
-/** Rows of the panel under a call's line, from column OPEN_INSET, with the rail down the left edge as `node` and `through` say. */
-function panelRows(node: string, through: boolean, width: number, children: ReactNode) {
+/** Rows of the panel under a call's line, from column OPEN_INSET. */
+function panelRows(width: number, children: ReactNode) {
   const element = (
-    <Railed node={node} color={PALETTE.dust} rail={{ spaced: false, joined: true, through }}>
-      <Box paddingLeft={OPEN_INSET - GUTTER}>
-        <Box flexDirection="column" backgroundColor={PALETTE.surface} paddingX={1} width={width - OPEN_INSET}>
-          {children}
-        </Box>
+    <Box paddingLeft={OPEN_INSET}>
+      <Box flexDirection="column" backgroundColor={PALETTE.surface} paddingX={1} width={width - OPEN_INSET}>
+        {children}
       </Box>
-    </Railed>
+    </Box>
   );
   return renderToString(element, { columns: width }).split("\n");
 }
 
 /** The opened call's rows. Must run outside React's render, since renderToString renders with the same reconciler. */
-export function openedRows({ call, opened, place, waiting, log, width, through, cwd, home }: Input): OpenedRows {
+export function openedRows({ call, opened, place, waiting, log, width, cwd, home }: Input): OpenedRows {
   const tabs = tabsOf(call, log);
   const tab = opened.tab && tabs.includes(opened.tab) ? opened.tab : firstTab(call, log, waiting);
   const inner = width - OPEN_INSET - 2;
   const position = `‹ ${place.index} of ${place.count} ›`;
   const kept = drawn.get(call);
 
-  const headerKey = `${width}|${tab}|${tabs.join(",")}|${waiting}|${position}|${through}`;
+  const headerKey = `${width}|${tab}|${tabs.join(",")}|${waiting}|${position}`;
   const header =
     kept?.header.key === headerKey
       ? kept.header
-      : { key: headerKey, lines: headerRows({ call, tab, tabs, waiting, position, inner, width, through, cwd, home }) };
+      : { key: headerKey, lines: headerRows({ call, tab, tabs, waiting, position, inner, width, cwd, home }) };
 
-  const bodyKey = `${width}|${tab}|${opened.whole}|${through}|${tab === "transcript" ? log?.length : ""}|${tab === "output" ? opened.output?.text : ""}`;
-  const body = kept?.body.key === bodyKey ? kept.body : { key: bodyKey, ...bodyRows({ call, tab, whole: opened.whole, log, output: opened.output, inner, width, through }) };
+  const bodyKey = `${width}|${tab}|${opened.whole}|${tab === "transcript" ? log?.length : ""}|${tab === "output" ? opened.output?.text : ""}`;
+  const body = kept?.body.key === bodyKey ? kept.body : { key: bodyKey, ...bodyRows({ call, tab, whole: opened.whole, log, output: opened.output, inner, width }) };
   drawn.set(call, { header, body });
 
   const lines = [...header.lines, ...body.lines];
@@ -123,17 +118,14 @@ export function openedRows({ call, opened, place, waiting, log, width, through, 
 }
 
 /** The tab's lines, its first 12 and last 8 with `⋯ N lines` between unless it's whole, and its text for `c` and `e`. */
-function bodyRows({ call, tab, whole, log, output, inner, width, through }: Pick<Input, "call" | "log" | "width" | "through"> & { tab: TabId; whole?: boolean; output?: TaskRead; inner: number }) {
+function bodyRows({ call, tab, whole, log, output, inner, width }: Pick<Input, "call" | "log" | "width"> & { tab: TabId; whole?: boolean; output?: TaskRead; inner: number }) {
   const { lines: all, copy } = bodyFor(call, tab, inner, log, output);
   const hidden = whole ? 0 : all.length - HEAD - TAIL;
   // A fold of one line would take as much room as the line.
   const folded = hidden > 1;
   const shown = folded ? [...all.slice(0, HEAD), null, ...all.slice(-TAIL)] : all;
   if (!shown.length) return { lines: [], folded, copy };
-  // Under the header, the rail goes on down the left edge only where it runs on past the call.
   const lines = panelRows(
-    through ? "│" : " ",
-    through,
     width,
     shown.map((line, i) =>
       line === null ? (
@@ -148,18 +140,16 @@ function bodyRows({ call, tab, whole, log, output, inner, width, through }: Pick
   return { lines, folded, copy };
 }
 
-type HeaderInput = Pick<Input, "call" | "waiting" | "width" | "through" | "cwd" | "home"> & { tab: TabId; tabs: TabId[]; position: string; inner: number };
+type HeaderInput = Pick<Input, "call" | "waiting" | "width" | "cwd" | "home"> & { tab: TabId; tabs: TabId[]; position: string; inner: number };
 
 /** The header's row, what the call did, how it went, its time and `‹ i of N ›`, and the tabs' row under it. */
-function headerRows({ call, tab, tabs, waiting, position, inner, width, through, cwd, home }: HeaderInput) {
+function headerRows({ call, tab, tabs, waiting, position, inner, width, cwd, home }: HeaderInput) {
   const status = statusOf(call, waiting);
   const spent = spentOn(call);
   const title = titleOf(call, waiting, cwd, home);
   const right = `▐${status.text}▌${spent ? `  ${spent}` : ""}   ${position}`;
   const verb = title.verb ? `${title.verb} ` : "";
   return panelRows(
-    "│",
-    through,
     width,
     <>
       <Box justifyContent="space-between" width={inner}>
