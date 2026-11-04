@@ -315,6 +315,13 @@ test("forgets the suggestion once you send something, or Claude starts a turn by
   expect(reduce(offered, { kind: "prompt", text: "next one adds two numbers" }).nextPrompt).toBeUndefined();
   expect(reduce(offered, { kind: "shell", id: "x", command: "ls", at: T }).nextPrompt).toBeUndefined();
   expect(reduce(offered, streamStarts).nextPrompt).toBeUndefined();
+  expect(reduce(offered, call("t", "Grep", { pattern: "x" })).nextPrompt).toBeUndefined();
+  expect(reduce(offered, { kind: "prompt", text: "from my phone", uuid: "rc", remote: true }).nextPrompt).toBeUndefined();
+});
+
+test("drops a suggestion that comes while Claude is in a turn it started by itself, as one for the turn before", () => {
+  const state = [{ kind: "prompt", text: "write the first function" } as const, ended(), streamStarts, suggested("next one adds two numbers")].reduce(reduce, start());
+  expect(state.nextPrompt).toBeUndefined();
 });
 
 test("forgets the suggestion when a message you sent for after the turn starts", () => {
