@@ -166,8 +166,9 @@ test("the mouse rows name every click target full screen has, where a click ther
     expect(listed("box")).toContain(row);
     expect(listed("transcript")).toContain(row);
   }
-  // A click on the box gives it your keys back from the transcript; in the box they're there already.
+  // A click on the box gives it your keys back from the transcript, an opened ledger in it too; in the box they're there already.
   expect(listed("transcript")).toContain("click the box  your keys back");
+  expect(listed("ledger")).toContain("click the box  your keys back");
   expect(listed("box")).not.toContain("click the box  your keys back");
 });
 
