@@ -122,3 +122,26 @@ test("at 120 and 200 columns the box's keys fit in their rows whole, side by sid
   // Wider, it's shorter.
   expect(draw("box", DEFAULT_KEYMAP, { width: 200, rows: 27 }).length).toBeLessThan(draw("box", DEFAULT_KEYMAP, { width: 120, rows: 27 }).length);
 });
+
+test("the box's own keys leave its sheet once a binding, or a chord that starts with them, takes their key", async () => {
+  const keymap = await rebound([{ context: "Chat", bindings: { left: "chat:modelPicker", up: "chat:modelPicker", escape: "chat:modelPicker", "ctrl+a ctrl+b": "chat:stash" } }]);
+  const text = draw("box", keymap).join("\n");
+  expect(text).not.toMatch(/← +conversations/);
+  expect(text).not.toContain("earlier messages");
+  expect(text).not.toContain("stop Claude");
+  expect(text).not.toContain("clear, or rewind");
+  expect(text).not.toContain("line start");
+  // Where they went, as the hints write them.
+  expect(text).toMatch(/alt\+p, ←, ↑, esc +model/);
+  expect(text).toMatch(/ctrl\+s, ctrl\+a ctrl\+b +stash/);
+  expect(text).not.toContain("escape");
+});
+
+test("\\ makes the key that sends a new line, so it goes with that key", async () => {
+  expect(draw("box").join("\n")).toMatch(/alt\+enter, \\ enter +new line/);
+  const keymap = await rebound([{ context: "Chat", bindings: { enter: null, "meta+s": "chat:submit" } }]);
+  const text = draw("box", keymap).join("\n");
+  expect(text).toMatch(/alt\+s +send/);
+  expect(text).toMatch(/alt\+enter, \\ alt\+s +new line/);
+  expect(text).not.toContain("\\ enter");
+});

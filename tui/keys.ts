@@ -208,10 +208,16 @@ export function keyFor(keymap: Keymap, action: Action) {
   return null;
 }
 
-/** A binding as the lowercase hints write keys: `alt+l` for `meta+l`, `shift+↑` for `shift+up`. */
+/** A binding as the lowercase hints write keys: `alt+l` for `meta+l`, `shift+↑` for `shift+up`, `esc` for `escape`. */
 export function hintOf(chord: string) {
-  return chord.replace(/\bmeta\b/g, "alt").replace(/\b(up|down|left|right)\b/g, (name) => ARROWS[name] ?? name);
+  return chord
+    .replace(/\bmeta\b/g, "alt")
+    .replace(/\b(up|down|left|right)\b/g, (name) => ARROWS[name] ?? name)
+    .replace(/\b(escape|pageup|pagedown)\b/g, (name) => SHORT[name] ?? name);
 }
+
+/** Keys the hints write short, as keybindings.json may: the reverse of `NAMES`, but for `enter`. */
+const SHORT: Record<string, string> = { escape: "esc", pageup: "pgup", pagedown: "pgdn" };
 
 /** The first key bound to an action as the lowercase hints write keys, or null when nothing is. */
 export function hintKey(keymap: Keymap, action: Action) {
