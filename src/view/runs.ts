@@ -34,7 +34,8 @@ export type Run = {
 export function runOfCall(call: ToolCall, waiting: boolean): Run {
   const input = (key: string) => (typeof call.input[key] === "string" ? (call.input[key] as string) : "");
   const output = bashOutput(call.output);
-  const result = call.result ?? "";
+  // Claude Code wraps why it wouldn't run a command in tags meant for Claude.
+  const result = (call.result ?? "").replace(/<\/?tool_use_error>/g, "");
   // A failed command's result starts with its exit code, then what it printed.
   const exit = /^Exit code (\d+)\n?/.exec(result);
   const said = output ?? { stdout: exit ? result.slice(exit[0].length) : result, stderr: "" };
@@ -156,34 +157,74 @@ const ERROR_WORDS = /(?:^|\s)(?:✗|✕|×)\s|\(fail\)|\bFAIL(?:ED)?\b|\b(?:erro
 /** An exception's own line, as Python and Node print it: `AssertionError: add(2, 3) = -1`. */
 const EXCEPTION = /^[\w.$]*(?:Error|Exception)(?:\[[^\]]*\])?: \S/;
 
+/** A line of source a runner or a crash quotes around where it failed: `6 | expect(retry(3))`, `> 3 | test(…)`. */
+const SOURCE = /^>\s|^>?\s*\d+\s*\|/;
+
 /**
- * The line of a failed run that says the most about why: an exception's own line, else the first
- * that reads as an error, in what it printed as errors or in the end of what it printed, else its
- * last line. A traceback's heading says only that one follows.
+ * The line of a failed run that says what went wrong: a test's failed assertion, else an
+ * exception's own line, else the first that reads as an error near the end of what it printed,
+ * else its last line. Never a line of source, and not a traceback's heading, which says only that
+ * one follows.
  */
 export function failureLine(run: Run) {
   if (run.status !== "error") return "";
-  const lines = (run.stderr.trim() ? meaningful(run.stderr) : meaningful(run.stdout).slice(-60)).filter((line) => !/^Traceback \(most recent call last\)/.test(line));
-  return lines.findLast((line) => EXCEPTION.test(line)) ?? lines.find((line) => ERROR_WORDS.test(line)) ?? lines.at(-1) ?? "";
+  const lines = meaningful([run.stdout, run.stderr].join("\n")).filter((line) => !SOURCE.test(line) && !/^Traceback \(most recent call last\)/.test(line));
+  const tail = lines.slice(-60);
+  return assertion(lines) ?? tail.findLast((line) => EXCEPTION.test(line)) ?? tail.find((line) => ERROR_WORDS.test(line)) ?? tail.at(-1) ?? "";
 }
 
-const COUNTS = [
-  { pattern: /(\d+)\s+(?:tests?\s+)?pass(?:ed|es|ing)?\b/gi, word: "passed", failed: false },
-  { pattern: /(\d+)\s+(?:tests?\s+)?fail(?:ed|s|ing|ures?)?\b/gi, word: "failed", failed: true },
-  { pattern: /(\d+)\s+(?:tests?\s+)?skip(?:ped|s)?\b/gi, word: "skipped", failed: false },
-];
+/** A test's failed assertion, in its runner's words: `Expected: 3, Received: 4`, `assert 4 == 3`. */
+function assertion(lines: string[]) {
+  for (const [i, line] of lines.entries()) {
+    const next = lines[i + 1] ?? "";
+    // bun and jest: the values under the matcher that failed.
+    if (/^Expected: /.test(line) && /^Received: /.test(next)) return `${line}, ${next}`;
+    // pytest: the `E` lines under the test's source.
+    if (/^E \S/.test(line)) return line.slice(2);
+    // cargo: what panicked, with the two sides of a failed comparison.
+    if (/ panicked at \S+:$/.test(line) && next) return [next, ...lines.slice(i + 2, i + 4).filter((side) => /^(?:left|right): /.test(side))].join(", ");
+    // go: where `t.Errorf` was called, and what it said.
+    if (/^\S+_test\.go:\d+: \S/.test(line)) return line;
+  }
+  return undefined;
+}
+
+type Counts = { passed: number; failed: number; skipped: number };
 
 /**
- * A test run's counts, from the summary test runners print last: `47 passed`, `1 failed`. Counts
- * of none are left out, and so is everything when the output has no such summary.
+ * A test run's counts, from the summary its runner printed (bun, jest, vitest, pytest, cargo, go):
+ * `47 passed`, `1 failed`. Counts of none are left out, and so is everything when no runner's
+ * summary is there, as when a commit message says "passed".
  */
 export function testCounts(text: string): { text: string; failed: boolean }[] {
-  const tail = meaningful(text).slice(-30).join("\n");
-  return COUNTS.flatMap(({ pattern, word, failed }) => {
-    const last = [...tail.matchAll(pattern)].at(-1);
-    const count = Number(last?.[1] ?? 0);
-    return count ? [{ text: `${count} ${word}`, failed }] : [];
-  });
+  const counts = summaryCounts(meaningful(text));
+  if (!counts) return [];
+  return (["passed", "failed", "skipped"] as const).flatMap((word) => (counts[word] ? [{ text: `${counts[word]} ${word}`, failed: word === "failed" }] : []));
+}
+
+function summaryCounts(lines: string[]): Counts | undefined {
+  const count = (line: string, word: string) => Number(new RegExp(`(\\d+) ${word}`).exec(line)?.[1] ?? 0);
+  const of = (line: string, skipped = "skipped"): Counts => ({ passed: count(line, "passed"), failed: count(line, "failed"), skipped: count(line, skipped) });
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]!;
+    // cargo: `test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; …`
+    if (/^test result: (?:ok|FAILED)\. \d+ passed; \d+ failed;/.test(line)) return of(line, "ignored");
+    // jest: `Tests: 1 failed, 1 passed, 2 total`. vitest: `Tests 1 failed | 1 passed (2)`.
+    if (/^Tests:? (?:\d+ \w+(?:, | \| ))*\d+ (?:\w+, \d+ total|\w+ \(\d+\))$/.test(line)) return of(line);
+    // pytest: `1 failed, 1 passed in 0.01s`, between rules of `=` unless run with -q.
+    if (/^=* ?(?:\d+ (?:passed|failed|skipped|errors?|xfailed|xpassed|deselected|warnings?),? )+in [\d.]+s\b/.test(line)) return of(line);
+    // bun: ` 2 pass`, ` 2 fail` and ` 0 skip` lines over `Ran 4 tests across 1 file.`
+    if (/^Ran \d+ tests? across \d+ files?\./.test(line)) {
+      const above = lines.slice(Math.max(0, i - 6), i);
+      const one = (word: string) => Number(above.findLast((row) => new RegExp(`^\\d+ ${word}$`).test(row))?.split(" ")[0] ?? 0);
+      return { passed: one("pass"), failed: one("fail"), skipped: one("skip") };
+    }
+  }
+  // go: a line for each test, `--- FAIL: TestAttempts (0.00s)`, and for passes too with -v.
+  const tests = lines.filter((line) => /^--- (?:PASS|FAIL|SKIP): /.test(line));
+  if (!tests.length) return undefined;
+  const tally = (word: string) => tests.filter((line) => line.startsWith(`--- ${word}:`)).length;
+  return { passed: tally("PASS"), failed: tally("FAIL"), skipped: tally("SKIP") };
 }
 
 /** A line of totals, as test runners, linters, installers and git print last: `14 pass · 0 fail`. */

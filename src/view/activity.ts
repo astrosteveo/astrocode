@@ -5,7 +5,7 @@
 // A command says what Claude said it does. Reads in a row are one line, and so are edits to one
 // file in a row. A call that failed says why on a line of its own.
 import { timed, took } from "./format";
-import { failureLine, onlyLine, runOfCall, runSize, testCounts, type Run } from "./runs";
+import { failureLine, onlyLine, runOfCall, testCounts, type Run } from "./runs";
 import type { ToolCall, ToolStatus } from "./state";
 import { inPastTense, inPresentTense } from "./tense";
 import { field, plural, shortPath, SHOW_TOOL, subagentCallCount, toolLabel, toolSummary, toolTarget } from "./tools";
@@ -371,9 +371,12 @@ function searchResult(call: ToolCall) {
 /** The longest line a command printed that its activity line shows in place of `1 line`. */
 const SHORT_LINE = 32;
 
-/** How a command went, for the end of its line: `✓ 48 passed · 3.1s`, `✕ exit 1 · 47 passed, 1 failed`, `✓ 42`. */
+/**
+ * How a command went, for the end of its line: `✓ 48 passed · 6.1s`, `✕ exit 1 · 47 passed, 1 failed`, `✓ 42`.
+ * How much it printed isn't a result; what it printed, the inspector shows.
+ */
 function runResult(run: Run): Part[] {
-  const time = timed(run.ms) && run.status !== "running" ? [{ text: ` · ${took(run.ms)}`, tone: "faint" as const }] : [];
+  const time = run.ms !== undefined && run.ms > LONG && run.status !== "running" ? [{ text: ` · ${took(run.ms)}`, tone: "faint" as const }] : [];
   if (run.background === "running") return [{ text: "◌ in the background", tone: "quiet" }];
   if (run.background === "unknown") return [{ text: "◌ ran in the background", tone: "quiet" }];
   const counts = testCounts([run.stdout, run.stderr].join("\n"));
@@ -394,8 +397,10 @@ function runResult(run: Run): Part[] {
           ? [{ text: run.note, tone: "quiet" as const }]
           : one && [...one].length <= SHORT_LINE
             ? [{ text: one, tone: "quiet" as const }]
-            : [{ text: runSize(run) || "no output", tone: "quiet" as const }];
-      return [{ text: "✓ ", tone: "done" }, ...said, ...time];
+            : `${run.stdout}${run.stderr}`.trim()
+              ? []
+              : [{ text: "no output", tone: "quiet" as const }];
+      return [{ text: said.length ? "✓ " : "✓", tone: "done" }, ...said, ...time];
     }
     default:
       return [];
