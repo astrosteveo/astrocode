@@ -213,12 +213,13 @@ export function askedBy(request: PermissionRequest, tasks: Record<string, TaskIn
 
 /**
  * Claude Code's description, unless it only repeats the path, command or address the prompt
- * already shows, whole or cut short.
+ * already shows, whole or cut short, or the file's bare name.
  */
 export function permissionNote(request: PermissionRequest, cwd: string, home: string) {
   const description = request.description;
   if (!description) return undefined;
   const cut = description.replace(/(…|\.\.\.)$/, "");
   const shown = ["file_path", "command", "url"].map((key) => request.input[key]).filter((value) => typeof value === "string");
-  return shown.some((value) => value === description || shortPath(value, cwd, home) === description || (cut !== description && value.startsWith(cut))) ? undefined : description;
+  const name = typeof request.input.file_path === "string" ? request.input.file_path.split("/").at(-1) : undefined;
+  return description === name || shown.some((value) => value === description || shortPath(value, cwd, home) === description || (cut !== description && value.startsWith(cut))) ? undefined : description;
 }

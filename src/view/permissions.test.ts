@@ -172,4 +172,6 @@ test("a description that only repeats the command, whole or cut short, isn't sho
   expect(permissionNote({ ...BASH, input: { command: "bun test 2>&1 | tail -30" }, description: "bun test 2>&1 | t…" }, CWD, "/home/u")).toBeUndefined();
   expect(permissionNote({ ...BASH, input: { command: "bun test" }, description: "bun test" }, CWD, "/home/u")).toBeUndefined();
   expect(permissionNote(WRITE, CWD, "/home/u")).toBeUndefined();
+  // A file in a folder: the prompt shows its path, so its bare name says nothing more.
+  expect(permissionNote({ ...WRITE, input: { file_path: "/tmp/ac/src/edit-me.txt" }, description: "edit-me.txt" }, CWD, "/home/u")).toBeUndefined();
 });
