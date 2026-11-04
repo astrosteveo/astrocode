@@ -40,7 +40,7 @@ import { ItemView, LiveView, StepView, targetCall } from "./entries";
 import { fileTarget, ledgerTarget } from "./ledger";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
-import { DEFAULT_KEYMAP, keyFor, keyLabel, strokeOf } from "./keys";
+import { DEFAULT_KEYMAP, hintKey, keyFor, keyLabel, strokeOf } from "./keys";
 import { galleryOf, linkedBy, pageFile } from "./figure";
 import { Lightbox } from "./lightbox";
 import { copiedBy, openFile, openLink, ranBy } from "./links";
@@ -1678,7 +1678,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const panel = (
     <Box ref={panelBox} flexDirection="column" flexShrink={0}>
       {/* In the transcript Esc leaves it, and Ctrl+C, which works anywhere, stops Claude. */}
-      <Activity state={state} width={width} stop={focus === "transcript" ? (keyFor(store.keymap, "app:interrupt") ?? undefined) : undefined} />
+      <Activity
+        state={state}
+        width={width}
+        stop={focus === "transcript" ? (keyFor(store.keymap, "app:interrupt") ?? undefined) : undefined}
+        background={hintKey(store.keymap, "task:background")}
+      />
       {/* The message box's own top edge sets it apart; what sits above it needs a row. */}
       <Box marginTop={above || pinned || state.queue.length ? 1 : 0} flexDirection="column">
         {pinned}

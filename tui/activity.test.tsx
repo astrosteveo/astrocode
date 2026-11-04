@@ -2,7 +2,7 @@ import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { render, renderToString } from "ink";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
-import { initialState, type Item, type State, type ToolCall } from "../src/view/state";
+import { initialState, type Item, type State, type TaskInfo, type ToolCall } from "../src/view/state";
 import { Activity } from "./activity";
 
 const working: State = { ...initialState("/p", "/home/u"), busy: true };
@@ -33,6 +33,17 @@ test("a call is named as its activity line names it, in the present tense, with 
 test("while a subagent runs, the now line says Claude waits on it", () => {
   expect(nowLine(running({ name: "Agent", input: { subagent_type: "Explore", description: "Find the clock" }, elapsed: 72 }))).toBe("◐ Waiting on Explore · 1m 12s  esc to stop");
   expect(nowLine(running({ name: "Agent", input: { subagent_type: "general-purpose", description: "Find the clock" } }))).toBe("◐ Waiting on a subagent · 1s  esc to stop");
+});
+
+test("while a command or subagent Claude waits on can move to the background, the now line offers the key that moves it", () => {
+  const command = running({ name: "Bash", input: { command: "bun test", description: "Run the tests" }, elapsed: 8 });
+  const task = (patch: Partial<TaskInfo>): State => ({ ...command, taskInfo: { t: { id: "t", description: "bun test", type: "local_bash", toolUseId: "c", background: false, status: "running", ...patch } } });
+  expect(nowLine(task({}))).toBe("◐ Running the tests · 8s  esc to stop  ctrl+b background");
+  expect(nowLine(task({ type: "local_agent" }))).toBe("◐ Running the tests · 8s  esc to stop  ctrl+b background");
+  // Before Claude Code has made it a task it can't move yet, and once moved or ended there's nothing to.
+  expect(nowLine(command)).toBe("◐ Running the tests · 8s  esc to stop");
+  expect(nowLine(task({ background: true }))).toBe("◐ Running the tests · 8s  esc to stop");
+  expect(nowLine(task({ status: "completed" }))).toBe("◐ Running the tests · 8s  esc to stop");
 });
 
 test("a request tried again says when, why and which attempt", () => {

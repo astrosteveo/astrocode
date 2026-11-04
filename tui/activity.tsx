@@ -24,8 +24,8 @@ type Doing = { what: string; target?: string; path?: boolean; key: string; elaps
 
 const NOTHING: ReadonlySet<string> = new Set();
 
-/** `stop`: the key that stops Claude where your keys are, Esc in the box. */
-export function Activity({ state, width, stop = "esc" }: { state: State; width: number; stop?: string }) {
+/** `stop`: the key that stops Claude where your keys are, Esc in the box. `background`: the one that moves what Claude waits on to the background. */
+export function Activity({ state, width, stop = "esc", background = "ctrl+b" }: { state: State; width: number; stop?: string; background?: string | null }) {
   const shown = markTurns(state);
   const mark = useMark(shown);
   const doing = now(state);
@@ -37,7 +37,7 @@ export function Activity({ state, width, stop = "esc" }: { state: State; width: 
   // Claude Code reports a call's seconds now and then, if at all, so the clock counts on between.
   const time = Math.max((doing.elapsed ?? 0) * 1000, Date.now() - since);
   const after = doing.about ?? ` · ${duration(time)}${tokens > 0 ? ` · ${compact(tokens)} tokens` : ""}`;
-  const hint = `${stop} to stop`;
+  const hint = [`${stop} to stop`, ...(background && movable(state) ? [`${background} background`] : [])].join("   ");
   const target = doing.target ? fit(doing.target, width - GUTTER - cellWidth(doing.what) - cellWidth(after) - cellWidth(hint) - 3, doing.path ?? false) : "";
   return (
     <Box justifyContent="space-between" width={width}>
@@ -50,6 +50,19 @@ export function Activity({ state, width, stop = "esc" }: { state: State; width: 
     </Box>
   );
 }
+
+/**
+ * Whether Claude waits on a command or subagent that can move to the background: Claude Code says
+ * so once it has made it a task, in the foreground, a few seconds into a command.
+ */
+function movable(state: State) {
+  return Object.values(state.taskInfo).some(
+    (task) => MOVABLE.has(task.type) && task.status === "running" && !task.background && task.toolUseId !== undefined && state.tools[task.toolUseId] !== undefined,
+  );
+}
+
+/** The tasks Ctrl+B moves; Claude Code says which of them are in the foreground. */
+const MOVABLE = new Set(["local_bash", "local_agent"]);
 
 /** When what `key` names started, as far as the now line has seen it. */
 function useSince(key: string | null) {

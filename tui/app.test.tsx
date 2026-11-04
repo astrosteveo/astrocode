@@ -1349,6 +1349,16 @@ test("while the transcript has your keys, the line over the box names the key th
   expect(row(/ctrl\+c to stop/)).not.toBe(-1);
 });
 
+test("once the command Claude waits on can move to the background, the now line offers Ctrl+B, which moves it", async () => {
+  const state = { ...turn([call("a"), running("b", "Build the app")]), busy: true };
+  const { press, row, calls, update } = await launch(state);
+  expect(row(/ctrl\+b background/)).toBe(-1);
+  await update({ ...state, taskInfo: { t: { id: "t", description: "make b", type: "local_bash", toolUseId: "b", background: false, status: "running" } } });
+  expect(row(/Building the app · .*esc to stop +ctrl\+b background$/)).not.toBe(-1);
+  await press("\x02");
+  expect(calls.filter((one) => one.name === "background").map((one) => one.args[0])).toEqual([["b"]]);
+});
+
 test("Ctrl+C in the transcript stops Claude and leaves what's typed in the box alone", async () => {
   const { press, row, asked, boxKeys } = await launch({ ...THREE, busy: true });
   await press("keep me");
