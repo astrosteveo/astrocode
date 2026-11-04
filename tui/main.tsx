@@ -12,7 +12,7 @@ import { loadStash, stashSaved } from "../src/stash";
 import { AgentsView, othersListed } from "./agents";
 import { App } from "./app";
 import { CANVAS_COLORS, canvas } from "./diagrams";
-import { Fleet, liveState, moveAll, titleOf, type Conversation } from "./fleet";
+import { Background, Fleet, liveState, moveAll, titleOf, type Conversation } from "./fleet";
 import { gitInfo } from "./git";
 import { loadKeymap } from "./keys";
 import { Mouse, MouseContext } from "./mouse";
@@ -67,6 +67,7 @@ export async function startTerminal(options: TerminalOptions) {
   const [{ keymap, problems }] = await Promise.all([loadKeymap(), prompts.load()]);
   let unsaid = problems;
   const fleet = new Fleet<Held>();
+  const background = new Background();
   /** The conversation on screen, or the one the agents view was opened from. */
   let shown: Held | null = null;
   let started = 0;
@@ -173,6 +174,7 @@ export async function startTerminal(options: TerminalOptions) {
             onToggleFullscreen={() => leave("layout")}
             onAgents={() => leave("agents")}
             fleet={fleet}
+            backgroundSessions={background}
             agentsHint={agentsHint}
           />
         </MouseContext>,

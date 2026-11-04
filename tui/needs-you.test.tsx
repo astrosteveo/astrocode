@@ -2,9 +2,10 @@ import { expect, test } from "bun:test";
 import { render } from "ink";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
+import type { Agent } from "../src/agents";
 import type { AgentSession } from "../src/session";
 import { App } from "./app";
-import { Fleet } from "./fleet";
+import { Background, Fleet } from "./fleet";
 import { Mouse, MouseContext } from "./mouse";
 import { Store } from "./store";
 
@@ -16,9 +17,10 @@ const session = new Proxy({}, { get: (_, key) => (key === "then" ? undefined : k
 
 /**
  * The App full screen on a fake terminal, as the conversation `here` in a fleet with `other`, with
- * how often it asked for the conversations, keys to type and a mouse to click with.
+ * Claude Code's background sessions `agents`, and how often it asked for the conversations, keys to
+ * type and a mouse to click with.
  */
-function conversation({ hint = false } = {}) {
+function conversation({ hint = false, agents = [] as Agent[] } = {}) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: COLUMNS, rows: ROWS });
   let drawn = "";
   stdout.on("data", (chunk: Buffer) => {
@@ -40,6 +42,7 @@ function conversation({ hint = false } = {}) {
         onToggleFullscreen={() => {}}
         onAgents={() => (opened.agents += 1)}
         fleet={fleet}
+        backgroundSessions={new Background(async () => agents)}
         agentsHint={Promise.resolve(hint)}
       />
     </MouseContext>,
@@ -126,5 +129,19 @@ test("the empty, idle box says ← for conversations until they've been opened, 
   } finally {
     unseen.stop();
     seen.stop();
+  }
+});
+
+test("the status bar counts Claude Code's background sessions waiting on you too", async () => {
+  const agent = (id: string, status: string): Agent => ({ id, name: id, cwd: "/p", folder: "/p", state: "blocked", status, alive: true, createdAt: 0, updatedAt: 0, prs: [] });
+  const { other, statusBar, stop } = conversation({ agents: [agent("asking", "waiting"), agent("handed", "idle")] });
+  try {
+    await settle();
+    expect(statusBar()).toContain("← 1 needs you");
+    other.store.emit({ kind: "permission", request: { id: "p1", toolName: "Bash", input: { command: "rm -rf dist" } } });
+    await settle();
+    expect(statusBar()).toContain("← 2 need you");
+  } finally {
+    stop();
   }
 });

@@ -1,7 +1,7 @@
 // The status bar under the message box. On the left, the permission mode as a solid chip, or for
 // bypass, rose words without the fill, since it stays on all session and a solid rose block would
-// outshout everything else, then `← N needs you` in gold while another of astrocode's conversations
-// waits on you, which the readings make room for; on the right, readings: how full the context is, the model, what runs
+// outshout everything else, then `← N needs you` in gold while another conversation, astrocode's or a
+// Claude Code background session, waits on you, which the readings make room for; on the right, readings: how full the context is, the model, what runs
 // in the background, your plan's usage windows once they're half used (or always, or never, as
 // /config says), the git branch and the
 // plan, as many as fit, most important first. After the context, how long the prompt cache stays
@@ -70,7 +70,7 @@ type Props = {
   keepWarm: boolean;
   /** When the plan's usage windows show: once half used, always, or never. */
   usageMode: UsageMode;
-  /** How many of astrocode's other conversations wait on you. */
+  /** How many other conversations wait on you: astrocode's and Claude Code's background sessions. */
   needsYou?: number;
   onNeedsYou?: () => void;
   /** Follow Claude: on, held on a call you're looking at, or off when undefined. */
