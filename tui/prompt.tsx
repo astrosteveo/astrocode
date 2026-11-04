@@ -53,6 +53,8 @@ type Props = {
   /** Ctrl+C on an empty box: the app stops Claude or gets ready to exit. */
   onCtrlC: () => void;
   onExit: () => void;
+  /** Ctrl+L: the screen drawn again, as `claude` does, for one left garbled. The box keeps what's typed. */
+  onRedraw: () => void;
   onOpenOutput: () => void;
   /** Text to put in the box in place of what's there, such as a message rewound to or edited in $EDITOR. */
   prefill: { text: string } | null;
@@ -438,7 +440,7 @@ export function Prompt(props: Props) {
       case "chat:imagePaste":
         return pasteImage();
       case "chat:clearInput":
-        return set("", 0);
+        return props.onRedraw();
       case "task:background":
         return props.onBackground();
       case "chat:followClaude":

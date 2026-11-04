@@ -6,7 +6,7 @@ import { Box, Static, useApp, useStdout, useWindowSize, type DOMElement } from "
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useContext, useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { EFFORTS, isEffort, MODES, type CommandInfo, type ImageAttachment } from "../src/events";
 import { historyEvents, loadHistory, savedSessions, sessionTitle, shellMessages, type SavedSession } from "../src/history";
 import { addMemory, memoryFiles, type MemoryFile } from "../src/memory";
@@ -142,7 +142,7 @@ const HELP = [
   "Shift+Tab changes the permission mode. Alt+P switches the model and its effort, Alt+T turns thinking off and on, Alt+O turns fast mode on and off. ↑ and ↓ recall earlier messages; Ctrl+R searches them.",
   "ultrathink in a message asks for deeper reasoning that turn, and ultracode for a workflow of agents; Alt+W keeps the message's ultracode from starting one. /effort ultracode has Claude run a workflow on every task, for this session.",
   "Ctrl+S puts the message aside, and it stays there until Ctrl+S brings it back. Pressed with a message in the box, the two trade places.",
-  "Ctrl+_ undoes. Ctrl+K, Ctrl+U, Ctrl+W and Alt+D cut, Ctrl+Y puts back what they cut. Alt+B and Alt+F move by words. Ctrl+L clears the box.",
+  "Ctrl+_ undoes. Ctrl+K, Ctrl+U, Ctrl+W and Alt+D cut, Ctrl+Y puts back what they cut. Alt+B and Alt+F move by words. Ctrl+L redraws the screen, keeping what you've typed.",
   "! runs a command in your shell. Its output streams in as it runs, you can keep talking meanwhile, and Claude sees it once it ends. /play runs one from Claude's shell code blocks the same way. # adds a note to a CLAUDE.md.",
   "Ctrl+V attaches the clipboard's image; a pasted or dropped image file attaches too. Ctrl+G or Ctrl+X Ctrl+E edits the message in $EDITOR.",
   "Ctrl+B moves a command or subagent Claude is waiting on to the background. /tasks lists what runs there and your ! commands: open one to watch it (a subagent shows its transcript, a workflow its phases), and x stops it. Esc stops Claude's turn but not what runs in the background; Ctrl+X Ctrl+K twice stops it all. Ctrl+T shows or hides the to-dos.",
@@ -243,6 +243,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   /** Ctrl+X Ctrl+K pressed once: pressed again soon, it stops everything running. */
   const [stopArmed, setStopArmed] = useState(false);
   const editing = useRef(false);
+  /** For a redraw of the scrollback, whose new epoch only a render of its own puts on screen. */
+  const [, repaint] = useReducer((n: number) => n + 1, 0);
   /** What's pinned under the transcript: the message box, the status bar and what opens above them. */
   const panelBox = useRef<DOMElement>(null);
 
@@ -535,6 +537,18 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     const stopped = store.stopShells();
     store.reset();
     if (stopped) notice("info", `Stopped ${stopped === 1 ? "a command of yours that was" : `${stopped} commands of yours that were`} still running.`);
+  };
+
+  /**
+   * Ctrl+L: the screen drawn again from nothing, for one a program or the terminal left garbled, as
+   * `claude` does. Full screen draws its frame again; scrollback writes the conversation out again,
+   * as coming back from full screen does.
+   */
+  const redrawScreen = () => {
+    if (fullscreen) return write("\x1b[2J\x1b[H");
+    write("\x1b[2J\x1b[3J\x1b[H");
+    store.redraw();
+    repaint();
   };
 
   const resumeSession = (id: string, title?: string) => {
@@ -1599,6 +1613,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onCycleMode={cycleMode}
           onCtrlC={onCtrlC}
           onExit={exit}
+          onRedraw={redrawScreen}
           onOpenOutput={openTranscript}
           prefill={prefill}
           onEditQueued={editQueued}
