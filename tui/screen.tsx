@@ -18,9 +18,9 @@ import { strokeOf, type Keymap } from "./keys";
 import { cellWidth } from "./markdown";
 import { cellsOn, cursorOn, findIn, hasContent, highlight, isTextAt, linkAt, lit, litLink, markMatches, selectedText, wordAt, type Cell } from "./selection";
 import { PALETTE } from "./theme";
-import { Welcome, WELCOME_HEIGHT, WELCOME_WIDTH } from "./mirror";
 import { moveTarget, tabTarget, WHOLE, type Opened } from "./opened";
 import { imageAt, pictureRows, usePictureRows } from "./pictures";
+import { StartScreen, type Start } from "./start";
 import { useTranscript, type Row, type Transcript } from "./transcript";
 
 const WHEEL_LINES = 3;
@@ -50,7 +50,8 @@ type Props = {
   state: State;
   /** Counts resets, which start the view over at the end. */
   epoch: number;
-  branch?: string;
+  /** What the start screen says. */
+  start: Start;
   columns: number;
   rows: number;
   expanded: ReadonlySet<string>;
@@ -87,14 +88,14 @@ type Props = {
   children: ReactNode;
 };
 
-export function Screen({ state, epoch, branch, columns, rows: height, expanded, waiting, opened, keys, focused, keymap, onFocus, onLeave, onToggle, onCopy, onEdit, onOpen, onPicture, find: search, onMatches, children }: Props) {
+export function Screen({ state, epoch, start, columns, rows: height, expanded, waiting, opened, keys, focused, keymap, onFocus, onLeave, onToggle, onCopy, onEdit, onOpen, onPicture, find: search, onMatches, children }: Props) {
   // A column for the scrollbar and one to keep it off the text.
   const width = Math.max(10, columns - 2);
   const viewport = useRef<DOMElement>(null);
   const pill = useRef<DOMElement>(null);
   const metrics = useBoxMetrics(viewport);
   const view = Math.max(1, metrics.hasMeasured ? metrics.height : height - 6);
-  const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), branch, expanded, waiting, opened });
+  const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), start, expanded, waiting, opened });
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   /** The row the cursor is on, kept while your keys are elsewhere. */
   const [cursor, setCursor] = useState<Anchor | null>(null);
@@ -589,8 +590,8 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   }, [size]);
 
   const cells = selection ? span(transcript, selection) : null;
-  // Before the first message, the mirror and how to start, where there's room for them.
-  const welcome = state.items.length === 0 && !state.live && view >= WELCOME_HEIGHT && width >= WELCOME_WIDTH + 4;
+  // Before the first message, the start screen, at the top.
+  const welcome = state.items.length === 0 && !state.live;
   // Links, tool calls, commands and the scrollbar answer to a click, and the pointer is a hand over
   // them; over a picture, which a click enlarges, it's a magnifying glass. What a click would open
   // lights up at its first row, a step's line or a card's title, its words in gold, so it's plain
@@ -624,8 +625,8 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   return (
     <Box flexDirection="column" width={columns} height={height}>
       {welcome ? (
-        <Box ref={viewport} flexGrow={1} flexShrink={1} overflow="hidden" justifyContent="center" alignItems="center">
-          <Welcome cwd={state.cwd} home={state.home} branch={branch} width={width} />
+        <Box ref={viewport} flexGrow={1} flexShrink={1} overflow="hidden">
+          <StartScreen start={start} width={width} />
         </Box>
       ) : (
         <Box ref={viewport} flexDirection="row" flexGrow={1} flexShrink={1} overflow="hidden">
