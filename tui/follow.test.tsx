@@ -1,8 +1,5 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render, Text } from "ink";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import { loadSettings, remember, saved } from "../src/settings";
@@ -10,6 +7,7 @@ import { initialState, type State, type ToolCall } from "../src/view/state";
 import { FollowDock, followedCall, useDwell } from "./follow";
 import { tabsOf } from "./inspector";
 import { DEFAULT_KEYMAP, followKey } from "./keys";
+import { scratchConfig } from "./scratch-config";
 
 const call = (id: string, more: Partial<ToolCall> = {}): ToolCall => ({ id, name: "Read", input: {}, status: "done", subagentCalls: 0, ...more });
 
@@ -35,6 +33,11 @@ function terminal(columns = 80) {
 }
 
 const settle = (ms = 100) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// One test saves a setting, so every test gets a scratch config folder in place of yours.
+const config = scratchConfig();
+beforeEach(config.start);
+afterEach(config.stop);
 
 test("follows the call waiting for you first, else the one Claude started last", () => {
   const state = conversation([call("a"), call("b", { name: "Edit" }), call("c", { status: "running" })]);
@@ -139,16 +142,7 @@ test("Alt+L follows Claude, and hints name the key as bound", () => {
   expect(followKey(new Map([["ctrl+x f", "chat:followClaude"]]))).toBe("ctrl+x f");
 });
 
-const config = mkdtempSync(join(tmpdir(), "astrocode-follow-"));
-const savedConfig = process.env.XDG_CONFIG_HOME;
-afterAll(() => {
-  if (savedConfig === undefined) delete process.env.XDG_CONFIG_HOME;
-  else process.env.XDG_CONFIG_HOME = savedConfig;
-  rmSync(config, { recursive: true, force: true });
-});
-
 test("following is remembered for the next session", async () => {
-  process.env.XDG_CONFIG_HOME = config;
   expect((await loadSettings()).follow).toBeUndefined();
   await remember({ follow: true });
   await saved();

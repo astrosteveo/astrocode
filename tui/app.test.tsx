@@ -1,11 +1,15 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "ink";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import type { AgentSession } from "../src/session";
+import { saved } from "../src/settings";
 import { initialState, type Item, type State, type ToolCall } from "../src/view/state";
 import { App } from "./app";
 import { Mouse, MouseContext, MULTI_CLICK_MS } from "./mouse";
+import { scratchConfig } from "./scratch-config";
 import { Store } from "./store";
 
 const call = (id: string, more: Partial<ToolCall> = {}): ToolCall => ({ id, name: "Grep", input: { pattern: id, path: "/p/src" }, status: "done", subagentCalls: 0, result: "src/a.ts", ...more });
@@ -24,10 +28,14 @@ const THREE = turn([call("a"), call("b", { name: "Bash", input: { command: "bun 
 
 const settle = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Shift+Tab saves the mode it picks, so every test gets a scratch config folder in place of yours.
+const config = scratchConfig();
 let quit: (() => void) | null = null;
-afterEach(() => {
+beforeEach(config.start);
+afterEach(async () => {
   quit?.();
   quit = null;
+  await config.stop();
 });
 
 /**
@@ -307,6 +315,9 @@ test("keys that work anywhere still work while the transcript has your keys", as
   expect(boxKeys()).toBe(false);
   await press(KEYS.shiftTab);
   expect(asked).toContain("setMode");
+  // The mode it picked is saved in the test's scratch folder.
+  await saved();
+  expect(JSON.parse(readFileSync(join(config.folder(), "astrocode", "settings.json"), "utf8"))).toEqual({ mode: "acceptEdits" });
   // And the transcript keeps your keys through them.
   expect(boxKeys()).toBe(false);
 });
