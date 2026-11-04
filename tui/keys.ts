@@ -30,7 +30,8 @@ export const ACTIONS = {
   "chat:externalEditor": "editor",
   "chat:stash": "stash",
   "chat:imagePaste": "paste image",
-  "chat:clearInput": "clear",
+  // Claude Code's name for it, though Ctrl+L redraws the screen there and keeps what's typed.
+  "chat:clearInput": "redraw",
   "task:background": "background",
   "chat:followClaude": "follow Claude",
 } as const;
