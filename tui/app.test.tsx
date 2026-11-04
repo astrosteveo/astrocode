@@ -975,6 +975,45 @@ test("? in the transcript lists its keys first, and an opened call's while one i
   expect(cursor()).not.toBe(-1);
 });
 
+/** That ? and Esc leave the screen as it was, but for spaces at a line's end. */
+const sheetAndBack = async ({ press, screen }: Awaited<ReturnType<typeof launch>>) => {
+  const plain = () => screen().map((line) => line.trimEnd());
+  const before = plain();
+  await press("?");
+  expect(sheetFirst(screen())).toBeDefined();
+  await press(KEYS.esc);
+  expect(plain()).toEqual(before);
+};
+
+test("? and Esc in the transcript scrolled up leave the cursor on its line and the view where it was", async () => {
+  const app = await launch(long(), { rows: 24 });
+  await app.press(KEYS.ctrlO);
+  await app.press("\x1b[F");
+  await app.press("\x1b[5~");
+  await sheetAndBack(app);
+});
+
+test("? and Esc in an opened ledger leave the cursor on its file, with its diff open", async () => {
+  const app = await launch(ledgers(), { columns: 120 });
+  await app.press(KEYS.ctrlO);
+  for (let i = 0; i < 3; i++) await app.press(KEYS.up);
+  await app.press(KEYS.enter);
+  await app.press(KEYS.down);
+  await app.press(KEYS.enter);
+  expect(app.screen()[app.cursor()]).toMatch(/src\/a\.ts/);
+  await sheetAndBack(app);
+});
+
+test("? and Esc in an opened call leave the cursor on its line, with the call open", async () => {
+  const app = await launch(long(), { rows: 24 });
+  await app.press(KEYS.ctrlO);
+  // Up to the call before the last, whose panel opens under its line with room below it.
+  while (!/Searched +c13/.test(app.screen()[app.cursor()] ?? "")) await app.press(KEYS.up);
+  await app.press(KEYS.enter);
+  expect(app.row(/‹ 1 of 1 ›/)).toBe(app.cursor() + 1);
+  await sheetAndBack(app);
+});
+
 test("? in a permission prompt shows its keys in its place, and Esc goes back to it without saying no", async () => {
   const { press, screen, update, row, asked } = await launch(THREE);
   await update({ ...THREE, pending: [{ id: "c", toolName: "Bash", input: { command: "rm -rf build" } }] });
