@@ -46,7 +46,7 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | Ctrl+X Enter | While Claude works, send this to wait for the end of the turn, rather than joining it between tool calls as Enter does |
 | ↑ ↓ | Earlier messages in this folder, the ones you sent in `claude` too, or move between lines. Right after a message comes back, they go on to the next one, however long it is |
 | ← in an empty box | The agents view: astrocode's other conversations and Claude Code's background sessions. Esc comes back. Until you've opened it once, the empty box says `← for conversations` while it has your keys and Claude Code has a background session |
-| `?` in an empty box | Every key, for whatever has your keys, as your `keybindings.json` binds them. `?` in the transcript, in an opened call (scrollback's inspector too) and in a permission prompt lists theirs; `/help` lists the box's. Type to filter, ↑↓ scroll, Esc closes |
+| `?` in an empty box | Every key, for whatever has your keys, as your `keybindings.json` binds them, and the mouse in full screen. `?` in the transcript, in an opened call (scrollback's inspector too) and in a permission prompt lists theirs first; `/help` lists the box's, with the transcript's in full screen. Type to filter, ↑↓ or the wheel scroll, Esc closes and leaves what was under it as it was |
 | Ctrl+R | Search what you've sent, here and in `claude`, in every folder: type to find, Ctrl+R for older matches, Enter keeps it, Esc cancels |
 | Ctrl+_ | Undo, a word at a time |
 | Ctrl+K, Ctrl+U, Ctrl+W, Alt+D, Ctrl+Y | Cut to the end of the line, to its start, the word before, the word after; put back what was cut |
