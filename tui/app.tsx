@@ -2,7 +2,7 @@
 // the terminal's own scrollback (Ink's <Static>), like `claude` does, and only the live part below
 // them is redrawn. In full screen the conversation scrolls in a viewport of its own, with the mouse.
 import type { EffortLevel, PermissionMode, RewindFilesResult } from "@anthropic-ai/claude-agent-sdk";
-import { Box, Static, useApp, useStdout, useWindowSize, type DOMElement } from "ink";
+import { Box, Static, useApp, useInput, useStdout, useWindowSize, type DOMElement } from "ink";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -39,7 +39,7 @@ import { HooksPanel } from "./hooks";
 import { ItemView, LiveView, StepView, targetCall } from "./entries";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
-import { keyFor, keyLabel } from "./keys";
+import { keyFor, keyLabel, strokeOf } from "./keys";
 import { galleryOf, linkedBy, pageFile } from "./figure";
 import { Lightbox } from "./lightbox";
 import { copiedBy, openFile, openLink, ranBy } from "./links";
@@ -1512,6 +1512,15 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   useMouse((event) => {
     if (event.type === "press" && event.button === "left" && !event.handled && focus === "transcript" && hit(panelBox.current, event)) setTranscriptKeys(false);
   });
+  const boxKeys = !question && !elicitation && !request && !overlay && !inspectorKeys;
+  // Ctrl+L redraws wherever the keys are, as a garbled screen can't wait for an overlay to close.
+  // The message box reads its own, chords and all.
+  useInput(
+    (input, key) => {
+      if (key.eventType !== "release" && store.keymap.get(strokeOf(input, key) ?? "") === "chat:clearInput") redrawScreen();
+    },
+    { isActive: !boxKeys },
+  );
   // Follow Claude: the call Claude is on, a moment behind a burst of them, while you aren't looking
   // at one yourself, which holds it until the inspector closes.
   const followTarget = follow ? followedCall(state, waiting) : undefined;
