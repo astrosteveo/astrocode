@@ -4,12 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PromptHistory } from "./prompt-history";
 
-// Claude Code's history.jsonl, in a folder of its own. The home folder is read once as the process
-// starts, so the test of `~/.claude` runs in a process of its own with a temporary HOME.
+// Claude Code's history.jsonl and astrocode's config folder, in a folder of the test's own. The home
+// folder is read once as the process starts, so the test of `~/.claude` runs in a process of its own
+// with a temporary HOME.
 const root = mkdtempSync(join(tmpdir(), "astrocode-history-"));
 const config = join(root, ".claude");
 const file = join(config, "history.jsonl");
-const saved = { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, CLAUDE_CODE_SKIP_PROMPT_HISTORY: process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY };
+const saved = {
+  CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+  XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+  CLAUDE_CODE_SKIP_PROMPT_HISTORY: process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY,
+};
 const HERE = "/home/u/here";
 const OTHER = "/home/u/other";
 
@@ -20,6 +25,7 @@ const line = (display: string, timestamp: number, project = HERE, sessionId: str
 beforeEach(() => {
   rmSync(config, { recursive: true, force: true });
   process.env.CLAUDE_CONFIG_DIR = config;
+  process.env.XDG_CONFIG_HOME = join(root, "config");
   delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY;
 });
 
