@@ -9,7 +9,7 @@
 // A file over 10 MB isn't read: a stub of its size and mtime stands in for it, so a turn that writes
 // one still counts it. Files under ~/.claude don't count, unless the repository is in it.
 import { rmSync } from "node:fs";
-import { copyFile, lstat, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { FileChange, Ledger } from "./events";
@@ -25,7 +25,10 @@ const BIG = 10 * 1024 * 1024;
  */
 const DEADLINE = 2000;
 
-/** The sessions' folders, deleted as astrocode exits should a session not have closed, as when it crashes. */
+/**
+ * The sessions' folders, deleted as astrocode exits should a session not have closed, as when it
+ * crashes. Killed, as when its terminal closes, it exits without: the next astrocode deletes them.
+ */
 const folders = new Set<string>();
 process.on("exit", () => {
   for (const folder of folders) rmSync(folder, { recursive: true, force: true });
@@ -133,7 +136,8 @@ export class Snapshots {
     const said = await git({ top: this.cwd, env: process.env }, ["rev-parse", "--show-toplevel", "--path-format=absolute", "--git-path", "index", "--git-path", "objects"]);
     const [top, index, objects] = said?.split("\n") ?? [];
     if (!top || !index || !objects) return null;
-    const folder = await mkdtemp(join(tmpdir(), "astrocode-ledger-"));
+    await sweep();
+    const folder = await mkdtemp(join(tmpdir(), `astrocode-ledger-${process.pid}-`));
     folders.add(folder);
     const claude = relative(top, join(this.home, ".claude"));
     return {
@@ -216,6 +220,25 @@ async function unfiltered(top: string): Promise<Record<string, string>> {
     env[`GIT_CONFIG_VALUE_${given + i}`] = value!;
   });
   return settings.length ? env : {};
+}
+
+/** Deletes the folders astrocodes that were killed left behind, known by their pid. */
+async function sweep() {
+  const temp = tmpdir();
+  for (const name of await readdir(temp).catch(() => [])) {
+    const pid = Number(/^astrocode-ledger-(\d+)-/.exec(name)?.[1]);
+    if (pid && !alive(pid)) await rm(join(temp, name), { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+function alive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // Another user's.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
 }
 
 /** Of `paths`, those git can't see: outside the repository, or ignored. A path through a symlink counts where it leads. */
