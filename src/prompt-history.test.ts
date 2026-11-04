@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PromptHistory } from "./prompt-history";
@@ -191,4 +191,34 @@ test("a message with a secret in it stays out of claude's file, as claude keeps 
   await history.add("!git status", HERE, "s1");
   expect(readFileSync(file, "utf8").trim().split("\n").map((one) => JSON.parse(one).display)).toEqual(["!git status"]);
   expect(history.recall(HERE, "s1")).toEqual([...secrets, "!git status"]);
+});
+
+test("a line waits for claude's lock on the file, so claude rewriting the file meanwhile doesn't lose it", async () => {
+  write([line("from claude", 1000)]);
+  const history = new PromptHistory();
+  await history.load();
+  // claude drops old lines under its lock: it reads the lines it keeps, then puts a file of them in place.
+  mkdirSync(`${file}.lock`);
+  const kept = readFileSync(file, "utf8");
+  const sent = history.add("from astrocode", HERE, "s1");
+  await Bun.sleep(150);
+  writeFileSync(`${file}.tmp`, kept);
+  renameSync(`${file}.tmp`, file);
+  rmdirSync(`${file}.lock`);
+  await sent;
+  expect(readFileSync(file, "utf8").trim().split("\n").map((one) => JSON.parse(one).display)).toEqual(["from claude", "from astrocode"]);
+  expect(existsSync(`${file}.lock`)).toBe(false);
+});
+
+test("a lock left by a claude that's gone is taken over once it's stale, as claude takes it over", async () => {
+  write([]);
+  mkdirSync(`${file}.lock`);
+  const old = new Date(Date.now() - 20_000);
+  utimesSync(`${file}.lock`, old, old);
+  const history = new PromptHistory();
+  const started = Date.now();
+  await history.add("from astrocode", HERE, "s1");
+  expect(Date.now() - started).toBeLessThan(1000);
+  expect(readFileSync(file, "utf8")).toContain('"display":"from astrocode"');
+  expect(existsSync(`${file}.lock`)).toBe(false);
 });

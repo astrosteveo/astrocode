@@ -4,13 +4,16 @@
 // each `[Pasted text #n]` in it stands for, inline or by hash in `paste-cache/`; `timestamp` in
 // ms; `project`, the folder; and `sessionId`. astrocode puts what you paste in the message itself,
 // so the lines it adds have no pastedContents.
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, realpath, rmdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { hasSecret } from "./secrets";
 
 /** A message, with the text its placeholders stand for back in their place. */
 type SavedPrompt = { text: string; timestamp: number; project: string; sessionId?: string };
+
+/** How long Claude Code's lock on the file is someone else's: after that it's left by a Claude Code that's gone. */
+const LOCK_STALE_MS = 10_000;
 
 /** How many of a folder's messages ↑ goes back through, as in Claude Code. */
 const RECALL_LIMIT = 100;
@@ -158,5 +161,35 @@ async function pastedText(record: unknown): Promise<string | null> {
 async function append({ text, timestamp, project, sessionId }: SavedPrompt) {
   const file = historyFile();
   await mkdir(dirname(file), { recursive: true });
-  await appendFile(file, `${JSON.stringify({ display: text, pastedContents: {}, timestamp, project, sessionId })}\n`, { mode: 0o600 });
+  // The lock goes beside the file's real path, so the file has to be there first.
+  await appendFile(file, "", { mode: 0o600 });
+  await locked(file, () => appendFile(file, `${JSON.stringify({ display: text, pastedContents: {}, timestamp, project, sessionId })}\n`, { mode: 0o600 }));
+}
+
+/**
+ * Runs `work` holding Claude Code's lock on its file. Claude Code rewrites the file under it as it
+ * drops old lines, so a line added meanwhile without it would be lost. It's proper-lockfile's
+ * lock, as Claude Code takes it: a folder beside the file, taken over once it's stale. Gives up
+ * after as long, keeping the line out of the file rather than adding it unlocked.
+ */
+async function locked(file: string, work: () => Promise<void>) {
+  const lock = `${await realpath(file)}.lock`;
+  const until = Date.now() + LOCK_STALE_MS;
+  for (;;) {
+    try {
+      await mkdir(lock);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const age = await stat(lock).then((info) => Date.now() - info.mtimeMs, () => 0);
+      if (age > LOCK_STALE_MS) await rmdir(lock).catch(() => {});
+      else if (Date.now() > until) throw new Error("Claude Code's prompt history stayed locked.");
+      else await Bun.sleep(50);
+    }
+  }
+  try {
+    await work();
+  } finally {
+    await rmdir(lock).catch(() => {});
+  }
 }
