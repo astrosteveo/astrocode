@@ -108,6 +108,9 @@ test("the dock says it waits for you, before Claude has made a call it says what
   app.unmount();
   expect(first.screen()).toContain("◆ Waiting for you");
   expect(first.screen()).toContain("waiting for you");
+  // It asks to edit; nothing is being edited yet.
+  expect(first.screen()).toContain("Edit a.ts");
+  expect(first.screen()).not.toContain("Editing");
   // A command waiting for your OK shows the command, which has no output yet.
   const bash = call("w", { name: "Bash", status: "running", input: { command: "rm -rf build", description: "Clean the build" } });
   const third = terminal();

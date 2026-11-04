@@ -84,7 +84,7 @@ export function FollowDock({ call, waiting, log, width, rows, cwd, home, onOpen 
   });
   const inner = width - 2;
   const status = call ? statusOf(call, waiting) : undefined;
-  const title = call ? titleOf(call, cwd, home) : undefined;
+  const title = call ? titleOf(call, waiting, cwd, home) : undefined;
   const label = waiting ? "◆ Waiting for you" : "◉ Following";
   const room = Math.max(0, inner - label.length - 2 - (status ? status.text.length + 4 : 0));
   return (
