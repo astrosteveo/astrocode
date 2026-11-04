@@ -994,3 +994,19 @@ test("the key sheet over a permission prompt keeps its choice: No is still chose
   await press(KEYS.enter);
   expect(asked).toContain("decide");
 });
+
+test("the key sheet over a permission prompt closes with it, when it's answered elsewhere or another takes its place", async () => {
+  const { press, screen, update, row, boxKeys } = await launch(THREE);
+  await update({ ...THREE, pending: [{ id: "c", toolName: "Bash", input: { command: "rm -rf build" } }] });
+  await press("?");
+  expect(sheetFirst(screen())).toBe("In a permission prompt");
+  // Answered from Remote Control, or withdrawn as the turn ends.
+  await update(THREE);
+  expect(sheetFirst(screen())).toBeUndefined();
+  expect(boxKeys()).toBe(true);
+  await update({ ...THREE, pending: [{ id: "c", toolName: "Bash", input: { command: "rm -rf build" } }] });
+  await press("?");
+  await update({ ...THREE, pending: [{ id: "d", toolName: "Bash", input: { command: "git push" } }] });
+  expect(sheetFirst(screen())).toBeUndefined();
+  expect(row(/git push/)).not.toBe(-1);
+});
