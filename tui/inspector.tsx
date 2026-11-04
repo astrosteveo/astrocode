@@ -15,6 +15,7 @@ import { Diff, editLines } from "./diff";
 import { highlightCode } from "./highlight";
 import { printable, printableColored } from "./markdown";
 import { Markdown, onPanel } from "./markdown-view";
+import type { TaskRead } from "./tasks";
 import { PALETTE, sgr } from "./theme";
 import { TodoList } from "./tool-row";
 
@@ -141,12 +142,14 @@ type Body = { lines: string[]; copy: string };
 const bodies = new WeakMap<ToolCall, Map<string, Body>>();
 
 /**
- * The tab's lines, kept until the call changes. A subagent's transcript grows while the call stays
- * the same, so it's drawn each time instead. Must run outside React's render, since renderToString
+ * The tab's lines, kept until the call changes. A subagent's transcript and a command's output read
+ * from its task grow while the call stays the same, so they're drawn each time instead, which needs
+ * no renderToString. Anything else must be drawn outside React's render, since renderToString
  * renders with the same reconciler.
  */
-export function bodyFor(call: ToolCall, tab: TabId, width: number, log?: AgentLine[]): Body {
+export function bodyFor(call: ToolCall, tab: TabId, width: number, log?: AgentLine[], output?: TaskRead): Body {
   if (tab === "transcript") return transcriptOf(log ?? [], width);
+  if (tab === "output" && output) return outputOf(call, width, output);
   const all = bodies.get(call) ?? new Map<string, Body>();
   bodies.set(call, all);
   const key = `${tab}|${width}`;
@@ -159,12 +162,13 @@ export function bodyFor(call: ToolCall, tab: TabId, width: number, log?: AgentLi
  * The tab's lines, drawn just after React commits, since Ink can't render to a string in the middle
  * of rendering. Undefined until then.
  */
-export function useBody(call: ToolCall, tab: TabId, width: number, log?: AgentLine[]) {
+export function useBody(call: ToolCall, tab: TabId, width: number, log?: AgentLine[], output?: TaskRead) {
   const key = `${tab}|${width}`;
   const known = bodies.get(call)?.get(key);
   const [, redraw] = useState(0);
+  const live = tab === "transcript" || (tab === "output" && output !== undefined);
   useEffect(() => {
-    if (known || tab === "transcript") return;
+    if (known || live) return;
     let alive = true;
     queueMicrotask(() => {
       if (!alive) return;
@@ -175,7 +179,7 @@ export function useBody(call: ToolCall, tab: TabId, width: number, log?: AgentLi
       alive = false;
     };
   }, [call, key, known]);
-  return tab === "transcript" ? transcriptOf(log ?? [], width) : known;
+  return live ? bodyFor(call, tab, width, log, output) : known;
 }
 
 /** A subagent's transcript: its brief in gold, its words, and its tool calls in teal. */
@@ -262,13 +266,20 @@ function bodyOf(call: ToolCall, tab: TabId, width: number): Body {
 
 /**
  * What a command printed, as its terminal showed it, under the command's first line: what it
- * printed to stdout, numbered, then what it printed as errors.
+ * printed to stdout, numbered, then what it printed as errors. One Claude Code runs as a task, as in
+ * the background, shows what the task has printed so far (`read`).
  */
-function outputOf(call: ToolCall, width: number): Body {
+function outputOf(call: ToolCall, width: number, read?: TaskRead): Body {
   const run = runOfCall(call, false);
   const first = run.command.split("\n")[0] ?? "";
   const head = `${sgr(PALETTE.dust)}$ \x1b[39m${onPanel(highlightShell(first))}${run.command.trim().includes("\n") ? `${sgr(PALETTE.dust)} …\x1b[39m` : ""}`;
   const lines = [...wrapped(head, width), ""];
+  if (read) {
+    const printed = read.text.replace(/\n+$/, "");
+    if (!printed.trim()) return { lines: [...lines, say(run.status === "running" || run.background === "running" ? "Nothing printed yet." : "It printed nothing.")], copy: "" };
+    const cut = read.truncated ? [say("Claude Code kept only the end of it:"), ""] : [];
+    return { lines: [...lines, ...cut, ...numbered(onPanel(printableColored(printed)), width)], copy: printable(printed) };
+  }
   if (run.background === "running") return { lines: [...lines, say("It runs in the background. /tasks shows its output as it goes.")], copy: "" };
   if (run.status === "running") {
     // Claude Code says how long a command has run, but not what it has printed so far.

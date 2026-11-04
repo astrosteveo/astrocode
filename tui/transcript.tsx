@@ -291,7 +291,7 @@ export function useTranscript(input: TranscriptInput) {
     return () => {
       stale = true;
     };
-  }, [input.state.items, input.state.live, input.state.cwd, input.width, input.pictureRows, start, input.expanded, opened?.id, opened?.tab, opened?.whole, log, waiting, input.review?.version, input.review?.git]);
+  }, [input.state.items, input.state.live, input.state.cwd, input.width, input.pictureRows, start, input.expanded, opened?.id, opened?.tab, opened?.whole, opened?.output?.text, log, waiting, input.review?.version, input.review?.git]);
 
   useEffect(
     () => () => {

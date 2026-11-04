@@ -248,6 +248,36 @@ test("a workflow or a Monitor in the background opens its task view, which shows
   expect(screen().some((line) => line.includes("▐Result▌"))).toBe(false);
 });
 
+/** A command Claude started in the background as the task `bash-1`, running or ended as `status` says. */
+function waitingForBuild(status: "running" | "completed"): State {
+  const sleeping = call("w", { name: "Bash", input: { command: "make all", description: "Build it all", run_in_background: true }, background: status, taskId: "bash-1", result: "Command running in background with ID: bash-1", output: { stdout: "", stderr: "", interrupted: false, backgroundTaskId: "bash-1" } });
+  return inBackground([sleeping], { "bash-1": { id: "bash-1", description: "Build it all", type: "local_bash", toolUseId: "w", background: true, status } });
+}
+
+test("a command in the background opens under its line with its output as it prints, read from Claude Code", async () => {
+  let reads = 0;
+  const output = (id: string) => (id === "bash-1" ? { output: ++reads === 1 ? "compiling a\n" : "compiling a\ncompiling b\n", total_bytes: 0, truncated: false } : null);
+  const { press, screen } = await launch(waitingForBuild("running"), { output });
+  const shows = (text: string) => screen().some((line) => line.includes(text));
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  expect(shows("‹ 2 of 2 ›")).toBe(true);
+  expect(shows("compiling a")).toBe(true);
+  expect(shows("/tasks shows")).toBe(false);
+  // Read again each second while it runs.
+  await settle(1200);
+  expect(shows("compiling b")).toBe(true);
+});
+
+test("a command that ended in the background opens on what it printed, not on the note that it started", async () => {
+  const output = (id: string) => (id === "bash-1" ? { output: "built 3 files\n", total_bytes: 0, truncated: false } : null);
+  const { press, screen } = await launch(waitingForBuild("completed"), { output });
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  expect(screen().some((line) => line.includes("built 3 files"))).toBe(true);
+  expect(screen().some((line) => line.includes("It printed nothing"))).toBe(false);
+});
+
 test("x on a running call that can't stop on its own says what stops it", async () => {
   const { press, asked, row } = await launch({ ...turn([call("a", { status: "running", result: undefined })]), busy: true });
   await press(KEYS.ctrlO);

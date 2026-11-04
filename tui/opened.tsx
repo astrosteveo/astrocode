@@ -13,13 +13,15 @@ import { bodyFor, firstTab, LABELS, spentOn, statusOf, tabsOf, titleOf, type Pla
 import { cellWidth } from "./markdown";
 import { fit } from "./markdown-view";
 import { GUTTER, Railed } from "./rail";
+import type { TaskRead } from "./tasks";
 import { PALETTE } from "./theme";
 
 /**
  * The call open under its line, the tab it shows (unset, its first), whether that tab is whole rather
- * than folded, and whether it follows Claude, opening each call Claude starts in its place.
+ * than folded, and whether it follows Claude, opening each call Claude starts in its place. `output`:
+ * what a command has printed, read from Claude Code's task for it.
  */
-export type Opened = { id: string; tab?: TabId; whole?: boolean; follow?: boolean };
+export type Opened = { id: string; tab?: TabId; whole?: boolean; follow?: boolean; output?: TaskRead };
 
 /** Cells of a row that a click acts on in a way of their own, such as a tab's name. */
 export type Spot = { from: number; to: number; target: string };
@@ -98,8 +100,8 @@ export function openedRows({ call, opened, place, waiting, log, width, through, 
       ? kept.header
       : { key: headerKey, lines: headerRows({ call, tab, tabs, waiting, position, inner, width, through, cwd, home }) };
 
-  const bodyKey = `${width}|${tab}|${opened.whole}|${through}|${tab === "transcript" ? log?.length : ""}`;
-  const body = kept?.body.key === bodyKey ? kept.body : { key: bodyKey, ...bodyRows({ call, tab, whole: opened.whole, log, inner, width, through }) };
+  const bodyKey = `${width}|${tab}|${opened.whole}|${through}|${tab === "transcript" ? log?.length : ""}|${tab === "output" ? opened.output?.text : ""}`;
+  const body = kept?.body.key === bodyKey ? kept.body : { key: bodyKey, ...bodyRows({ call, tab, whole: opened.whole, log, output: opened.output, inner, width, through }) };
   drawn.set(call, { header, body });
 
   const lines = [...header.lines, ...body.lines];
@@ -121,8 +123,8 @@ export function openedRows({ call, opened, place, waiting, log, width, through, 
 }
 
 /** The tab's lines, its first 12 and last 8 with `⋯ N lines` between unless it's whole, and its text for `c` and `e`. */
-function bodyRows({ call, tab, whole, log, inner, width, through }: Pick<Input, "call" | "log" | "width" | "through"> & { tab: TabId; whole?: boolean; inner: number }) {
-  const { lines: all, copy } = bodyFor(call, tab, inner, log);
+function bodyRows({ call, tab, whole, log, output, inner, width, through }: Pick<Input, "call" | "log" | "width" | "through"> & { tab: TabId; whole?: boolean; output?: TaskRead; inner: number }) {
+  const { lines: all, copy } = bodyFor(call, tab, inner, log, output);
   const hidden = whole ? 0 : all.length - HEAD - TAIL;
   // A fold of one line would take as much room as the line.
   const folded = hidden > 1;
