@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Snapshots } from "./snapshots";
+import { patchLines } from "./view/patch";
 
 // Each test makes a git repository of its own, changes its working tree between a turn's edges as
 // Claude would, through Bash as well as through edits, and reads back what the ledger counts.
@@ -297,6 +298,19 @@ test("gives a file's diff for the turn, a rename's against where it was, until t
   // The turn's trees go with the session's objects.
   edges.close();
   expect(await edges.patch(ledger.trees!, a!)).toBeNull();
+});
+
+test("gives a file's diff whole when your git config prints blank context lines empty", async () => {
+  const top = repo({ "a.txt": "a\n\nb\nc\n\nd\n" });
+  // diff.suppressBlankEmpty prints a blank line of context as an empty line, not a space.
+  git(top, "config", "diff.suppressBlankEmpty", "true");
+  const edges = snapshots(top);
+  await edges.start();
+  write(top, "a.txt", "a\n\nB\nc\n\nd\n");
+  const ledger = (await edges.end())!;
+  const lines = patchLines((await edges.patch(ledger.trees!, ledger.files[0]!))!);
+  expect(lines.filter((line) => line.kind !== "context").map((line) => `${line.kind} ${line.text}`)).toEqual(["removed b", "added B"]);
+  expect(lines).toHaveLength(7);
 });
 
 test("gives what isn't committed, and the branch's changes against the branch it started from", async () => {

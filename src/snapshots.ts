@@ -125,7 +125,9 @@ export class Snapshots {
     const repo = this.repo;
     if (!repo) return null;
     const paths = [file.from, file.path].flatMap((path) => (path ? [relative(repo.top, path)] : []));
-    return git(repo, ["--literal-pathspecs", "-c", `core.bigFileThreshold=${BIG}`, "diff-tree", "-p", "-M", "--no-color", trees.from, trees.to, "--", ...paths], AbortSignal.timeout(this.deadline));
+    // Your diff.suppressBlankEmpty would print a blank line of context empty, which reads as the hunk's end.
+    const settings = ["-c", `core.bigFileThreshold=${BIG}`, "-c", "diff.suppressBlankEmpty=false"];
+    return git(repo, ["--literal-pathspecs", ...settings, "diff-tree", "-p", "-M", "--no-color", trees.from, trees.to, "--", ...paths], AbortSignal.timeout(this.deadline));
   }
 
   /** Deletes the index and objects; the next edge starts over. */
