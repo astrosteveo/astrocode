@@ -150,7 +150,8 @@ test("\\ makes the key that sends a new line, so it goes with that key", async (
 });
 
 test("lists every key Claude Code binds to an action, as Ctrl+X Ctrl+S sends now where Ctrl+Enter can't, but one key's other spellings once", () => {
-  const text = draw("box").join("\n");
+  // Rows enough for all of it, which at 120 columns scrolls.
+  const text = draw("box", DEFAULT_KEYMAP, { rows: 60 }).join("\n");
   expect(text).toMatch(/ctrl\+enter, ctrl\+x ctrl\+s +send now/);
   expect(text).toMatch(/ctrl\+g, ctrl\+x ctrl\+e +editor/);
   expect(text).toMatch(/ctrl\+b, ctrl\+x ctrl\+b +background/);
@@ -229,4 +230,12 @@ test("the box's sheet, which /help shows, lists the transcript's keys after the 
   }
   // The mouse reaches only full screen and the viewer, never scrollback's box.
   expect(titles(false)).not.toContain("Mouse");
+});
+
+test("the transcript's keys take in claude's viewer keys: / finds, n and N go on to the next and previous match, v opens the conversation in $EDITOR", () => {
+  for (const place of ["transcript", "opened", "ledger"] as const) {
+    for (const row of ["/  find", "n, N  next, previous", "v  all in $EDITOR"]) expect(listed(place)).toContain(row);
+  }
+  // Ctrl+F finds there too, in either layout, as scrollback's viewer is drawn full screen.
+  expect(listed("transcript")).toContain("ctrl+f  find");
 });
