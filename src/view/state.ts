@@ -14,7 +14,7 @@ import type {
 import type { CommandInfo, ElicitationRequest, FileChange, ImageAttachment, Ledger, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, RemoteControl, SessionEvent } from "../events";
 import { AGENT_LINES, agentLines, type AgentLine } from "./agents";
 import { compact, duration } from "./format";
-import { turnWork } from "./ledger";
+import { workOf } from "./ledger";
 
 type StreamEvent = SDKPartialAssistantMessage["event"];
 type AssistantBlock = SDKAssistantMessage["message"]["content"][number];
@@ -822,7 +822,7 @@ function applyResult(state: State, message: SDKResultMessage, at?: number): Stat
   // Claude Code answers a message that doesn't start a turn, such as a `!` command's, with a result of no turns.
   if (!state.busy && message.num_turns === 0) return state;
   const settled = { ...stopRunningTools(state, at), busy: false, live: null, turnTokens: 0, ledger: undefined, retry: undefined, compacting: false, fast: fastOf(message) ?? state.fast };
-  const turn = { kind: "turn" as const, durationMs: message.duration_ms, tokens: state.turnTokens, ...turnWork(settled.items, state, state.ledger) };
+  const turn = { kind: "turn" as const, durationMs: message.duration_ms, tokens: state.turnTokens, ...workOf(settled.items, state, state.ledger) };
   // Stop, Esc and Deny all end the turn early. The SDK reports that as an error, but it isn't one.
   if (message.terminal_reason === "aborted_streaming" || message.terminal_reason === "aborted_tools") {
     return add(settled, { ...turn, outcome: "stopped" });
@@ -854,7 +854,7 @@ function closeTurns(state: State, from: number): State {
     const began = turn[0]?.kind === "prompt" ? turn[0].at : undefined;
     const ended = Math.max(...turn.map(lastAt).filter((at) => at !== undefined));
     const durationMs = began !== undefined && ended > began ? ended - began : 0;
-    items.push({ kind: "turn", key: `i${seq++}`, outcome: "finished", durationMs, tokens: 0, replayed: true, ...turnWork(turn, state) });
+    items.push({ kind: "turn", key: `i${seq++}`, outcome: "finished", durationMs, tokens: 0, replayed: true, ...workOf(turn, state) });
     start = -1;
   };
   for (const item of state.items.slice(from)) {
