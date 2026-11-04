@@ -129,6 +129,7 @@ test("the box's own keys leave its sheet once a binding, or a chord that starts 
   const text = draw("box", keymap).join("\n");
   expect(text).not.toMatch(/← +conversations/);
   expect(text).not.toContain("earlier messages");
+  expect(text).not.toContain("edit what's queued");
   expect(text).not.toContain("stop Claude");
   expect(text).not.toContain("clear, or rewind");
   expect(text).not.toContain("line start");
@@ -177,4 +178,8 @@ test("a permission prompt's sheet in full screen lists what scrolls the conversa
   expect(rows.some((row) => row.startsWith("alt+") || row.startsWith("1–3"))).toBe(false);
   // In scrollback the terminal scrolls, and has the mouse.
   expect(listed("decision", false).some((row) => row.startsWith("pgup") || row.startsWith("wheel"))).toBe(false);
+});
+
+test("says ↑ in the box takes back what's queued, as it does before it goes back through earlier messages", () => {
+  expect(listed("box")).toContain("↑  edit what's queued");
 });
