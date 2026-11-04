@@ -47,7 +47,7 @@ export const LABELS: Record<TabId, string> = {
   results: "Results",
   response: "Response",
   report: "Report",
-  transcript: "Transcript",
+  transcript: "Calls",
   prompt: "Prompt",
   todos: "To-dos",
   answers: "Answers",
@@ -58,7 +58,7 @@ export const LABELS: Record<TabId, string> = {
 /** The most lines of a long result drawn; past that, the tab says how many more there were. */
 const MOST_LINES = 5000;
 
-/** The call's tabs, the one it opens on first. A subagent with a transcript opens on it while it works. */
+/** The call's tabs, the one it opens on first. A subagent opens on its calls while it works, and on its report once it's done. */
 export function tabsOf(call: ToolCall, log?: AgentLine[]): TabId[] {
   switch (call.name) {
     case "Bash":
@@ -78,8 +78,8 @@ export function tabsOf(call: ToolCall, log?: AgentLine[]): TabId[] {
       return ["response", "input"];
     case "Agent":
     case "Task":
-      if (!log?.length) return ["report", "prompt", "input"];
-      return call.status === "running" ? ["transcript", "report", "prompt", "input"] : ["report", "transcript", "prompt", "input"];
+      if (call.status === "running" || call.background === "running") return ["transcript", "prompt", "input"];
+      return log?.length ? ["report", "transcript", "prompt", "input"] : ["report", "prompt", "input"];
     case "TodoWrite":
       return ["todos", "input"];
     case "AskUserQuestion":

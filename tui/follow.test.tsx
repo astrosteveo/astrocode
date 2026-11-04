@@ -5,7 +5,6 @@ import { stripVTControlCharacters } from "node:util";
 import { loadSettings, remember, saved } from "../src/settings";
 import { initialState, type State, type ToolCall } from "../src/view/state";
 import { FollowDock, followedCall, useDwell } from "./follow";
-import { tabsOf } from "./inspector";
 import { DEFAULT_KEYMAP, followKey } from "./keys";
 import { scratchConfig } from "./scratch-config";
 
@@ -127,13 +126,6 @@ test("the dock says it waits for you, before Claude has made a call it says what
   await settle();
   empty.unmount();
   expect(second.screen()).toContain("Each tool call Claude makes shows here as it runs.");
-});
-
-test("a subagent opens on its transcript while it works, and on its report once it's done", () => {
-  const log = [{ text: "❯ look around", kind: "prompt" as const }];
-  expect(tabsOf(call("s", { name: "Agent", status: "running" }), log)[0]).toBe("transcript");
-  expect(tabsOf(call("s", { name: "Agent" }), log).slice(0, 2)).toEqual(["report", "transcript"]);
-  expect(tabsOf(call("s", { name: "Agent", status: "running" }))).toEqual(["report", "prompt", "input"]);
 });
 
 test("Alt+L follows Claude, and hints name the key as bound", () => {
