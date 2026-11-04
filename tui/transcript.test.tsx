@@ -3,8 +3,10 @@ import * as ink from "ink";
 import { stripVTControlCharacters } from "node:util";
 import { initialState, type Item, type State, type ToolCall } from "../src/view/state";
 import { callTarget } from "./entries";
+import { DEFAULT_KEYMAP } from "./keys";
 import { cellWidth } from "./markdown";
 import { moveTarget, tabTarget, WHOLE } from "./opened";
+import { startOf } from "./start";
 import { layout, type Transcript } from "./transcript";
 
 const call = (id: string, more: Partial<ToolCall> = {}): ToolCall => ({ id, name: "Grep", input: { pattern: id, path: "/p/src" }, status: "done", subagentCalls: 0, result: "src/a.ts", ...more });
@@ -24,6 +26,7 @@ const input = (state: State, width: number, opened?: { id: string; tab?: "result
   state,
   width,
   pictureRows: 10,
+  start: startOf(state, undefined, DEFAULT_KEYMAP),
   expanded: new Set<string>(),
   waiting: new Set<string>(),
   opened,
