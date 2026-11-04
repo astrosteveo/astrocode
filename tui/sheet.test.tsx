@@ -183,3 +183,11 @@ test("a permission prompt's sheet in full screen lists what scrolls the conversa
 test("says ↑ in the box takes back what's queued, as it does before it goes back through earlier messages", () => {
   expect(listed("box")).toContain("↑  edit what's queued");
 });
+
+test("the box's sheet in full screen, which /help shows, lists the transcript's keys after the box's, for Ctrl+O to give it yours", () => {
+  const titles = (fullscreen: boolean) => sheetOf("box", DEFAULT_KEYMAP, fullscreen).map((section) => section.title);
+  expect(titles(true)[0]).toBe("In the box");
+  expect(titles(true)).toContain("In the transcript");
+  // Scrollback's Ctrl+O opens a list of tool calls instead.
+  expect(titles(false)).not.toContain("In the transcript");
+});

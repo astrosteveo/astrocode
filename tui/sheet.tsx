@@ -180,7 +180,8 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean): Sect
   const pointer = fullscreen ? [mouse] : [];
   switch (place) {
     case "box":
-      return [box, typed, editing, ...(fullscreen ? [scrolling, mouse] : []), anywhere];
+      // Full screen's /help shows this one, so it has the transcript's keys too, for after Ctrl+O.
+      return [box, typed, editing, ...(fullscreen ? [scrolling, transcript, mouse] : []), anywhere];
     case "transcript":
       return [transcript, ...pointer, anywhere];
     case "opened":
