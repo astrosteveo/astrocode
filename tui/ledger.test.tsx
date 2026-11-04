@@ -1,10 +1,8 @@
 import { expect, test } from "bun:test";
-import { renderToString } from "ink";
 import { stripVTControlCharacters } from "node:util";
 import type { FileChange } from "../src/events";
 import { patchLines } from "../src/view/patch";
 import { initialState, type Item, type State, type ToolCall } from "../src/view/state";
-import { ItemView } from "./entries";
 import { SPLIT_WIDTH } from "./diff";
 import { DEFAULT_KEYMAP } from "./keys";
 import { fileTarget, moreTarget, opensLedger, scopeTarget, type Listed, type TurnItem } from "./ledger";
@@ -166,20 +164,6 @@ test("opens a turn that did anything, or any turn in git, where what isn't commi
   expect(opensLedger(turn({ commands: ["ls"] }), false)).toBe(true);
   expect(opensLedger(turn(), false)).toBe(false);
   expect(opensLedger(turn(), true)).toBe(true);
-});
-
-test("printed in scrollback, every file's diff is open, with no scope to switch", () => {
-  const state = ended();
-  const turn = state.items.at(-1) as TurnItem;
-  const review: Item = { kind: "review", key: "r", turn, diffs: { "/p/src/cache.ts": patchLines(CACHE) }, commands: [{ command: "bun test", result: [{ text: "✕ exit 1", tone: "failed" }] }] };
-  const text = stripVTControlCharacters(renderToString(<ItemView item={review} rail={{ spaced: true, joined: false, through: false }} scrollback cwd="/p" home="/home/u" width={118} pictureRows={10} />, { columns: 118 }));
-  expect(text).toContain("1m 40s · 2 files +13 −1");
-  expect(text).toContain("this.clock.now()");
-  expect(text).toContain("✕ exit 1");
-  expect(text).toContain("2.9k tokens");
-  expect(text).not.toContain("uncommitted");
-  // A file with no diff read says so.
-  expect(text).toContain("Its diff wasn't kept.");
 });
 
 test("opens the diff of a file of a million lines and more, folded", () => {

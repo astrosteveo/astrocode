@@ -13,11 +13,9 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { CommandInfo, ElicitationRequest, FileChange, ImageAttachment, Ledger, Loaded, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, RemoteControl, SessionEvent, Trees } from "../events";
 import type { SavedSession } from "../history";
-import type { Part } from "./activity";
 import { AGENT_LINES, agentLines, type AgentLine } from "./agents";
 import { compact, duration } from "./format";
 import { workOf } from "./ledger";
-import type { DiffLine } from "./patch";
 
 type StreamEvent = SDKPartialAssistantMessage["event"];
 type AssistantBlock = SDKAssistantMessage["message"]["content"][number];
@@ -157,12 +155,7 @@ export type Item =
    * `explains`: it says why Claude may start a turn by itself next, as a background task's end does.
    */
   | { kind: "notice"; key: string; tone: NoticeTone; text: string; of?: string; explains?: boolean }
-  | ShellItem
-  /**
-   * A turn's ledger opened whole, printed on request, as /diff does in scrollback: each file's diff
-   * by path, where there was one to read, and the commands the turn ran with how they went.
-   */
-  | { kind: "review"; key: string; turn: Extract<Item, { kind: "turn" }>; diffs: Record<string, DiffLine[]>; commands: { command: string; result: Part[] }[] };
+  | ShellItem;
 
 export type ToolItem = Extract<Item, { kind: "tool" }>;
 
@@ -313,8 +306,6 @@ export type ViewEvent =
   | { kind: "history"; events: SessionEvent[]; title?: string; notice?: string }
   /** The latest sessions saved in this folder. */
   | { kind: "recent"; sessions: SavedSession[] }
-  /** Print a turn's ledger opened whole into the transcript, by its key, with what was read for it. */
-  | { kind: "review"; turn: string; diffs: Record<string, DiffLine[]>; commands: { command: string; result: Part[] }[] }
   /** What mods drew for a tool call's result, or for a command's output row by its id; null for nothing. */
   | { kind: "modDrawing"; of: { tool: string } | { command: string }; tree: ModNode | null }
   /** You sent something from the box, a command astrocode runs itself too. */
@@ -457,10 +448,6 @@ export function reduce(state: State, event: ViewEvent): State {
     }
     case "modDrawing":
       return withDrawing(state, event.of, event.tree);
-    case "review": {
-      const turn = state.items.find((item) => item.key === event.turn);
-      return turn?.kind === "turn" ? add(state, { kind: "review", turn, diffs: event.diffs, commands: event.commands }) : state;
-    }
   }
 }
 
