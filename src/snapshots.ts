@@ -62,7 +62,7 @@ export class Snapshots {
   start(): Promise<void> {
     return this.serial(async (signal) => {
       this.last = await this.edge(signal);
-    });
+    }, undefined);
   }
 
   /**
@@ -82,7 +82,7 @@ export class Snapshots {
       ]);
       if (numstat === null) return null;
       return { files: numstats(numstat, repo.top), commits: (log ?? "").split("\n").filter(Boolean).reverse() };
-    });
+    }, null);
   }
 
   /** Deletes the index and objects; the next edge starts over. */
@@ -96,9 +96,10 @@ export class Snapshots {
     this.seed = true;
   }
 
-  private serial<T>(edge: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    const next = this.queue.then(() => edge(AbortSignal.timeout(DEADLINE)));
-    this.queue = next.catch(() => {});
+  /** Runs an edge after the one before it. One that throws, as when its folder can't be made, gives `failed`, so the message or result waiting on it still goes. */
+  private serial<T>(edge: (signal: AbortSignal) => Promise<T>, failed: T): Promise<T> {
+    const next = this.queue.then(() => edge(AbortSignal.timeout(DEADLINE))).catch(() => failed);
+    this.queue = next;
     return next;
   }
 
