@@ -68,7 +68,7 @@ export function startOf(state: State, branch: string | undefined, keymap: Keymap
       ["/", "commands"],
       ["@", "files"],
       ["!", "shell command"],
-      ["/help", "keys and commands"],
+      ["?", "every key"],
       ...bound("chat:cycleMode"),
       // In full screen Ctrl+O gives the transcript your keys; in scrollback it still opens the tool output picker.
       ...bound("app:toggleTranscript", fullscreen ? "transcript" : ACTIONS["app:toggleTranscript"]),
@@ -126,7 +126,10 @@ export function StartScreen({ start, width }: { start: Start; width: number }) {
         </Box>
       ) : null}
       <Box flexDirection="column" marginTop={1}>
-        <Text color={PALETTE.star}>Keys</Text>
+        <Text wrap="truncate-end">
+          <Text color={PALETTE.star}>Keys</Text>
+          <Text color={PALETTE.dust}>   ? lists them all, for whatever has your keys</Text>
+        </Text>
         {keyRows.map((row, i) => (
           <Box key={i} paddingLeft={2}>
             {row.map(([key, does]) => (
