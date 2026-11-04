@@ -219,7 +219,7 @@ function describe(row: ActivityRow, cwd: string, home: string): Verbs {
       row.result = runResult(run);
       if (run.status === "error") row.failure = failureLine(run);
       // What Claude said the command does tells more at a glance than the command, which the
-      // inspector shows. Its verb takes the line's tense: `Running the test suite`, `Run the test
+      // opened call shows. Its verb takes the line's tense: `Running the test suite`, `Run the test
       // suite` while it asks, `Ran the test suite`. One that doesn't start with a verb follows
       // `Ran` as it is.
       const said = text("description").split("\n")[0]!.trim();
@@ -374,7 +374,7 @@ const SHORT_LINE = 32;
 
 /**
  * How a command went, for the end of its line: `✓ 48 passed · 6.1s`, `✕ exit 1 · 47 passed, 1 failed`, `✓ 42`.
- * How much it printed isn't a result; what it printed, the inspector shows.
+ * How much it printed isn't a result; what it printed, the opened call shows.
  */
 function runResult(run: Run): Part[] {
   const time = run.ms !== undefined && run.ms > LONG && run.status !== "running" ? [{ text: ` · ${took(run.ms)}`, tone: "faint" as const }] : [];

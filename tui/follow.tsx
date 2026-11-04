@@ -1,7 +1,7 @@
 // Follow Claude: a dock above the message box that shows the tool call Claude is making as it makes
-// it, drawn as the inspector draws it: an edit's diff, the lines a read looked at, a command's
-// output, a search's matches, a subagent's transcript, with the end of it in view. Nothing opens
-// beside the transcript, at any width. It moves to each call as it starts, at once when the call
+// it, drawn as a call opened under its line draws it: an edit's diff, the lines a read looked at, a
+// command's output, a search's matches, a subagent's transcript, with the end of it in view. Nothing
+// opens beside the transcript, at any width. It moves to each call as it starts, at once when the call
 // waits for you, and holds each a moment otherwise, so a burst of calls doesn't flicker. It never
 // takes the message box's keys.
 import { Box, Text, type DOMElement } from "ink";
