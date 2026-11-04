@@ -5,15 +5,15 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
 import type { ActivityRow, Part, Tone } from "../src/view/activity";
-import { compact, timed, took } from "../src/view/format";
+import { timed, took } from "../src/view/format";
 import { ledgerLine } from "../src/view/ledger";
 import { runOfCall, runOfShell } from "../src/view/runs";
-import { plural, shortPath } from "../src/view/tools";
 import type { Item, Live } from "../src/view/state";
 import { cellWidth } from "./markdown";
 import { fit, Markdown } from "./markdown-view";
 import { ModTree } from "./mod-tree";
 import { FullOutput, OutputBody } from "./output";
+import { ledgerPieces } from "./ledger";
 import { hyperlink } from "./links";
 import { ImageView, isReady } from "./pictures";
 import { GUTTER, LIVE, Railed, type Rail } from "./rail";
@@ -125,8 +125,30 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
     case "turn":
       return (
         <Railed node="╰─" color={PALETTE.dust} rail={rail}>
-          <TurnEnd item={item} expanded={expanded} cwd={view.cwd} home={view.home} width={inner.width} />
+          <TurnEnd item={item} />
         </Railed>
+      );
+    case "review":
+      // Every file open, with no scope to switch: scrollback has no keys for it.
+      return (
+        <Box flexDirection="column">
+          <Railed node="╰─" color={PALETTE.dust} rail={rail}>
+            <TurnEnd item={item.turn} />
+          </Railed>
+          {ledgerPieces({
+            turn: item.turn,
+            listed: { files: item.turn.files ?? [] },
+            open: () => true,
+            whole: () => false,
+            diff: (file) => item.diffs[file.path] ?? "gone",
+            commands: item.commands,
+            width: view.width,
+            cwd: view.cwd,
+            home: view.home,
+          }).map((piece) => (
+            <Box key={piece.key}>{piece.node}</Box>
+          ))}
+        </Box>
       );
     case "notice": {
       const { node, color, text } = NOTICE_TONES[item.tone];
@@ -155,7 +177,7 @@ export const STEP_NODES = {
   stopped: { node: "■", color: PALETTE.ember },
 } as const;
 
-const TONES: Record<Tone, string> = {
+export const TONES: Record<Tone, string> = {
   plain: BODY,
   bright: PALETTE.star,
   quiet: PALETTE.haze,
@@ -522,9 +544,9 @@ function Message({ text, images = {}, width, rows }: { text: string; images?: Re
 
 /**
  * `╰── 1m 40s · 3 files +58 −3 · 7 passed 1 failed · not committed`: the turn's ledger, closing the
- * rail. Opened in full screen, the files and commands are listed under it, with the turn's tokens.
+ * rail. Opened, it lists what the turn changed under it (`ledgerPieces()`).
  */
-function TurnEnd({ item, expanded, cwd, home, width }: { item: Extract<Item, { kind: "turn" }>; expanded: boolean; cwd: string; home: string; width: number }) {
+function TurnEnd({ item }: { item: Extract<Item, { kind: "turn" }> }) {
   const reason = item.detail?.split("\n").slice(1).join("\n");
   return (
     <Box flexDirection="column">
@@ -538,46 +560,8 @@ function TurnEnd({ item, expanded, cwd, home, width }: { item: Extract<Item, { k
       </Text>
       {/* The closing line says the failure's first line; the rest goes under it. */}
       {item.outcome === "failed" && reason ? <Text color={PALETTE.rose}>{reason}</Text> : null}
-      {expanded ? (
-        <Box flexDirection="column" marginTop={1}>
-          {item.files?.map((file) => {
-            const size = [file.added ? `+${file.added}` : "", file.removed ? `−${file.removed}` : ""].filter(Boolean).join(" ");
-            return (
-              <Text key={`f${file.path}`} wrap="truncate-end">
-                <Text color={PALETTE.haze}>{"changed  "}</Text>
-                <Text color={PALETTE.star}>{fit(shortPath(file.path, cwd, home), width - 10 - size.length, true)}</Text>
-                {file.added ? <Text color={PALETTE.teal}>{` +${file.added}`}</Text> : null}
-                {file.removed ? <Text color={PALETTE.rose}>{` −${file.removed}`}</Text> : null}
-              </Text>
-            );
-          })}
-          {item.commands?.map((command, i) => (
-            <Text key={`c${i}`} wrap="truncate-end">
-              <Text color={PALETTE.haze}>{"ran      "}</Text>
-              <Text color={PALETTE.dust}>{"$ "}</Text>
-              <Text>{firstLine(command)}</Text>
-            </Text>
-          ))}
-          {item.tokens > 0 ? <Text color={PALETTE.haze}>{`${compact(item.tokens)} tokens`}</Text> : null}
-        </Box>
-      ) : null}
     </Box>
   );
-}
-
-/**
- * What opening a turn's closing line lists, counted: `2 files changed · 3 commands · 1.2k tokens`,
- * or empty when there's nothing to list.
- */
-export function turnWork(item: Extract<Item, { kind: "turn" }>) {
-  const files = item.files?.length ?? 0;
-  const commands = item.commands?.length ?? 0;
-  return [files ? `${plural(files, "file")} changed` : "", commands ? plural(commands, "command") : "", item.tokens > 0 ? `${compact(item.tokens)} tokens` : ""].filter(Boolean).join(" · ");
-}
-
-function firstLine(text: string) {
-  const [first = ""] = text.split("\n");
-  return text.includes("\n") ? `${first} …` : first;
 }
 
 /**

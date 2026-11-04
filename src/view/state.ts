@@ -13,9 +13,11 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { CommandInfo, ElicitationRequest, FileChange, ImageAttachment, Ledger, Loaded, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, RemoteControl, SessionEvent, Trees } from "../events";
 import type { SavedSession } from "../history";
+import type { Part } from "./activity";
 import { AGENT_LINES, agentLines, type AgentLine } from "./agents";
 import { compact, duration } from "./format";
 import { workOf } from "./ledger";
+import type { DiffLine } from "./patch";
 
 type StreamEvent = SDKPartialAssistantMessage["event"];
 type AssistantBlock = SDKAssistantMessage["message"]["content"][number];
@@ -157,7 +159,12 @@ export type Item =
   | { kind: "notice"; key: string; tone: NoticeTone; text: string; of?: string; explains?: boolean }
   | ShellItem
   /** A tool call's or a `!` command's whole output, printed on request. */
-  | { kind: "output"; key: string; of: ToolItem | ShellItem };
+  | { kind: "output"; key: string; of: ToolItem | ShellItem }
+  /**
+   * A turn's ledger opened whole, printed on request, as /diff does in scrollback: each file's diff
+   * by path, where there was one to read, and the commands the turn ran with how they went.
+   */
+  | { kind: "review"; key: string; turn: Extract<Item, { kind: "turn" }>; diffs: Record<string, DiffLine[]>; commands: { command: string; result: Part[] }[] };
 
 export type ToolItem = Extract<Item, { kind: "tool" }>;
 
@@ -300,6 +307,8 @@ export type ViewEvent =
   | { kind: "recent"; sessions: SavedSession[] }
   /** Print a tool call's or a `!` command's whole output into the transcript. */
   | { kind: "output"; id: string }
+  /** Print a turn's ledger opened whole into the transcript, by its key, with what was read for it. */
+  | { kind: "review"; turn: string; diffs: Record<string, DiffLine[]>; commands: { command: string; result: Part[] }[] }
   /** What mods drew for a tool call's result, or for a command's output row by its id; null for nothing. */
   | { kind: "modDrawing"; of: { tool: string } | { command: string }; tree: ModNode | null };
 
@@ -437,6 +446,10 @@ export function reduce(state: State, event: ViewEvent): State {
       const index = state.tools[event.id];
       const item = index === undefined ? state.items.find((one) => one.kind === "shell" && one.id === event.id) : state.items[index];
       return item?.kind === "tool" || item?.kind === "shell" ? add(state, { kind: "output", of: item }) : state;
+    }
+    case "review": {
+      const turn = state.items.find((item) => item.key === event.turn);
+      return turn?.kind === "turn" ? add(state, { kind: "review", turn, diffs: event.diffs, commands: event.commands }) : state;
     }
   }
 }

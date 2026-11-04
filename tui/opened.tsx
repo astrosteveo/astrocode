@@ -24,8 +24,8 @@ export type Spot = { from: number; to: number; target: string };
 /** Where an opened call starts: under the activity line's verb, as opened entries indent. */
 export const OPEN_INSET = 4;
 /** A long tab's rows shown before and after its `⋯ N lines`. */
-const HEAD = 12;
-const TAIL = 8;
+export const HEAD = 12;
+export const TAIL = 8;
 
 /** What a click or Enter on an opened call's rows does besides closing it: the whole tab, another tab, or the call before or after. */
 export const WHOLE = "opened:whole";

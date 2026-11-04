@@ -65,9 +65,14 @@ export function workOf(items: Item[], { cwd, home }: { cwd: string; home: string
   return work;
 }
 
+/** The tool calls of the turn that `items[index]` closes, in order. */
+export function callsOf(items: Item[], index: number): ToolCall[] {
+  return items.slice(turnStart(items, index) + 1, index).flatMap((item) => (item.kind === "tool" ? [item.call] : []));
+}
+
 /** The calls of the commands the turn that `items[index]` closes ran, in order, as its `commands` lists them. */
 export function commandsOf(items: Item[], index: number): ToolCall[] {
-  return items.slice(turnStart(items, index) + 1, index).flatMap((item) => (item.kind === "tool" && isCommand(item.call) ? [item.call] : []));
+  return callsOf(items, index).filter(isCommand);
 }
 
 /** Where the turn before `index` ends: the last turn's end, or the message that started one, before it. */

@@ -5,6 +5,7 @@
 // patch gives them, so a changed line sits beside what it replaced. Long lines wrap.
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
+import type { DiffLine } from "../src/view/patch";
 import type { ToolCall } from "../src/view/state";
 import { field, plural } from "../src/view/tools";
 import { highlightCode } from "./highlight";
@@ -12,11 +13,10 @@ import { cellWidth, printable } from "./markdown";
 import { Panel } from "./markdown-view";
 import { PALETTE, rgb, TINT } from "./theme";
 
-/** A line of a diff, with its numbers in the old and new file where they're known. */
-export type DiffLine = { kind: "context" | "removed" | "added"; text: string; old?: number; new?: number };
+export type { DiffLine };
 
 /** A panel this wide or wider shows the two sides next to each other. */
-export const SPLIT_WIDTH = 140;
+export const SPLIT_WIDTH = 160;
 /** Past this many lines a side, lines are compared in one block instead of matched up, which would be slow. */
 const MATCH_LIMIT = 1000;
 /** Past this many words a line, a changed line is tinted whole rather than compared word by word. */
@@ -94,22 +94,26 @@ type Drawn = { line: DiffLine; cells: Cell[] };
 /**
  * A diff on a panel, its first `limit` lines, side by side when `width` allows, in the syntax
  * colors of `path`'s language. `framed={false}` leaves out the panel, for a diff inside one
- * already, such as a permission prompt.
+ * already, such as a permission prompt. `digits` numbers every line, unified too, in a gutter that
+ * wide, so a diff drawn in pieces lines up: a removed line by the old file, the rest by the new.
  */
-export function Diff({ lines, width, limit, path = "", framed = true }: { lines: DiffLine[]; width: number; limit: number; path?: string; framed?: boolean }) {
+export function Diff({ lines, width, limit, path = "", framed = true, digits: fixed }: { lines: DiffLine[]; width: number; limit: number; path?: string; framed?: boolean; digits?: number }) {
   const Frame = framed ? Panel : Bare;
   const shown = lines.slice(0, limit);
   const drawn = draw(shown, path.includes(".") ? (path.split(".").pop() ?? "") : "");
   const more = lines.length > shown.length ? <Text color={PALETTE.haze}>{` ${plural(lines.length - shown.length, "more line")}`}</Text> : null;
   if (width < SPLIT_WIDTH) {
-    // A space, the sign and a space before the text.
-    const room = Math.max(1, width - 3);
+    // The line's number and a space, if numbered, then a space, the sign and a space before the text.
+    const gutter = fixed ? fixed + 1 : 0;
+    const room = Math.max(1, width - 3 - gutter);
+    const number = (line: DiffLine) => String((line.kind === "removed" ? line.old : line.new) ?? "").padStart(gutter - 1);
     return (
       <Frame width={width} paddingX={0}>
         {drawn.flatMap(({ line, cells }, i) =>
           wrap(cells, room).map((chunk, row) => (
             <Box key={`${i}.${row}`} backgroundColor={LOOKS[line.kind].background} width={width}>
               <Text>
+                {gutter ? <Text color={PALETTE.dust}>{row === 0 ? `${number(line)} ` : " ".repeat(gutter)}</Text> : null}
                 <Text color={LOOKS[line.kind].color}>{row === 0 ? ` ${LOOKS[line.kind].sign} ` : "   "}</Text>
                 {paint(chunk, line.kind)}
               </Text>
@@ -120,8 +124,8 @@ export function Diff({ lines, width, limit, path = "", framed = true }: { lines:
       </Frame>
     );
   }
-  const digits = String(Math.max(0, ...shown.map((line) => Math.max(line.old ?? 0, line.new ?? 0)))).length;
-  const numbered = shown.some((line) => line.old !== undefined || line.new !== undefined);
+  const digits = fixed ?? String(Math.max(0, ...shown.map((line) => Math.max(line.old ?? 0, line.new ?? 0)))).length;
+  const numbered = fixed !== undefined || shown.some((line) => line.old !== undefined || line.new !== undefined);
   const gutter = numbered ? digits + 2 : 1;
   // Each side gets half, less the rule between them.
   const left = Math.floor((width - 1) / 2);
