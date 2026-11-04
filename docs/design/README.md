@@ -530,6 +530,7 @@ An opened entry is part of the transcript's focus: the cursor moves into it with
 | Enter on a line opens it in place, instead of expanding it | The same gesture, with tabs added |
 | `[` and `]` move between ledgers | `claude` uses them for scrollback in its viewer; in full screen there's no separate scrollback |
 | Alt+L (Follow Claude) retires | Replaced by opening the running line |
+| In an opened ledger, Alt+↑ and Alt+↓ still go to your message before or after, rather than scrolling the file list as in `claude`'s diff panel (`app:diffFileListUp/Down`) | ← and → move between the ledger's files and Enter opens one in place, so there's no separate list to scroll; Alt+↑↓ keep one meaning everywhere in the transcript |
 
 ### How you find things
 
