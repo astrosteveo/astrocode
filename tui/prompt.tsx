@@ -674,8 +674,8 @@ export function Prompt(props: Props) {
   const cursor = Math.max(0, buffer.current.cursor - skip);
   const end = next(text, cursor);
   const under = text.slice(cursor, end);
-  // An idle, empty box says nothing but, until you've opened the conversations once, that ← does;
-  // it speaks up while Claude works or waits on you.
+  // An idle, empty box says nothing but, until you've opened the conversations once, that ← does,
+  // while ← is the box's to read; it speaks up while Claude works or waits on you.
   const placeholder =
     props.waitingOn === "question"
       ? "Claude is waiting for your answer above"
@@ -683,7 +683,7 @@ export function Prompt(props: Props) {
         ? "Claude is waiting for your OK above"
         : busy
           ? "Claude is working. Type to queue a message"
-          : props.hintAgents
+          : props.hintAgents && active
             ? "← for conversations"
             : "";
   const caret = (character: string) =>
