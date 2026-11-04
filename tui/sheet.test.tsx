@@ -180,6 +180,16 @@ test("a permission prompt's sheet in full screen lists what scrolls the conversa
   expect(listed("decision", false).some((row) => row.startsWith("pgup") || row.startsWith("wheel"))).toBe(false);
 });
 
+test("a permission prompt's sheet has its keys as claude's prompt takes them: Tab a comment on No, Shift+Tab and Ctrl+G only where it takes them, Esc cancels", () => {
+  const rows = (prompt?: Parameters<typeof sheetOf>[3]) => sheetOf("decision", DEFAULT_KEYMAP, true, prompt).flatMap((section) => section.rows.map(([key, does]) => `${key}  ${does}`));
+  expect(rows()).toContain("↑ ↓  choose");
+  expect(rows()).toContain("esc, ctrl+c  cancel");
+  // Tab doesn't choose: on No it opens a comment, as claude's `Tab to amend` says.
+  expect(rows().some((row) => /^(tab|shift\+tab|ctrl\+g)\b|↑ ↓, tab|deny/.test(row))).toBe(false);
+  const all = rows({ amend: true, shiftTab: true, plan: true });
+  for (const row of ["tab  a comment on No", "shift+tab  yes, for this session", "ctrl+g  the plan in your editor"]) expect(all).toContain(row);
+});
+
 test("says ↑ in the box takes back what's queued, as it does before it goes back through earlier messages", () => {
   expect(listed("box")).toContain("↑  edit what's queued");
 });

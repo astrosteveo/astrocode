@@ -69,7 +69,7 @@ import { RemotePanel } from "./remote";
 import { GUTTER } from "./rail";
 import { SandboxPanel } from "./sandbox";
 import { Screen, transcriptHint } from "./screen";
-import { KeySheet, sheetOf, type Place } from "./sheet";
+import { KeySheet, sheetOf, type Place, type Prompted } from "./sheet";
 import { arrange, type Entry } from "./arrange";
 import { SessionPreview } from "./session-preview";
 import { SkillsPanel } from "./skills";
@@ -120,8 +120,8 @@ type Overlay =
   | { kind: "find" }
   /** The conversation's pictures, as large as they go, opened on one of them. */
   | { kind: "picture"; image: ImageAttachment }
-  /** Every key, for what had your keys when `?` or /help opened it: a decision by its request's id. */
-  | { kind: "keys"; place: Place; request?: string }
+  /** Every key, for what had your keys when `?` or /help opened it: a decision by its request's id, with the keys it takes. */
+  | { kind: "keys"; place: Place; request?: string; prompt?: Prompted }
   | null;
 
 /** Why fast mode can't be on, by Claude Code's reason. */
@@ -1203,7 +1203,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const picker = () => {
     switch (overlay?.kind) {
       case "keys":
-        return <KeySheet sections={sheetOf(overlay.place, store.keymap, fullscreen)} custom={store.keymap !== DEFAULT_KEYMAP} width={width} rows={Math.max(3, rows - 13)} onClose={close} />;
+        return <KeySheet sections={sheetOf(overlay.place, store.keymap, fullscreen, overlay.prompt)} custom={store.keymap !== DEFAULT_KEYMAP} width={width} rows={Math.max(3, rows - 13)} onClose={close} />;
       case "picture":
         return (
           <Lightbox
@@ -1654,7 +1654,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onDecide={(answer) => session.decide(request.id, answer)}
           onEdit={(path) => handOver(() => editFile(path)).catch(report)}
           // A decision that took an overlay's place, such as the box's sheet, leaves it to come back once answered.
-          onKeys={overlay ? undefined : () => setOverlay({ kind: "keys", place: "decision", request: request.id })}
+          onKeys={overlay ? undefined : (prompt) => setOverlay({ kind: "keys", place: "decision", request: request.id, prompt })}
         />
       </Box>
     </>

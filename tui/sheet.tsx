@@ -17,6 +17,9 @@ export type Place = "box" | "transcript" | "opened" | "decision";
 
 type Row = [key: string, does: string];
 
+/** Keys only some permission prompts take: Tab's comment on No, the row Shift+Tab picks, and Ctrl+G's plan in your editor. */
+export type Prompted = { amend: boolean; shiftTab: boolean; plan: boolean };
+
 export type Section = { title: string; rows: Row[] };
 
 /** Cells between two columns of keys. */
@@ -25,7 +28,7 @@ const GAP = 3;
 /** Claude Code's other spellings of Ctrl+_, which terminals send for the one key. */
 const SPELLINGS = new Set(["ctrl+-", "ctrl+shift+-", "ctrl+shift+_"]);
 
-export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean): Section[] {
+export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean, prompt?: Prompted): Section[] {
   /**
    * Keys of the box's own, in the keymap's spelling, that no binding has taken from it: the box asks
    * the keymap first, so a stroke bound, or one that starts a chord, is the binding's.
@@ -118,13 +121,17 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean): Sect
           ["esc", "close it"],
         ],
   };
+  // In `claude`'s words: its hint line says `Esc to cancel · Tab to amend`.
   const decision: Section = {
     title: "In a permission prompt",
     rows: [
-      ["↑ ↓, tab", "choose"],
+      ["↑ ↓", "choose"],
       ["enter", "confirm"],
       ["1, 2, …", "answer at once"],
-      ["esc, ctrl+c", "deny"],
+      ...(prompt?.shiftTab ? [["shift+tab", "yes, for this session"] as Row] : []),
+      ...(prompt?.amend ? [["tab", "a comment on No"] as Row] : []),
+      ...(prompt?.plan ? [["ctrl+g", "the plan in your editor"] as Row] : []),
+      ["esc, ctrl+c", "cancel"],
     ],
   };
   // Full screen's, from the box or a decision: the view moves, with no cursor. In scrollback the
