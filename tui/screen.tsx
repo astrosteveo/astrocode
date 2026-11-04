@@ -21,6 +21,7 @@ import { cellWidth } from "./markdown";
 import { cellsOn, cursorOn, findIn, hasContent, highlight, isTextAt, linkAt, lit, litLink, markMatches, selectedText, wordAt, type Cell } from "./selection";
 import { PALETTE } from "./theme";
 import { allTarget, fileTarget, isMore, ledgerTarget, scopeTarget } from "./ledger";
+import { MARKS, markTurns, useMark } from "./mark";
 import { moveTarget, tabTarget, targetTab, WHOLE, type Opened } from "./opened";
 import { imageAt, pictureRows, usePictureRows } from "./pictures";
 import { StartScreen, type Start } from "./start";
@@ -767,6 +768,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   const cells = selection ? span(transcript, selection) : null;
   // Before the first message, the start screen, at the top.
   const welcome = state.items.length === 0 && !state.live;
+  const turning = markTurns(state);
   // Links, tool calls, commands and the scrollbar answer to a click, and the pointer is a hand over
   // them; over a picture, which a click enlarges, it's a magnifying glass. What a click would open
   // lights up at its first row, a step's line or a card's title, its words in gold, so it's plain
@@ -812,7 +814,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
               const range = cells ? cellsOn(row.text, top + i, cells[0], cells[1], row.inset) : null;
               const found = marks.get(top + i);
               return (
-                <Text key={i} wrap="truncate-end">
+                <Line key={i} marked={row.turns} turning={turning}>
                   {range
                     ? highlight(row.text, range[0], range[1])
                     : found
@@ -826,7 +828,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
                         : row.hot && (row.head || opensMore(row.target)) && hovered === (row.target ?? row.key)
                           ? lit(row.text, row.inset)
                           : row.text || " "}
-                </Text>
+                </Line>
               );
             })}
           </Box>
@@ -857,6 +859,12 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
       </Box>
     </Box>
   );
+}
+
+/** A row of the transcript. The running step's mark turns on its own, so the screen isn't drawn again for it. */
+function Line({ marked = false, turning, children }: { marked?: boolean; turning: boolean; children: string }) {
+  const mark = useMark(marked && turning);
+  return <Text wrap="truncate-end">{marked ? children.replace(MARKS[0]!, mark) : children}</Text>;
 }
 
 /**

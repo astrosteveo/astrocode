@@ -1,5 +1,5 @@
 // Full screen's transcript as lines of styled text. Each entry is drawn once with Ink's
-// renderToString and kept until it changes, so scrolling, the spinner and the message box only
+// renderToString and kept until it changes, so scrolling, the running mark and the message box only
 // redraw the rows on screen, and a selection knows exactly what text it covers.
 import { renderToString } from "ink";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -33,6 +33,8 @@ export type Row = {
   open: boolean;
   /** Cells the rail takes at the start of the row, which a selection leaves out. */
   inset: number;
+  /** The row carries the running step's mark, drawn at its first frame, which turns where it's shown. */
+  turns?: boolean;
 };
 
 export type Transcript = {
@@ -201,13 +203,14 @@ export function layout({ state, width, pictureRows, start, expanded, waiting, op
       starts.set(entry.key, start);
       // A line for several calls stands for the one it opens, or for the one of them that's open, which a click on it closes.
       const standsFor = mine && callTarget(mine.opens);
+      const marked = row.status === "running" ? (rail.spaced ? 1 : 0) : -1;
       drawn.lines.forEach((text, i) => {
         // The row that sets the step apart from the entry before isn't part of what a click acts on.
         const drawnTarget = rail.spaced && i === 0 ? undefined : drawn.targets[i];
         const target = call && drawnTarget === standsFor ? callTarget(call.id) : drawnTarget;
         if (i === after) rows.push(...added);
         const line = i < after ? i : i + added.length;
-        rows.push({ text, key: entry.key, line, head: target !== undefined, hot: target !== undefined, open: false, inset: GUTTER, target });
+        rows.push({ text, key: entry.key, line, head: target !== undefined, hot: target !== undefined, open: false, inset: GUTTER, target, turns: i === marked });
       });
       if (after === drawn.lines.length) rows.push(...added);
       // Each call's line, for scrolling to a call and for Alt+Shift+↑ and ↓. A call a closed step

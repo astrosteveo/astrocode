@@ -451,7 +451,8 @@ test("scrolling away from the call followed stops following, so the view stays w
   const done = { ...state.items.at(-1)!, call: call("z") };
   await update({ ...state, items: [...before.items, done, running("y")], tools: { ...state.tools, y: before.items.length + 1 } });
   expect(screen()[0]).toBe(away);
-  expect(row(/Searching +y in src/)).toBe(-1);
+  // Only the now line over the box names the new call: its own line is out of view.
+  expect(row(/Searching +y in src/)).toBe(row(/to stop$/));
   expect(cursor()).not.toBe(-1);
 });
 
@@ -1273,6 +1274,60 @@ test("exactly one gold mark in every place your keys can be, and Esc from an ove
   expect(where()).toEqual({ marks: 1, cursor: false, box: false });
   await press(KEYS.esc);
   expect(where()).toEqual({ marks: 1, cursor: true, box: false });
+});
+
+/** The frames drawn over the next `ms`, with their colors, from the one on screen now. The mouse's own codes, written between frames, have no line break. */
+async function framesOver(writes: string[], ms: number) {
+  const frames = () => writes.filter((one) => one.includes("\n"));
+  const before = frames().length;
+  await settle(ms);
+  return frames().slice(Math.max(0, before - 1));
+}
+
+/** Scrollback writes nothing above the box until Claude Code has said what it loaded. */
+const STARTED = { loaded: { version: "2.1.318" }, recent: [] };
+
+for (const fullscreen of [true, false]) {
+  test(`only the running mark moves, in the running step's gutter and on the now line, in step (${fullscreen ? "full screen" : "scrollback"})`, async () => {
+    const { writes } = await launch({ ...turn([call("a"), running("b", "Build the app", { elapsed: 8 })]), ...STARTED, busy: true, turnTokens: 2100 }, { fullscreen, columns: 120, rows: 30 });
+    const frames = await framesOver(writes, 1100);
+    const marks = frames.map((frame) => {
+      const lines = stripVTControlCharacters(frame).split("\n");
+      return [lines.find((line) => line.includes("Looking around"))?.[0], lines.find((line) => line.includes("esc to stop"))?.[0]];
+    });
+    // The step's line, and the now line: the same mark on both.
+    for (const [step, now] of marks) {
+      expect("◐◓◑◒").toContain(step!);
+      expect(now).toBe(step);
+    }
+    expect(new Set(marks.map(([step]) => step)).size).toBeGreaterThan(1);
+    expect(stripVTControlCharacters(frames[0]!).split("\n").find((line) => line.includes("esc to stop"))).toMatch(/^. Building the app · 8s · 2\.1k tokens +esc to stop/);
+    // Nothing else changes: no orbit, no light over the words, no falling dots.
+    expect(new Set(frames.map((frame) => frame.replace(/[◐◓◑◒]/g, "◐"))).size).toBe(1);
+  });
+}
+
+test("an idle screen stays as it was drawn", async () => {
+  const { writes } = await launch(THREE);
+  expect(new Set(await framesOver(writes, 1100)).size).toBe(1);
+});
+
+test("waiting on you, the step's mark stops as a gold ◇, and only the decision's waiting Ns moves", async () => {
+  const command = { command: "rm -rf build", description: "Clean the build" };
+  const asking = { ...turn([call("a"), call("b", { name: "Bash", input: command, status: "running", result: undefined })]), busy: true };
+  const { writes } = await launch({ ...asking, pending: [{ id: "b", toolName: "Bash", input: command, description: command.description }] }, { columns: 120, rows: 30 });
+  const frames = await framesOver(writes, 1100);
+  expect(stripVTControlCharacters(frames[0]!).split("\n").find((line) => line.includes("Looking around"))?.[0]).toBe("◇");
+  expect(new Set(frames.map((frame) => frame.replace(/waiting \d+s/, "waiting Ns"))).size).toBe(1);
+});
+
+test("an MCP server's form stops the running step's mark too, though its call doesn't wait for an OK", async () => {
+  const pick = call("m", { name: "mcp__github__pick", input: {}, status: "running", result: undefined });
+  const form = { id: "e", server: "github", message: "Pick a repository", mode: "form" as const, fields: [] };
+  const { writes } = await launch({ ...turn([call("a"), pick]), busy: true, elicitations: [form] }, { columns: 120, rows: 30 });
+  const frames = await framesOver(writes, 1100);
+  expect(frames.join("")).toContain("Pick a repository");
+  expect(new Set(frames.map((frame) => frame.replace(/waiting \d+s/, "waiting Ns"))).size).toBe(1);
 });
 
 test("while the transcript has your keys, the line over the box names the key that stops Claude there", async () => {

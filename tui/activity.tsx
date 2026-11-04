@@ -1,96 +1,93 @@
-// The tip of the rail while Claude works: light falling down the rail into a cell in orbit, what
-// Claude is doing with light passing over the words, the time so far and the tokens written. While
-// a tool runs, it names the call, so you needn't look for it above; while a request is tried again,
-// it says when and why. While it waits on you there's no tip: the decision in the box's place says so.
-import { Box, Text, useAnimation } from "ink";
+// The now line, over the box while Claude works: the running mark, what Claude is doing, how long
+// that has gone on and the turn's tokens. A call is named as its activity line names it, in the
+// present tense (`Running the tests`, `Reading src/retry.ts`), and Claude waits on a subagent. A
+// request tried again says when and why, in ember. While Claude waits on you there's no now line:
+// the decision in the box's place says so.
+import { Box, Text } from "ink";
+import { useRef } from "react";
+import { activityRows } from "../src/view/activity";
 import { compact, duration } from "../src/view/format";
-import type { Retry, State } from "../src/view/state";
-import { toolLabel, toolTarget } from "../src/view/tools";
+import type { Retry, State, ToolCall } from "../src/view/state";
+import { toolLabel } from "../src/view/tools";
+import { markTurns, useMark } from "./mark";
 import { cellWidth } from "./markdown";
 import { fit } from "./markdown-view";
 import { GUTTER } from "./rail";
-import { mix, PALETTE } from "./theme";
+import { PALETTE } from "./theme";
 
 /**
- * A gap going round a full braille cell. A single dot going round was too faint to see at most
- * font sizes; seven lit dots read as a solid mark that turns.
+ * What Claude is doing: `what`, in the mark's color, then what it acts on, in bright. `key` names
+ * it, and its clock starts over as that changes; a call has run for `elapsed` seconds, as its
+ * activity line says. `about` takes the place of the clock and tokens, as a retry's reason does.
  */
-const ORBIT = ["⣾", "⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽"];
+type Doing = { what: string; target?: string; path?: boolean; key: string; elapsed?: number; about?: string; color?: string };
 
-/**
- * The rail's last row, above the orbit: a bar of light falling down it into the orbit, a step every
- * other frame, so the rail reads as still running rather than drawn and done.
- */
-const FALL = ["⠉", "⠒", "⠤", "⣀"];
+const NOTHING: ReadonlySet<string> = new Set();
 
 /** `stop`: the key that stops Claude where your keys are, Esc in the box. */
 export function Activity({ state, width, stop = "esc" }: { state: State; width: number; stop?: string }) {
-  const waiting = state.pending.length > 0 || state.questions.length > 0 || state.elicitations.length > 0;
-  // The clock runs on while Claude waits on you, so the turn's time goes on from where it was.
-  const { frame, time } = useAnimation({ interval: 90, isActive: state.busy || waiting });
-  if (!state.busy || waiting) return null;
+  const shown = markTurns(state);
+  const mark = useMark(shown);
+  const doing = now(state);
+  const since = useSince(doing.key);
+  if (!shown) return null;
   const live = state.live?.blocks.slice(state.live.finalized).reduce((sum, block) => sum + (block?.text.length ?? 0), 0) ?? 0;
   const tokens = state.turnTokens + Math.round(live / 4);
-  const stats = `   ${duration(time)}${tokens > 0 ? `   ${compact(tokens)} tokens` : ""}`;
+  // Claude Code reports a call's seconds now and then, if at all, so the clock counts on between.
+  const time = Math.max((doing.elapsed ?? 0) * 1000, Date.now() - since);
+  const after = doing.about ?? ` · ${duration(time)}${tokens > 0 ? ` · ${compact(tokens)} tokens` : ""}`;
   const hint = `${stop} to stop`;
-  const label = fit(describe(state), width - GUTTER - cellWidth(stats) - cellWidth(hint) - 2, false);
+  const target = doing.target ? fit(doing.target, width - GUTTER - cellWidth(doing.what) - cellWidth(after) - cellWidth(hint) - 3, doing.path ?? false) : "";
   return (
-    <Box flexDirection="column">
-      <Text color={PALETTE.teal}>{FALL[Math.floor(frame / 2) % FALL.length]}</Text>
-      <Box justifyContent="space-between" width={width}>
-        <Text>
-          <Text color={PALETTE.teal}>{(ORBIT[frame % ORBIT.length] ?? "").padEnd(GUTTER)}</Text>
-          <Sweep text={label} frame={frame} />
-          <Text color={PALETTE.haze}>{stats}</Text>
-        </Text>
-        <Text color={PALETTE.dust}>{hint}</Text>
-      </Box>
+    <Box justifyContent="space-between" width={width}>
+      <Text wrap="truncate-end">
+        <Text color={doing.color ?? PALETTE.teal}>{`${mark} ${doing.what}`}</Text>
+        {target ? <Text color={PALETTE.star}>{` ${target}`}</Text> : null}
+        <Text color={PALETTE.haze}>{after}</Text>
+      </Text>
+      <Text color={PALETTE.dust}>{hint}</Text>
     </Box>
   );
 }
 
-/** Light passing over the words, letter by letter, from teal to starlight and back. */
-function Sweep({ text, frame }: { text: string; frame: number }) {
-  const letters = [...text];
-  const head = (frame % (letters.length + 12)) - 6;
-  return (
-    <>
-      {letters.map((letter, i) => {
-        const glow = Math.max(0, 1 - Math.abs(i - head) / 4);
-        return (
-          <Text key={i} color={mix(PALETTE.teal, PALETTE.star, glow)}>
-            {letter}
-          </Text>
-        );
-      })}
-    </>
-  );
+/** When what `key` names started, as far as the now line has seen it. */
+function useSince(key: string) {
+  const since = useRef({ key, at: Date.now() });
+  if (since.current.key !== key) since.current = { key, at: Date.now() };
+  return since.current.at;
 }
 
-/** What Claude is doing, in a few words: "Thinking", "Running Bash · the test suite", "Waiting for your OK". */
+/** What Claude is doing, in a few words, as the now line says it: "Thinking", "Running the tests", "Waiting on Explore". */
 export function describe(state: State) {
-  if (state.questions.length > 0) return "Claude has a question for you";
-  if (state.elicitations.length > 0) return `${state.elicitations[0]?.server ?? "An MCP server"} is asking you something`;
-  if (state.pending.length > 0) return "Waiting for your OK";
-  if (state.compacting) return "Compacting the conversation";
+  const { what, target, about = "" } = now(state);
+  return `${what}${target ? ` ${target}` : ""}${about}`;
+}
+
+function now(state: State): Doing {
+  if (state.compacting) return { what: "Compacting", key: "compacting" };
   if (state.retry) return retrying(state.retry);
   const live = state.live;
   const block = live?.blocks.slice(live.finalized).findLast((b) => b !== undefined);
-  if (block?.kind === "thinking") return "Thinking";
-  if (block?.kind === "text") return "Writing";
-  if (block?.kind === "tool") return `Getting ${toolLabel(block.name ?? "a tool")} ready`;
+  if (block?.kind === "thinking") return { what: "Thinking", key: `thinking:${live!.messageId}` };
+  if (block?.kind === "text") return { what: "Writing", key: `writing:${live!.messageId}` };
+  if (block?.kind === "tool") return { what: `Getting ${toolLabel(block.name ?? "a tool")} ready`, key: `tool:${live!.messageId}` };
   const running = state.items.findLast((item) => item.kind === "tool" && item.call.status === "running");
-  if (running?.kind === "tool") {
-    const { call } = running;
-    const what = call.name === "Bash" && typeof call.input.description === "string" ? call.input.description : toolTarget(call, state.cwd, state.home);
-    return `Running ${toolLabel(call.name)}${what ? ` · ${what.split("\n")[0]}` : ""}`;
-  }
-  return "Working";
+  if (running?.kind !== "tool") return { what: "Working", key: "working" };
+  const { call } = running;
+  if (call.name === "Agent" || call.name === "Task") return { what: `Waiting on ${subagent(call)}`, key: call.id, elapsed: call.elapsed };
+  const [row] = activityRows([call], NOTHING, state.cwd, state.home);
+  return { what: row!.verb, target: row!.target.map((part) => part.text).join(""), path: row!.path, key: call.id, elapsed: call.elapsed };
 }
 
-/** A request Claude Code tries again: when, which attempt, and why, as `Retrying in 8s (2 of 10) · overloaded`. */
-function retrying(retry: Retry) {
+/** The subagent a call started, by its kind (`Explore`), or `a subagent` for the general one. */
+function subagent(call: ToolCall) {
+  const type = call.input.subagent_type;
+  return typeof type === "string" && type && type !== "general-purpose" ? type : "a subagent";
+}
+
+/** A request Claude Code tries again: when, then why and which attempt, as `Retrying in 8s · overloaded · attempt 2 of 10`. */
+function retrying(retry: Retry): Doing {
   const left = Math.max(0, Math.ceil((retry.at + retry.delayMs - Date.now()) / 1000));
-  const why = retry.status === null ? "no connection" : `${retry.status} ${retry.error.replace(/_/g, " ")}`;
-  return `${left > 0 ? `Retrying in ${left}s` : "Retrying"} (${retry.attempt} of ${retry.max}) · ${why}`;
+  const why = retry.status === null ? "no connection" : retry.error === "unknown" ? `error ${retry.status}` : retry.error.replace(/_/g, " ");
+  return { what: left > 0 ? `Retrying in ${left}s` : "Retrying", about: ` · ${why} · attempt ${retry.attempt} of ${retry.max}`, key: "retry", color: PALETTE.ember };
 }

@@ -46,6 +46,7 @@ import { Lightbox } from "./lightbox";
 import { copiedBy, openFile, openLink, ranBy } from "./links";
 import { runnableCommands } from "./runnable";
 import type { Outcome } from "./manager";
+import { markTurns } from "./mark";
 import { ANSI } from "./markdown";
 import { fit } from "./markdown-view";
 import { McpPanel } from "./mcp";
@@ -1845,7 +1846,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           <>
             {unsettled.map((entry) =>
               entry.kind === "step" ? (
-                <StepView key={entry.key} step={entry.row} rail={entry.rail} open={entry.open} width={width} pictureRows={view.pictureRows} cwd={state.cwd} home={state.home} clickable={false} />
+                <StepView key={entry.key} step={entry.row} rail={entry.rail} open={entry.open} width={width} pictureRows={view.pictureRows} cwd={state.cwd} home={state.home} clickable={false} turning={markTurns(state)} />
               ) : (
                 <ItemView
                   key={entry.item.key}

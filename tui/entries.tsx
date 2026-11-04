@@ -14,6 +14,7 @@ import { fit, Markdown } from "./markdown-view";
 import { ModTree } from "./mod-tree";
 import { OutputBody } from "./output";
 import { hyperlink } from "./links";
+import { MARKS, useMark } from "./mark";
 import { ImageView, isReady } from "./pictures";
 import { GUTTER, LIVE, Railed, type Rail } from "./rail";
 import { ShellCard } from "./shell-card";
@@ -129,11 +130,11 @@ const NOTICE_TONES = {
   error: { node: "✕", color: PALETTE.rose, text: PALETTE.rose },
 } as const;
 
-/** A step's node by how it went: a check once done, a cross when its last call failed. */
+/** A step's node by how it went: a check once done, a cross when its last call failed. The running mark turns (`mark.ts`). */
 export const STEP_NODES = {
   done: { node: "✓", color: PALETTE.teal },
-  running: { node: "●", color: PALETTE.teal },
-  waiting: { node: "●", color: PALETTE.gold },
+  running: { node: MARKS[0]!, color: PALETTE.teal },
+  waiting: { node: "◇", color: PALETTE.gold },
   failed: { node: "✗", color: PALETTE.rose },
   stopped: { node: "■", color: PALETTE.ember },
 } as const;
@@ -199,6 +200,8 @@ type StepProps = {
   home: string;
   /** Whether a click acts on it, as in full screen, which the marks for opening and inspecting say. */
   clickable?: boolean;
+  /** The running mark as it is now, for a running step; full screen turns it where it's shown. */
+  mark?: string;
 };
 
 /** Whether the step has more to show open than closed: Claude's words, thinking, or lines past the most a closed step shows. */
@@ -219,10 +222,11 @@ export function leavesOut(step: StepRow, line: ActivityRow) {
  * a running subagent shows its latest calls, and pictures a call returned show under it. Open, the
  * step shows Claude's thinking between its calls too, and every line.
  */
-export function StepView(props: StepProps) {
+export function StepView({ turning = false, ...props }: Omit<StepProps, "mark"> & { turning?: boolean }) {
+  const mark = useMark(turning && props.step.status === "running");
   return (
     <Box flexDirection="column">
-      {stepPieces(props).map((piece) => (
+      {stepPieces({ ...props, mark }).map((piece) => (
         <Box key={piece.key} flexDirection="column">
           {piece.node}
         </Box>
@@ -232,8 +236,9 @@ export function StepView(props: StepProps) {
 }
 
 /** The step's pieces, top to bottom, each with what a click on it acts on. */
-export function stepPieces({ step, rail, open, width, picked, pictureRows, links, cwd, home, clickable = true }: StepProps): Piece[] {
-  const { node, color } = STEP_NODES[step.status];
+export function stepPieces({ step, rail, open, width, picked, pictureRows, links, cwd, home, clickable = true, mark }: StepProps): Piece[] {
+  const { color } = STEP_NODES[step.status];
+  const node = step.status === "running" && mark ? mark : STEP_NODES[step.status].node;
   const inner = width - GUTTER;
   const openable = clickable && opens(step);
   const tail = `${timed(step.span) ? took(step.span) : ""}${openable ? `  ${open ? "▾" : "▸"}` : ""}`;
