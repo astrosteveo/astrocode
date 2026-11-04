@@ -12,6 +12,7 @@ import type {
   SDKResultMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { CommandInfo, ElicitationRequest, FileChange, ImageAttachment, Ledger, Loaded, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, RemoteControl, SessionEvent } from "../events";
+import type { SavedSession } from "../history";
 import { AGENT_LINES, agentLines, type AgentLine } from "./agents";
 import { compact, duration } from "./format";
 import { workOf } from "./ledger";
@@ -232,6 +233,8 @@ export type State = {
   commands: CommandInfo[];
   /** What Claude Code loaded, once it has said. */
   loaded?: Loaded;
+  /** The latest sessions saved in this folder, for the start screen, once they're listed. */
+  recent?: SavedSession[];
   mode: PermissionMode;
   context?: { percentage: number; tokens: number; max: number };
   limits: { fiveHour?: UsageWindow; sevenDay?: UsageWindow };
@@ -291,6 +294,8 @@ export type ViewEvent =
   | SessionEvent
   /** A saved conversation, replayed when resuming it. */
   | { kind: "history"; events: SessionEvent[]; title?: string; notice?: string }
+  /** The latest sessions saved in this folder. */
+  | { kind: "recent"; sessions: SavedSession[] }
   /** Print a tool call's or a `!` command's whole output into the transcript. */
   | { kind: "output"; id: string }
   /** What mods drew for a tool call's result, or for a command's output row by its id; null for nothing. */
@@ -332,6 +337,8 @@ export function reduce(state: State, event: ViewEvent): State {
       return { ...state, commands: event.commands };
     case "loaded":
       return { ...state, loaded: event.loaded };
+    case "recent":
+      return { ...state, recent: event.sessions };
     case "prompt":
       // Claude Code echoes a message sent over Remote Control as it starts on it, so it never waits here.
       if (event.remote) return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at, remote: true, starts: event.starts }), busy: true };

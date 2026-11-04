@@ -25,7 +25,6 @@ import { Activity } from "./activity";
 import { AsidePanel } from "./aside";
 import { useAttention } from "./attention";
 import { useKeepWarm } from "./cache";
-import { Banner } from "./banner";
 import { StatusPanel } from "./claude-status";
 import { copy } from "./clipboard";
 import { ConfigMenu, type ConfigValues } from "./config";
@@ -69,6 +68,7 @@ import { Screen, transcriptHint } from "./screen";
 import { arrange, type Entry } from "./arrange";
 import { SessionPreview } from "./session-preview";
 import { SkillsPanel } from "./skills";
+import { RECENT, StartScreen, startOf, startReady } from "./start";
 import { ModBand } from "./mod-band";
 import { useModCards } from "./mod-cards";
 import { ModStatus, StatusBar } from "./status";
@@ -250,6 +250,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     setFollowState(on);
   };
   const title = useSessionTitle(session.knownId, state.cwd, turns, store.epoch);
+  const start = startOf(state, branch, store.keymap);
   useAttention({ state, window: store.window, notify: notifyMode, title, git });
   /** The message put aside with Ctrl+S, kept in the store so it outlives a switch of layouts. */
   const [stash, setStash] = useState(store.stash);
@@ -312,6 +313,19 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     setTranscriptKeys(false);
     setInspect(null);
   }, [store.resets]);
+
+  // The sessions saved here, for each new screen's start screen. The one on screen isn't one of them.
+  useEffect(() => {
+    let alive = true;
+    void savedSessions(state.cwd, RECENT + 1)
+      .catch(() => [])
+      .then((sessions) => {
+        if (alive) store.emit({ kind: "recent", sessions: sessions.filter((one) => one.id !== session.knownId).slice(0, RECENT) });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [store.epoch]);
 
   // An Agent call waits for you while its subagent, or one under it, does.
   const waiting = new Set([
@@ -1713,7 +1727,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       <Screen
         state={state}
         epoch={store.epoch}
-        branch={branch}
+        start={start}
         columns={width}
         rows={rows}
         expanded={expanded}
@@ -1737,10 +1751,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     );
   }
 
-  const settled = settledSteps(state, settledCount(state.items, waiting));
+  // The scrollback can't take back the start screen, so it's written there once it has all it will
+  // say, and until then it's drawn live with what follows it; or once the conversation starts.
+  const started = startReady(state) || state.items.some((item) => item.kind !== "notice");
+  const settled = started ? settledSteps(state, settledCount(state.items, waiting)) : 0;
   // What's written for good is arranged on its own, as of a turn that's over, so it can't change later.
   const written = arrange({ ...state, items: state.items.slice(0, settled), busy: false }, waiting, NONE);
-  const entries: ({ kind: "banner"; key: string } | Entry)[] = [{ kind: "banner", key: "banner" }, ...written];
+  const entries: ({ kind: "banner"; key: string } | Entry)[] = started ? [{ kind: "banner", key: "banner" }, ...written] : [];
   const unsettled = arrange(state, waiting, NONE).filter((entry) => entry.index >= settled);
   return (
     <>
@@ -1752,12 +1769,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
             ) : entry.kind === "step" ? (
               <StepView step={entry.row} rail={entry.rail} open={entry.open} width={width} pictureRows={view.pictureRows} links="scrollback" cwd={state.cwd} home={state.home} clickable={false} />
             ) : (
-              <Banner cwd={state.cwd} home={state.home} branch={branch} width={width} />
+              <StartScreen start={start} width={width} />
             )}
           </Box>
         )}
       </Static>
       <Box flexDirection="column">
+        {started ? null : <StartScreen start={start} width={width} />}
         {unsettled.map((entry) =>
           entry.kind === "step" ? (
             <StepView key={entry.key} step={entry.row} rail={entry.rail} open={entry.open} width={width} pictureRows={view.pictureRows} cwd={state.cwd} home={state.home} clickable={false} />

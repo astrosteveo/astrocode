@@ -207,9 +207,14 @@ export function keyFor(keymap: Keymap, action: Action) {
   return null;
 }
 
+/** The first key bound to an action as the lowercase hints write keys, `alt+l` for `meta+l`, or null when nothing is. */
+export function hintKey(keymap: Keymap, action: Action) {
+  return keyFor(keymap, action)?.replace(/\bmeta\b/g, "alt") ?? null;
+}
+
 /** The key that turns Follow Claude on and off, as the lowercase hints write keys: `alt+l`. */
 export function followKey(keymap: Keymap) {
-  return (keyFor(keymap, "chat:followClaude") ?? "meta+l").replace(/\bmeta\b/g, "alt");
+  return hintKey(keymap, "chat:followClaude") ?? "alt+l";
 }
 
 const ARROWS: Record<string, string> = { up: "↑", down: "↓", left: "←", right: "→" };

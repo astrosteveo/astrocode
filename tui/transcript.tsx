@@ -4,18 +4,18 @@
 import { renderToString } from "ink";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Item, State, ToolCall } from "../src/view/state";
-import { Banner } from "./banner";
 import { arrange } from "./arrange";
 import { callTarget, ItemView, leavesOut, LiveView, opensByDefault, stepPieces, turnWork, type Piece, type StepRow } from "./entries";
 import { placeOf } from "./inspector";
 import { OPEN_INSET, openedRows, type Opened, type OpenedRows, type Spot } from "./opened";
 import { imagesOf, isReady, wantPictures } from "./pictures";
 import { GUTTER } from "./rail";
+import { StartScreen, type Start } from "./start";
 
 /** A line of the transcript: its text with color codes, and the entry it belongs to. */
 export type Row = {
   text: string;
-  /** The entry's key: an item's key, "banner" or "live". */
+  /** The entry's key: an item's key, "banner" for the start screen, or "live". */
   key: string;
   /** Which of the entry's lines this is, counting the row that sets it apart from the one before. */
   line: number;
@@ -46,7 +46,8 @@ export type TranscriptInput = {
   width: number;
   /** How tall a picture in an entry may be. */
   pictureRows: number;
-  branch?: string;
+  /** What the start screen says. */
+  start: Start;
   /** Entries and steps opened or closed by a click, away from how they start (`opensByDefault()`; steps start closed), by key. */
   expanded: ReadonlySet<string>;
   /** Tool calls waiting on a permission prompt or a question, by call id. */
@@ -62,7 +63,7 @@ const RESIZE_SETTLE_MS = 80;
 
 /** Each entry's lines, kept with what they were drawn for. Items are replaced, not changed, when they change. */
 const drawn = new WeakMap<object, { drawnFor: string; lines: string[] }>();
-const BANNER = {};
+const START = {};
 /** A step's lines are kept by its first item, under an owner of their own, since the item has lines of its own too. */
 const stepRows = new WeakMap<Item, object>();
 const stepOwner = (first: Item) => stepRows.get(first) ?? stepRows.set(first, {}).get(first)!;
@@ -100,7 +101,7 @@ function drawStep(owner: object, drawnFor: string, width: number, pieces: () => 
 }
 
 /** The whole transcript. Must run outside React's render, since renderToString renders with the same reconciler. */
-export function layout({ state, width, pictureRows, branch, expanded, waiting, opened }: TranscriptInput): Transcript {
+export function layout({ state, width, pictureRows, start, expanded, waiting, opened }: TranscriptInput): Transcript {
   const rows: Row[] = [];
   const starts = new Map<string, number>();
   const view = { cwd: state.cwd, home: state.home, width, pictureRows };
@@ -133,12 +134,7 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting, o
     lines.forEach((text, line) => rows.push({ text, key, line, head: line === head, hot: hot && line >= head, open, inset }));
   };
 
-  add(
-    "banner",
-    draw(BANNER, `${width}|${state.cwd}|${branch}`, width, () => <Banner cwd={state.cwd} home={state.home} branch={branch} width={width} />),
-    0,
-    0,
-  );
+  add("banner", draw(START, `${width}|${JSON.stringify(start)}`, width, () => <StartScreen start={start} width={width} />), 0, 0);
   for (const entry of arrange(state, waiting, expanded)) {
     const { rail } = entry;
     const railed = `${rail.spaced}${rail.joined}${rail.through}`;
@@ -225,6 +221,7 @@ export function useTranscript(input: TranscriptInput) {
   const { opened } = input;
   // A subagent's transcript grows while its call stays the same.
   const log = opened ? input.state.agentLogs[opened.id] : undefined;
+  const start = JSON.stringify(input.start);
 
   useEffect(() => {
     const draw = () => {
@@ -249,7 +246,7 @@ export function useTranscript(input: TranscriptInput) {
     return () => {
       stale = true;
     };
-  }, [input.state.items, input.state.live, input.state.cwd, input.width, input.pictureRows, input.branch, input.expanded, opened?.id, opened?.tab, opened?.whole, log, waiting]);
+  }, [input.state.items, input.state.live, input.state.cwd, input.width, input.pictureRows, start, input.expanded, opened?.id, opened?.tab, opened?.whole, log, waiting]);
 
   useEffect(
     () => () => {

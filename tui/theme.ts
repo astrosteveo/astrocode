@@ -9,7 +9,7 @@
 // that doesn't say gets the dark palette astrocode was drawn with.
 import { terminalColors } from "./colors";
 
-/** ASTROCODE_ACCENT, when it's a hex color: shades of it are mixed for the mirror and the selection. */
+/** ASTROCODE_ACCENT, when it's a hex color: your color, in gold's place. */
 const chosen = /^#[0-9a-f]{6}$/i.test(process.env.ASTROCODE_ACCENT?.trim() ?? "") ? process.env.ASTROCODE_ACCENT?.trim() : undefined;
 
 /** The accents as drawn on a dark background. */
@@ -33,7 +33,6 @@ const DARK = {
   hover: "#292F42",
   ink: "#141722",
   glint: "#FFE2A0",
-  flare: "#FFF4D6",
 };
 
 export const PALETTE = palette(terminalColors.background, terminalColors.foreground);
@@ -49,7 +48,7 @@ function palette(page: string | undefined, text: string | undefined) {
   return {
     /** You. Set ASTROCODE_ACCENT to a hex color to change it. */
     gold,
-    /** The mirror's deeper segments. */
+    /** A deeper gold, behind the matches Ctrl+F finds. */
     goldDeep: accent(HUBBLE.goldDeep, 2),
     /** Claude: its replies, its tools, and work that went well. */
     teal: accent(HUBBLE.teal),
@@ -75,9 +74,8 @@ function palette(page: string | undefined, text: string | undefined) {
     hover: mix(surface, raised, 0.5),
     /** Text on a gold or teal chip, which is light on a dark theme and darkened on a light one. */
     ink: dark ? mix(page, "#000000", 0.4) : mix(page, "#FFFFFF", 0.6),
-    /** The mirror's brightest gold, and the flare that lights a segment. A light page shows plain gold. */
+    /** A brighter gold, for a mod's button under the pointer. A light page shows plain gold. */
     glint: dark ? DARK.glint : gold,
-    flare: dark ? DARK.flare : gold,
   };
 }
 
