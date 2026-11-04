@@ -1789,7 +1789,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       onFocus={() => toTranscript(true)}
       onLedger={setInLedger}
       onLeave={() => toTranscript(false)}
-      onCursor={() => setInspect((open) => open && { ...open, follow: false })}
+      onCursor={() => setInspect((open) => (open?.follow ? { ...open, follow: false } : open))}
       onStop={stopLine}
       onToggle={toggleTool}
       onCopy={copySelection}

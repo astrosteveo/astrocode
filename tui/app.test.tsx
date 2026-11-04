@@ -365,6 +365,23 @@ test("opening the running call's line at the end of the conversation keeps the v
   expect(row(/more lines?/)).toBe(-1);
 });
 
+test("scrolling away from the call followed stops following, so the view stays where you scrolled as Claude goes on", async () => {
+  const before = long();
+  const running = (id: string) => ({ kind: "tool" as const, key: id, call: call(id, { status: "running", result: undefined }) });
+  const state: State = { ...before, busy: true, items: [...before.items, running("z")], tools: { ...before.tools, z: before.items.length } };
+  const { press, update, screen, row, cursor } = await launch(state, { rows: 24 });
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  expect(screen()[row(/Searching +z in src/) + 1]).toContain("‹ 2 of 2 ›");
+  for (let i = 0; i < 6; i++) await press("\x1b[<64;20;5M");
+  const away = screen()[0];
+  const done = { ...state.items.at(-1)!, call: call("z") };
+  await update({ ...state, items: [...before.items, done, running("y")], tools: { ...state.tools, y: before.items.length + 1 } });
+  expect(screen()[0]).toBe(away);
+  expect(row(/Searching +y in src/)).toBe(-1);
+  expect(cursor()).not.toBe(-1);
+});
+
 test("full screen opens on the start screen, which names Ctrl+O by the transcript it gives your keys to", async () => {
   const { screen } = await launch(initialState("/p", "/home/u"));
   expect(screen().join("\n")).toContain("ctrl+o transcript");
