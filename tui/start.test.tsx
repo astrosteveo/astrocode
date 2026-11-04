@@ -52,10 +52,10 @@ test("says where you are, what came from Claude Code, the recent sessions here a
     "Plan getText's clock | 2h ago",
     "Retry gets a deadline | 1d ago",
   ]);
-  expect(lineWith(lines, "Keys")?.trim()).toBe("Keys");
+  expect(lineWith(lines, "Keys")?.trim()).toBe("Keys   ? lists them all, for whatever has your keys");
   const keys = lines.indexOf(lineWith(lines, "Keys")!);
   expect(lines.slice(keys + 1, keys + 3).map((line) => line.trim().split(/ {2,}/))).toEqual([
-    ["/ commands", "@ files", "! shell command", "/help keys and commands"],
+    ["/ commands", "@ files", "! shell command", "? every key"],
     ["shift+tab mode", "ctrl+o tool output", "← conversations", "esc stop Claude"],
   ]);
   // Nothing is drawn large, and the mirror is gone.
@@ -71,7 +71,7 @@ test("fits 80 columns with the keys two across, and keeps to the measure at 200"
   const keys = narrow.indexOf(lineWith(narrow, "Keys")!);
   expect(narrow.slice(keys + 1, keys + 5).map((line) => line.trim().split(/ {2,}/))).toEqual([
     ["/ commands", "@ files"],
-    ["! shell command", "/help keys and commands"],
+    ["! shell command", "? every key"],
     ["shift+tab mode", "ctrl+o tool output"],
     ["← conversations", "esc stop Claude"],
   ]);
@@ -278,7 +278,7 @@ test("a resumed conversation waits for the start screen, which lists the other s
   expect(lines[recent + 1]).toContain("Give retries a deadline");
   expect(lines[recent + 2]).not.toContain("Make retries back off");
   // Its history follows the start screen.
-  const keys = lines.findIndex((line) => line.trim() === "Keys");
+  const keys = lines.findIndex((line) => line.trim().startsWith("Keys"));
   expect(lines.findIndex((line) => line.includes("Make retries back off") && !line.includes("Resumed"))).toBeGreaterThan(keys);
 });
 
