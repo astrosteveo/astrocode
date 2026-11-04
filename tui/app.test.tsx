@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "ink";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
@@ -815,6 +816,57 @@ test("{ and }, Alt+↑ and Alt+↓ move the cursor to your message before or aft
   expect(cursor()).toBe(row(/message 14\b/));
   await press("\x1b[1;4A");
   expect(cursor()).toBe(row(/Searched +c13 in src/));
+});
+
+test("/ in the transcript finds, with the cursor on the match, and n and N go on to the next and previous line that has it, as claude's viewer does", async () => {
+  const { press, cursor, row, boxKeys } = await launch(THREE);
+  await press(KEYS.ctrlO);
+  await press(KEYS.up);
+  await press(KEYS.up);
+  expect(cursor()).toBe(row(/Searched +a in src/));
+  await press("/");
+  expect(row(/Find +in the conversation/)).not.toBe(-1);
+  await press("Searched");
+  // The bar starts on the newest match, and the cursor goes with it.
+  expect(row(/1 of 2|2 of 2/)).not.toBe(-1);
+  await press(KEYS.esc);
+  expect(boxKeys()).toBe(false);
+  expect(cursor()).toBe(row(/Searched +c in src/));
+  await press("N");
+  expect(cursor()).toBe(row(/Searched +a in src/));
+  // Past the first match there's none further up, so the cursor stays.
+  await press("N");
+  expect(cursor()).toBe(row(/Searched +a in src/));
+  await press("n");
+  expect(cursor()).toBe(row(/Searched +c in src/));
+});
+
+test("v in the transcript opens the whole conversation in $EDITOR, as claude's viewer does", async () => {
+  const kept = mkdtempSync(join(tmpdir(), "astrocode-viewer-"));
+  const visual = process.env.VISUAL;
+  // The editor borrows the test's own stdin, which isn't a terminal, and keeps a copy of what it was given.
+  const setRawMode = process.stdin.setRawMode;
+  process.stdin.setRawMode = (() => process.stdin) as typeof process.stdin.setRawMode;
+  process.env.VISUAL = `sh -c 'cp "$1" ${kept}/seen' sh`;
+  try {
+    const { press } = await launch(THREE);
+    await press(KEYS.ctrlO);
+    await press("v");
+    // The editor runs in a terminal of its own, which takes a moment to start, longer on a busy machine.
+    for (let i = 0; i < 50 && !existsSync(join(kept, "seen")); i++) await settle(100);
+    const seen = readFileSync(join(kept, "seen"), "utf8");
+    expect(seen).toContain("look around");
+    expect(seen).toContain("Looking around");
+    expect(seen).toMatch(/Ran +the tests/);
+    // Content only, as a drag copies it: no rail, and not the start screen.
+    expect(seen).not.toContain("│");
+    expect(seen).not.toContain("astrocode");
+  } finally {
+    process.stdin.setRawMode = setRawMode;
+    if (visual === undefined) delete process.env.VISUAL;
+    else process.env.VISUAL = visual;
+    rmSync(kept, { recursive: true, force: true });
+  }
 });
 
 test("the transcript's hint in the box's edge lists four to six keys, all of them at 80 columns", async () => {
