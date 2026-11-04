@@ -19,6 +19,7 @@ import { GUTTER, LIVE, Railed, type Rail } from "./rail";
 import { ShellCard } from "./shell-card";
 import { BODY, PALETTE } from "./theme";
 import { DraftRow, SubagentLines, toolNode, ToolRow } from "./tool-row";
+import { isNarrow } from "./measure";
 import { Figure, hasPictures, shownOf, type FigureLinks } from "./figure";
 import { PROMPT_LINK } from "./window";
 
@@ -315,7 +316,7 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
       );
     }
     const isPicked = picked !== undefined && row.calls.some((call) => call.id === picked);
-    pieces.push(railed(`row:${id}`, <ActivityLine row={row} width={inner} picked={isPicked} again={row.verb === verb} clickable={clickable} />, target));
+    pieces.push(railed(`row:${id}`, <ActivityLine row={row} width={inner} picked={isPicked} again={row.verb === verb} clickable={clickable} narrow={isNarrow(width)} />, target));
     // What goes under the line sets the next one apart, which then says its verb again.
     verb = row.failure || row.calls.some((call) => (call.status === "running" && call.subagent) || hasPictures(call)) ? "" : row.verb;
     if (row.failure) {
@@ -363,11 +364,13 @@ const LIT = new Set<Tone>(["plain", "bright", "quiet", "faint", "code"]);
 
 /**
  * `  Edited    src/retry.ts            +9 −4  ■■■■□  ›`: the verb, what the calls acted on, and what
- * came of them against the right edge. `again`: the line above has the same verb, which this one
- * leaves out. The line of the call opened has a gold mark, and its words are lit in gold, as the
- * pointer lights a line (`lit()`). A line waiting on you is lit in gold too.
+ * came of them against the right edge, or under 100 columns (`narrow`), where it doesn't fit, on
+ * the row under it, where the target starts, rather than cut the target short. `again`: the line
+ * above has the same verb, which this one leaves out. The line of the call opened has a gold mark,
+ * and its words are lit in gold, as the pointer lights a line (`lit()`). A line waiting on you is
+ * lit in gold too.
  */
-function ActivityLine({ row, width, picked, again, clickable }: { row: ActivityRow; width: number; picked: boolean; again: boolean; clickable: boolean }) {
+function ActivityLine({ row, width, picked, again, clickable, narrow }: { row: ActivityRow; width: number; picked: boolean; again: boolean; clickable: boolean; narrow: boolean }) {
   // A command running in the background is done as a call, but still running.
   const going = row.calls.at(-1)?.background === "running" ? "running" : row.status;
   const verbColor = VERB_COLORS[going] ?? (picked ? PALETTE.gold : PALETTE.dust);
@@ -378,29 +381,40 @@ function ActivityLine({ row, width, picked, again, clickable }: { row: ActivityR
   const verb = again && !VERB_COLORS[going] ? " ".repeat(cellWidth(named)) : named;
   const result = row.result.reduce((sum, part) => sum + cellWidth(part.text), 0);
   const bars = row.diff && row.diff.added + row.diff.removed > 0 ? 7 : 0;
-  const right = result + bars + (clickable ? 3 : 0);
+  const mark = clickable ? 3 : 0;
+  const whole = cellWidth(row.target.map((part) => part.text).join(""));
+  const under = narrow && result + bars > 0 && INDENT + cellWidth(verb) + whole + 2 + result + bars + mark > width;
+  const right = (under ? 0 : result + bars) + mark;
   const room = Math.max(4, width - INDENT - cellWidth(verb) - right - 2);
   const target = fitParts(row.target, room, row.path);
+  const came = (
+    <Text>
+      {row.result.map((part, i) => (
+        <Text key={i} color={color(part.tone)}>
+          {part.text}
+        </Text>
+      ))}
+      {bars ? <Diffstat added={row.diff!.added} removed={row.diff!.removed} /> : null}
+    </Text>
+  );
   return (
-    <Box justifyContent="space-between" width={width}>
-      <Text wrap="truncate-end">
-        <Text color={PALETTE.gold}>{picked ? "▌ " : "  "}</Text>
-        <Text color={verbColor}>{verb}</Text>
-        {target.map((part, i) => (
-          <Text key={i} color={color(part.tone)}>
-            {part.text}
-          </Text>
-        ))}
-      </Text>
-      <Text>
-        {row.result.map((part, i) => (
-          <Text key={i} color={color(part.tone)}>
-            {part.text}
-          </Text>
-        ))}
-        {bars ? <Diffstat added={row.diff!.added} removed={row.diff!.removed} /> : null}
-        {clickable ? <Text color={picked ? PALETTE.gold : PALETTE.dust}>{"  ›"}</Text> : null}
-      </Text>
+    <Box flexDirection="column" width={width}>
+      <Box justifyContent="space-between" width={width}>
+        <Text wrap="truncate-end">
+          <Text color={PALETTE.gold}>{picked ? "▌ " : "  "}</Text>
+          <Text color={verbColor}>{verb}</Text>
+          {target.map((part, i) => (
+            <Text key={i} color={color(part.tone)}>
+              {part.text}
+            </Text>
+          ))}
+        </Text>
+        <Text>
+          {under ? null : came}
+          {clickable ? <Text color={picked ? PALETTE.gold : PALETTE.dust}>{"  ›"}</Text> : null}
+        </Text>
+      </Box>
+      {under ? <Box paddingLeft={UNDER}>{came}</Box> : null}
     </Box>
   );
 }

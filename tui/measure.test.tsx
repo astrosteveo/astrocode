@@ -7,10 +7,13 @@ import { initialState, type Item, type State, type ToolCall } from "../src/view/
 import { App } from "./app";
 import { Background, Fleet } from "./fleet";
 import { cellWidth } from "./markdown";
+import { DEFAULT_KEYMAP } from "./keys";
 import { edgeOf, isNarrow, MEASURE } from "./measure";
 import { Mouse, MouseContext } from "./mouse";
 import { scratchConfig } from "./scratch-config";
+import { startOf } from "./start";
 import { Store } from "./store";
+import { layout } from "./transcript";
 
 const call = (id: string, name: string, input: Record<string, unknown>, more: Partial<ToolCall> = {}): ToolCall => ({ id, name, input, status: "done", subagentCalls: 0, ...more });
 
@@ -24,7 +27,7 @@ function turn(): State {
     call("r", "Read", { file_path: "/p/src/cache.ts" }, { result: Array.from({ length: 25 }, (_, i) => `${i + 1}\tline`).join("\n") }),
     call("w", "Write", { file_path: "/p/src/clock.ts", content: Array.from({ length: 11 }, (_, i) => `line ${i + 1}`).join("\n") }, { result: "File created" }),
     call("e", "Edit", { file_path: "/p/src/cache.ts", old_string: "Date.now()", new_string: "this.clock.now()" }, { result: "ok" }),
-    call("b", "Bash", { command: "bun test", description: "Run the whole suite, retry's attempts test included" }, { status: "error", result: "Exit code 1\n 7 pass\n 1 fail\nRan 8 tests across 1 file." }),
+    call("b", "Bash", { command: "bun test", description: "Run the whole suite, retry's attempts test and the cache's" }, { status: "error", result: "Exit code 1\n 7 pass\n 1 fail\nRan 8 tests across 1 file." }),
   ];
   const items: Item[] = [
     { kind: "prompt", key: "p", text: "Give src/cache.ts the same injectable clock retry needs (Clock type in src/clock.ts), then run bun test. Don't fix retry.", starts: true },
@@ -149,4 +152,27 @@ test("a conversation that fits starts at the top, under the start screen, and it
   const asks = shown.findIndex((line) => /^│\s+Clean\s+the build/.test(line));
   expect(shown[asks + 1]).toMatch(/^▁+$/);
   expect(shown[1]).toBe("");
+});
+
+test("under 100 columns a result that doesn't fit beside its line goes under it, where the target starts; from 100 the target is cut for it", () => {
+  const state = turn();
+  for (const columns of [80, 99, 100, 120]) {
+    const width = edgeOf(columns);
+    const { rows } = layout({ state, width, pictureRows: 10, start: startOf(state, undefined, DEFAULT_KEYMAP), expanded: new Set(), waiting: new Set() });
+    const lines = rows.map((row) => stripVTControlCharacters(row.text));
+    const at = lines.findIndex((line) => /Ran +the whole suite/.test(line));
+    for (const line of lines) expect(cellWidth(line)).toBeLessThanOrEqual(width);
+    if (columns < 100) {
+      expect(lines[at]).toContain("the whole suite, retry's attempts test and the cache's");
+      expect(lines[at]).not.toContain("exit 1");
+      const under = lines[at + 1]!;
+      expect([...under].indexOf("✕")).toBe([...lines[at]!].indexOf("t", [...lines[at]!].indexOf("Ran") + 3));
+      expect(under.trimEnd()).toEndWith("✕ exit 1 · 7 passed, 1 failed");
+      // Both rows are the call's: a click on either opens it.
+      expect(rows[at + 1]!.target).toBe(rows[at]!.target);
+    } else {
+      expect(lines[at]).toContain("✕ exit 1 · 7 passed, 1 failed");
+      expect(lines[at]!.includes("…")).toBe(columns === 100);
+    }
+  }
 });
