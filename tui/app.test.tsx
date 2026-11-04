@@ -486,6 +486,21 @@ for (const [name, keys, lands] of [
   });
 }
 
+test("Esc in the / bar puts the cursor back on the call followed, and following Claude goes on from it", async () => {
+  const built = running("m", "Build the app", { status: "done", result: "built" });
+  const { press, update, screen, row, cursor } = await launch(workingAfterLedger([running("m", "Build the app")]));
+  const opened = () => screen().find((line) => /‹ \d of \d ›/.test(line))?.match(/‹ \d of \d ›/)?.[0];
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  // The match moves the cursor, which stops following, until Esc puts the cursor back.
+  for (const key of ["/", "and again"]) await press(key);
+  await press(KEYS.esc);
+  expect(cursor()).toBe(row(/Building +the app/));
+  await update(workingAfterLedger([built, running("n", "Lint the code")]));
+  expect(opened()).toBe("‹ 2 of 2 ›");
+  expect(cursor()).toBe(row(/Linting +the code/));
+});
+
 test("a click on an opened ledger's scope moves the cursor, so following Claude stops there", async () => {
   // A git repository, so the ledger has scopes, whose files the session reads.
   const cwd = process.cwd();

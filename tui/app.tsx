@@ -623,16 +623,18 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
 
   /**
    * `/` in the transcript: the same line, empty, as `claude`'s. Esc puts back the view and what was
-   * found before, for `n` and `N`.
+   * found before, for `n` and `N`, and the cursor, with a call it followed Claude from following on.
    */
   const slashFind = (restore: () => void) => {
     const before = find;
+    const opened = inspect;
     setFind({ query: "", back: 0 });
     setOverlay({
       kind: "find",
       cancel: () => {
         setFind(before);
         restore();
+        setInspect((open) => (open && opened?.follow && open.id === opened.id ? { ...open, follow: true } : open));
       },
     });
   };
