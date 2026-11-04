@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "ink";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
@@ -7,10 +7,16 @@ import type { AgentSession } from "../src/session";
 import { App } from "./app";
 import { Background, Fleet } from "./fleet";
 import { Mouse, MouseContext } from "./mouse";
+import { scratchConfig } from "./scratch-config";
 import { Store } from "./store";
 
 const ROWS = 30;
 const COLUMNS = 100;
+
+// What the App might save, settings or prompt history, goes to a scratch folder, never yours.
+const config = scratchConfig();
+beforeEach(config.start);
+afterEach(config.stop);
 
 /** A session that does nothing, so the App can be drawn without Claude Code. */
 const session = new Proxy({}, { get: (_, key) => (key === "then" ? undefined : key === "watchMods" ? () => () => {} : () => Promise.resolve()) }) as AgentSession;
