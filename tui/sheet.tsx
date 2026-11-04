@@ -106,6 +106,7 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean, { pro
       ["alt+shift+↑ ↓", "tool calls"],
       ...(scoping ? [] : [["[ ]", "ledgers"] as Row]),
       ["enter", "open or close"],
+      ["x", "stop what runs"],
       // `claude`'s viewer keys, in words short enough to keep the box's sheet whole at 200 columns.
       ["/", "find"],
       ["n, N", "next, previous"],
