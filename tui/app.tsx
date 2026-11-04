@@ -120,8 +120,8 @@ type Overlay =
   | { kind: "find" }
   /** The conversation's pictures, as large as they go, opened on one of them. */
   | { kind: "picture"; image: ImageAttachment }
-  /** Every key, for what had your keys when `?` or /help opened it. */
-  | { kind: "keys"; place: Place }
+  /** Every key, for what had your keys when `?` or /help opened it: a decision by its request's id. */
+  | { kind: "keys"; place: Place; request?: string }
   | null;
 
 /** Why fast mode can't be on, by Claude Code's reason. */
@@ -1576,8 +1576,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const inspectedAt = inspect ? state.tools[inspect.id] : undefined;
   const inspectedItem = inspectedAt === undefined ? undefined : state.items[inspectedAt];
   const inspected = inspectedItem?.kind === "tool" ? inspectedItem.call : undefined;
-  // The key sheet a decision's `?` opened, which stands in the decision's place until it closes.
+  // The key sheet a decision's `?` opened, which stands in the decision's place until it closes, or
+  // until the decision is answered elsewhere or withdrawn.
   const sheet = overlay?.kind === "keys" && overlay.place === "decision";
+  const sheetGone = sheet && overlay.request !== request?.id;
+  useEffect(() => {
+    if (sheetGone) setOverlay(null);
+  }, [sheetGone]);
   // Your keys are in one place: a decision, else an overlay (scrollback's inspector among them), else
   // the transcript once it's been given them, else the box.
   const focus = focusOf({
@@ -1601,7 +1606,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     (input, key) => {
       if (key.eventType === "release") return;
       if (store.keymap.get(strokeOf(input, key) ?? "") === "chat:clearInput") redrawScreen();
-      else if (input === "?" && !key.ctrl && !key.meta && keysHere) setOverlay({ kind: "keys", place: keysHere });
+      else if (input === "?" && !key.ctrl && !key.meta && keysHere) setOverlay({ kind: "keys", place: keysHere, request: request?.id });
     },
     { isActive: !boxKeys },
   );
