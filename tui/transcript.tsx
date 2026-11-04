@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Item, State, ToolCall } from "../src/view/state";
 import { Banner } from "./banner";
 import { arrange } from "./arrange";
-import { ItemView, leavesOut, LiveView, opensByDefault, stepPieces, turnWork, type Piece, type StepRow } from "./entries";
+import { callTarget, ItemView, leavesOut, LiveView, opensByDefault, stepPieces, turnWork, type Piece, type StepRow } from "./entries";
 import { placeOf } from "./inspector";
 import { OPEN_INSET, openedRows, type Opened, type OpenedRows, type Spot } from "./opened";
 import { imagesOf, isReady, wantPictures } from "./pictures";
@@ -159,9 +159,12 @@ export function layout({ state, width, pictureRows, branch, expanded, waiting, o
       const added = call ? openUnder(entry.key, call, after, rail.through) : [];
       const start = rows.length;
       starts.set(entry.key, start);
+      // A line for several calls stands for its first, or for the one of them that's open, which a click on it closes.
+      const first = mine && callTarget(mine.calls[0]!.id);
       drawn.lines.forEach((text, i) => {
         // The row that sets the step apart from the entry before isn't part of what a click acts on.
-        const target = rail.spaced && i === 0 ? undefined : drawn.targets[i];
+        const drawnTarget = rail.spaced && i === 0 ? undefined : drawn.targets[i];
+        const target = call && drawnTarget === first ? callTarget(call.id) : drawnTarget;
         if (i === after) rows.push(...added);
         const line = i < after ? i : i + added.length;
         rows.push({ text, key: entry.key, line, head: target !== undefined, hot: target !== undefined, open: false, inset: GUTTER, target });

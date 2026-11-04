@@ -369,3 +369,16 @@ test("a click on a line while the view follows the end leaves the line where it 
   expect(row(/message 13\b/)).toBe(y);
   expect(cursor()).toBe(y);
 });
+
+test("Enter on a line of several calls closes the one of them that's open", async () => {
+  const read = (id: string, file: string) => call(id, { name: "Read", input: { file_path: `/p/src/${file}` }, result: "1\tx" });
+  const { press, screen } = await launch(turn([call("g"), read("r1", "a.ts"), read("r2", "b.ts"), read("r3", "c.ts")]));
+  const opened = () => screen().find((line) => /‹ \d of \d ›/.test(line))?.match(/‹ \d of \d ›/)?.[0];
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  expect(opened()).toBe("‹ 2 of 4 ›");
+  await press(KEYS.right);
+  expect(opened()).toBe("‹ 3 of 4 ›");
+  await press(KEYS.enter);
+  expect(opened()).toBeUndefined();
+});
