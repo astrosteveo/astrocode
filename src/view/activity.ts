@@ -1,11 +1,13 @@
 // A step's tool calls as an activity log: one line for each thing Claude did, in the order it did
 // them, saying what it did (Searched, Read, Edited, Ran), what it acted on, and what came of it.
+// The verb's tense says where the call is: `Reading` while it runs, `Read` as a request while it
+// waits on you, `Read` once done, `Not run` when it never ran and `Stopped` when it was stopped.
 // A command says what Claude said it does. Reads in a row are one line, and so are edits to one
 // file in a row. A call that failed says why on a line of its own.
 import { timed, took } from "./format";
 import { failureLine, onlyLine, runOfCall, runSize, testCounts, type Run } from "./runs";
 import type { ToolCall, ToolStatus } from "./state";
-import { inPastTense } from "./tense";
+import { inPastTense, inPresentTense } from "./tense";
 import { field, plural, shortPath, SHOW_TOOL, subagentCallCount, toolLabel, toolSummary, toolTarget } from "./tools";
 
 /**
@@ -33,36 +35,65 @@ export type ActivityRow = {
 /** Tools whose calls read as one line when they come one after another. */
 const GROUPED = new Set(["Read"]);
 const EDITS = new Set(["Edit", "MultiEdit", "NotebookEdit"]);
+const AGENTS = new Set(["Agent", "Task"]);
 
-/** What each tool did, as a verb in the past tense, where it reads as one. */
-const VERBS: Record<string, string> = {
-  Read: "Read",
-  Grep: "Searched",
-  Glob: "Searched",
-  Edit: "Edited",
-  MultiEdit: "Edited",
-  NotebookEdit: "Edited",
-  Write: "Wrote",
-  Bash: "Ran",
-  WebFetch: "Fetched",
-  WebSearch: "Searched",
-  Agent: "Delegated",
-  Task: "Delegated",
-  TodoWrite: "Updated",
-  Skill: "Loaded",
-  ToolSearch: "Loaded",
-  Monitor: "Watched",
-  TaskStop: "Stopped",
-  KillShell: "Stopped",
-  SendMessage: "Messaged",
-  ExitPlanMode: "Planned",
-  AskUserQuestion: "Asked",
-  [SHOW_TOOL]: "Showed",
+type Tense = "doing" | "ask" | "done";
+
+/**
+ * A call's verb as it runs (`Reading`), as a request while it waits on you (`Read`) and once done
+ * (`Read`). `rest`: what follows the verb in each tense, where that changes with it, as in a
+ * command's description. `bare`: its target reads on its own after `Not run`, as a command does.
+ */
+type Verbs = Record<Tense, string> & { rest?: Record<Tense, string>; bare?: boolean };
+
+const firstWord = (text: string): [string, string] => {
+  const space = text.indexOf(" ");
+  return space < 0 ? [text, ""] : [text.slice(0, space), text.slice(space + 1)];
 };
 
-/** The verb for a call: its tool's, `Called` for an MCP tool's, else the tool's own name. */
-export function verbOf(name: string) {
-  return VERBS[name] ?? (name.startsWith("mcp__") ? "Called" : toolLabel(name));
+const verbs = (doing: string, ask: string, done: string): Verbs => ({ doing, ask, done });
+const SEARCH = verbs("Searching", "Search", "Searched");
+const EDIT = verbs("Editing", "Edit", "Edited");
+const LOAD = verbs("Loading", "Load", "Loaded");
+const STOP = verbs("Stopping", "Stop", "Stopped");
+const DELEGATE = verbs("Delegating", "Delegate", "Delegated");
+
+/** Each tool's verbs, where one reads as a verb. */
+const VERBS: Record<string, Verbs> = {
+  Read: verbs("Reading", "Read", "Read"),
+  Grep: SEARCH,
+  Glob: SEARCH,
+  WebSearch: SEARCH,
+  Edit: EDIT,
+  MultiEdit: EDIT,
+  NotebookEdit: EDIT,
+  Write: verbs("Writing", "Write", "Wrote"),
+  Bash: verbs("Running", "Run", "Ran"),
+  WebFetch: verbs("Fetching", "Fetch", "Fetched"),
+  Agent: DELEGATE,
+  Task: DELEGATE,
+  TodoWrite: verbs("Updating", "Update", "Updated"),
+  Skill: LOAD,
+  ToolSearch: LOAD,
+  Monitor: verbs("Watching", "Watch", "Watched"),
+  TaskStop: STOP,
+  KillShell: STOP,
+  SendMessage: verbs("Messaging", "Message", "Messaged"),
+  ExitPlanMode: verbs("Planning", "Plan", "Planned"),
+  AskUserQuestion: verbs("Asking", "Ask", "Asked"),
+  [SHOW_TOOL]: verbs("Drawing", "Show", "Showed"),
+};
+
+/** Subagents whose kind says what they do, which their line's verb says instead of their kind. */
+const AGENT_VERBS: Record<string, Verbs> = { Explore: verbs("Exploring", "Explore", "Explored"), Plan: verbs("Planning", "Plan", "Planned") };
+
+/** A call's verbs: its tool's, its subagent's kind's, `Calling` for an MCP tool's, else the tool's own name. */
+function verbsOf(call: ToolCall): Verbs {
+  if (AGENTS.has(call.name)) return AGENT_VERBS[String(call.input.subagent_type)] ?? DELEGATE;
+  if (VERBS[call.name]) return VERBS[call.name]!;
+  if (call.name.startsWith("mcp__")) return verbs("Calling", "Call", "Called");
+  const label = toolLabel(call.name);
+  return verbs(label, label, label);
 }
 
 /** How a line's calls went, the one that matters most: waiting on you, then running, then a failure. */
@@ -97,14 +128,39 @@ function rowOf(calls: ToolCall[], waiting: ReadonlySet<string>, cwd: string, hom
     const one = waiting.has(call.id) ? "waiting" : call.status;
     return RANK[one] > RANK[worst] ? one : worst;
   }, "done");
-  const row: ActivityRow = { calls, verb: verbOf(first.name), target: [], path: false, result: [], status };
-  describe(row, cwd, home);
-  // How it's going says more than any count while it runs, waits on you, or was stopped.
+  const row: ActivityRow = { calls, verb: "", target: [], path: false, result: [], status };
+  const forms = describe(row, cwd, home);
   const last = calls.at(-1)!;
-  if (status === "waiting") row.result = [{ text: "waiting for you", tone: "waiting" }];
-  else if (status === "running" && first.name !== "Agent" && first.name !== "Task") row.result = [{ text: last.elapsed ? `running ${took(last.elapsed * 1000)}` : "running", tone: "quiet" }];
-  else if (status === "denied") row.result = [{ text: toolSummary(last, false), tone: "stopped" }];
-  else if (status === "stopped" && first.name !== "Bash") row.result = [{ text: "stopped", tone: "stopped" }];
+  /** The target in a tense, after `verb` where one leads it. */
+  const target = (tense: Tense, verb = ""): Part[] => [
+    ...(verb ? [{ text: `${verb} `, tone: "plain" as const }] : []),
+    ...(forms.rest ? [{ text: forms.rest[tense], tone: "plain" as const }] : row.target),
+  ];
+  // How it's going says more than any count while it runs, waits on you, or was stopped.
+  if (status === "waiting") {
+    row.verb = forms.ask;
+    row.target = target("ask");
+    // An edit asks with the change it would make.
+    row.result = EDITS.has(first.name) || first.name === "Write" ? diffParts(changed(last), false) : [];
+  } else if (status === "running" || last.background === "running") {
+    row.verb = forms.doing;
+    row.target = target("doing");
+    if (status === "running" && !AGENTS.has(first.name)) row.result = last.elapsed ? [{ text: took(last.elapsed * 1000), tone: "quiet" }] : [];
+  } else if (status === "denied" || (status === "stopped" && last.unanswered)) {
+    // What it would have done, in the words it asked with.
+    row.verb = "Not run";
+    if (!forms.bare) row.target = target("ask", forms.ask);
+    row.result = [{ text: status === "stopped" ? "stopped" : last.deniedBy ? `denied by ${last.deniedBy}` : "you said no", tone: "stopped" }];
+    row.diff = undefined;
+  } else if (status === "stopped") {
+    row.verb = "Stopped";
+    row.target = target("doing", forms.doing[0]!.toLowerCase() + forms.doing.slice(1));
+    const ms = last.startedAt !== undefined && last.endedAt !== undefined ? last.endedAt - last.startedAt : last.elapsed !== undefined ? last.elapsed * 1000 : undefined;
+    row.result = ms !== undefined && ms >= 1000 ? [{ text: `after ${took(ms)}`, tone: "quiet" }] : [];
+  } else {
+    row.verb = forms.done;
+    row.target = target("done");
+  }
   if (status === "error" && !row.failure) {
     const failed = calls.findLast((call) => call.status === "error");
     row.failure = failed ? firstWords(failed.result ?? "") : undefined;
@@ -112,17 +168,18 @@ function rowOf(calls: ToolCall[], waiting: ReadonlySet<string>, cwd: string, hom
   return row;
 }
 
-/** Fills in the row's target and result, by its tool. */
-function describe(row: ActivityRow, cwd: string, home: string) {
+/** Fills in the row's target and result, by its tool, and gives its verbs. */
+function describe(row: ActivityRow, cwd: string, home: string): Verbs {
   const calls = row.calls;
   const call = calls[0]!;
+  const forms = verbsOf(call);
   const text = (key: string) => (typeof call.input[key] === "string" ? (call.input[key] as string) : "");
   switch (call.name) {
     case "Read": {
       row.path = true;
       row.target = joinPaths(calls.map((one) => shortPath(String(one.input.file_path ?? ""), cwd, home)));
       row.result = readResult(calls);
-      return;
+      return forms;
     }
     case "Grep":
     case "Glob": {
@@ -130,7 +187,7 @@ function describe(row: ActivityRow, cwd: string, home: string) {
       if (text("path")) row.target.push({ text: ` in ${shortPath(text("path"), cwd, home)}`, tone: "quiet" });
       if (text("glob")) row.target.push({ text: ` (${text("glob")})`, tone: "quiet" });
       row.result = call.status === "done" ? [{ text: searchResult(call), tone: "quiet" }] : [];
-      return;
+      return forms;
     }
     case "Edit":
     case "MultiEdit":
@@ -147,32 +204,35 @@ function describe(row: ActivityRow, cwd: string, home: string) {
       if (done.length) {
         row.diff = counts;
         row.result = [
-          ...(counts.added || created ? [{ text: `+${counts.added}`, tone: "added" as const }] : []),
-          ...(counts.removed ? [{ text: ` −${counts.removed}`, tone: "removed" as const }] : []),
-          ...(created ? [{ text: " new file", tone: "faint" as const }] : []),
-          ...(!counts.added && !counts.removed && !created ? [{ text: "no change", tone: "quiet" as const }] : []),
+          ...diffParts(counts, created),
           ...(calls.length > 1 ? [{ text: ` · ${plural(calls.length, call.name === "Write" ? "write" : "edit")}`, tone: "faint" as const }] : []),
         ];
       }
-      if (call.name === "Write") row.verb = created || field(call.output, "type") !== "update" ? "Wrote" : "Rewrote";
-      return;
+      return call.name === "Write" && field(call.output, "type") === "update" ? { ...forms, done: "Rewrote" } : forms;
     }
     case "Bash": {
       const run = runOfCall(call, false);
-      // What Claude said the command does tells more at a glance than the command, which the
-      // inspector shows. In the past tense, as the other lines are, it's `Ran the test suite` and
-      // `Committed the retry change`; one that doesn't start with a verb follows `Ran` as it is.
-      const said = text("description").split("\n")[0]!.trim();
-      const told = said ? inPastTense(said) : null;
-      if (told) {
-        const [verb = "", ...rest] = told.split(" ");
-        row.verb = verb;
-        row.target = [{ text: rest.join(" "), tone: "plain" }];
-      } else if (said) row.target = [{ text: said, tone: "plain" }];
-      else row.target = [{ text: "$ ", tone: "faint" }, { text: toolTarget(call, cwd, home), tone: "plain" }];
       row.result = runResult(run);
       if (run.status === "error") row.failure = failureLine(run);
-      return;
+      // What Claude said the command does tells more at a glance than the command, which the
+      // inspector shows. Its verb takes the line's tense: `Running the test suite`, `Run the test
+      // suite` while it asks, `Ran the test suite`. One that doesn't start with a verb follows
+      // `Ran` as it is.
+      const said = text("description").split("\n")[0]!.trim();
+      const done = said ? inPastTense(said) : null;
+      if (!said) {
+        row.target = [{ text: "$ ", tone: "faint" }, { text: toolTarget(call, cwd, home), tone: "plain" }];
+        return { ...forms, bare: true };
+      }
+      if (!done) {
+        row.target = [{ text: said, tone: "plain" }];
+        return forms;
+      }
+      // The verbs joined to the first change with it, so each tense has its own rest of the sentence.
+      const [ask, asked] = firstWord(said.replace(/\.$/, ""));
+      const [doing, going] = firstWord(inPresentTense(said) ?? said);
+      const [past, went] = firstWord(done);
+      return { doing, ask, done: past, rest: { doing: going, ask: asked, done: went } };
     }
     case "WebFetch": {
       row.target = [{ text: text("url").replace(/^https?:\/\//, ""), tone: "plain" }];
@@ -184,40 +244,41 @@ function describe(row: ActivityRow, cwd: string, home: string) {
           ...(typeof bytes === "number" && bytes > 0 ? [{ text: ` · ${size(bytes)}`, tone: "faint" as const }] : []),
         ];
       }
-      return;
+      return forms;
     }
     case "WebSearch": {
       row.target = [{ text: `“${text("query")}”`, tone: "plain" }, { text: " on the web", tone: "quiet" }];
       const hits = webHits(call.output);
       if (hits) row.result = [{ text: plural(hits, "result"), tone: "quiet" }];
-      return;
+      return forms;
     }
     case "Agent":
     case "Task": {
-      const type = text("subagent_type");
+      // A kind the verb says (`Exploring`) isn't said again.
+      const type = AGENT_VERBS[text("subagent_type")] ? "" : text("subagent_type");
       row.target = [...(type ? [{ text: type, tone: "code" as const }, { text: "  ", tone: "plain" as const }] : []), { text: text("description") || text("prompt").split("\n")[0] || "", tone: "plain" }];
       const count = subagentCallCount(call);
       if (call.status === "running" && !call.background) row.result = [{ text: count ? `◌ ${plural(count, "tool call")}` : "◌ starting", tone: "quiet" }];
       else if (call.background) row.result = [{ text: toolSummary(call, false), tone: call.background === "failed" ? "failed" : "quiet" }];
       // A saved conversation may not say how many calls it made, which isn't none.
       else if (call.status === "done") row.result = count ? [{ text: plural(count, "tool call"), tone: "quiet" }, ...span(call)] : [{ text: "✓", tone: "done" }, ...span(call).map((part) => ({ ...part, text: part.text.replace(" · ", " ") }))];
-      return;
+      return forms;
     }
     case "TodoWrite": {
       const todos = Array.isArray(call.input.todos) ? call.input.todos : [];
       const done = todos.filter((todo) => field(todo, "status") === "completed").length;
       row.target = [{ text: "the to-do list", tone: "plain" }];
       row.result = [{ text: `${done} of ${todos.length} done`, tone: "quiet" }];
-      return;
+      return forms;
     }
     case "ToolSearch": {
       const query = text("query").replace(/^select:/, "");
       row.target = [{ text: query.split(",").join(", "), tone: "code" }];
-      return;
+      return forms;
     }
     case "Skill": {
       row.target = [{ text: text("skill"), tone: "code" }, { text: " skill", tone: "quiet" }];
-      return;
+      return forms;
     }
   }
   if (call.name.startsWith("mcp__")) {
@@ -228,6 +289,17 @@ function describe(row: ActivityRow, cwd: string, home: string) {
     row.target = [{ text: toolTarget(call, cwd, home), tone: "plain" }];
   }
   if (call.status === "done") row.result = [{ text: toolSummary(call, false), tone: "quiet" }];
+  return forms;
+}
+
+/** An edit's size, `+8 −3`, or `new +11` for a file it created. */
+function diffParts(counts: { added: number; removed: number }, created: boolean): Part[] {
+  return [
+    ...(created ? [{ text: "new ", tone: "faint" as const }] : []),
+    ...(counts.added || created ? [{ text: `+${counts.added}`, tone: "added" as const }] : []),
+    ...(counts.removed ? [{ text: `${counts.added || created ? " " : ""}−${counts.removed}`, tone: "removed" as const }] : []),
+    ...(!counts.added && !counts.removed && !created ? [{ text: "no change", tone: "quiet" as const }] : []),
+  ];
 }
 
 /** `src/retry.ts, src/clock.ts`: each path's folder quiet and its name plain. */
@@ -372,7 +444,8 @@ export function changed(call: ToolCall) {
     return { added, removed };
   }
   const text = (key: string) => (typeof call.input[key] === "string" ? (call.input[key] as string) : "");
-  if (call.name === "Write") return { added: text("content").split("\n").length, removed: 0 };
+  // A file's last newline ends its last line rather than starting another.
+  if (call.name === "Write") return { added: text("content").replace(/\n$/, "").split("\n").length, removed: 0 };
   // Lines each side has that the other doesn't, counted as a multiset.
   const before = text("old_string").split("\n");
   const after = text("new_string").split("\n");
