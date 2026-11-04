@@ -1343,7 +1343,7 @@ export function topLevelEnv() {
 
 /**
  * Claude Code's suggestions can bundle a rule for this one call with broader changes, such as
- * switching the whole session to accept edits. "Always allow" applies only the narrowest kind.
+ * switching the whole session to accept edits. "Don't ask again" applies only the narrowest kind.
  */
 function narrowest(suggestions: PermissionUpdate[] | undefined) {
   for (const type of ["addRules", "addDirectories", "setMode"] as const) {
