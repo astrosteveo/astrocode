@@ -318,6 +318,30 @@ test("? on a permission prompt in the viewer lists what scrolls the conversation
   expect(sheet).toMatch(/wheel +scroll/);
 });
 
+test("at 80×24 a decision in the viewer fits under the line that asks, with No, Esc to cancel and the status bar in view, as in full screen", async () => {
+  const wide = Array.from({ length: 40 }, (_, i) => `  const value${i} = compute(${i}); // a fairly long line of code that wraps at eighty columns`).join("\n");
+  const write = { file_path: "/p/src/wide.ts", content: wide };
+  const state = finished();
+  const asking: State = {
+    ...state,
+    busy: true,
+    items: [...state.items, { kind: "prompt", key: "p2", text: "write it" }, { kind: "tool", key: "x", call: call("x", { name: "Write", input: write, status: "running" }) }],
+    tools: { ...state.tools, x: state.items.length + 1 },
+  };
+  const { out, press, screen, row, update } = await scrollback(asking, { columns: 80, rows: 24 });
+  await press(KEYS.ctrlO);
+  expect(out()).toContain(ENTER);
+  await update({ ...asking, pending: [{ id: "x", toolName: "Write", input: write }] });
+  const edge = row(/^▁+$/);
+  expect(edge).toBeGreaterThan(0);
+  expect(screen().slice(0, edge).some((line) => /Write\s+src\/wide\.ts/.test(line))).toBe(true);
+  expect(screen().length).toBeLessThanOrEqual(24);
+  expect(row(/ \d {2}No\b/)).toBeGreaterThan(edge);
+  expect(row(/Esc to cancel/)).toBeGreaterThan(edge);
+  // The status bar is the last row, under the decision.
+  expect(screen().at(-1)).toMatch(/ask first|auto|default/i);
+});
+
 test("the mouse works in the viewer, and goes back to the terminal with the scrollback", async () => {
   const { out, press, click, row, screen } = await scrollback(finished());
   expect(out()).not.toContain(MOUSE_ON);
