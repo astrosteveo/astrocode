@@ -1,12 +1,17 @@
-// Asking you before a tool runs: what Claude wants to do, on a panel with a gold top edge, and the
-// choices. "Always allow" names the one rule it adds.
-import { Box, Text, useInput, type DOMElement } from "ink";
-import { useRef, useState } from "react";
-import type { Decision as Choice, PermissionRequest } from "../src/events";
-import { alwaysLabel, permissionNote, permissionTitle } from "../src/view/permissions";
+// Asking you before a tool runs, in the box's place, on a panel with a gold top edge: what Claude
+// wants to do, and the choices, in `claude`'s words (src/view/permissions.ts). The panel is the one
+// place that says Claude is waiting, and for how long. Tab on No opens a comment, which goes to
+// Claude as the reason; a plan's last row is a comment of its own, saying what to change.
+import { Box, Text, useAnimation, useInput, type DOMElement } from "ink";
+import { existsSync } from "node:fs";
+import { useReducer, useRef, useState } from "react";
+import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import type { Decision, PermissionRequest } from "../src/events";
+import { duration } from "../src/view/format";
+import { askFor, permissionNote, rowText, type Row } from "../src/view/permissions";
 import { plural, shortPath } from "../src/view/tools";
 import { ChoiceRow } from "./choice";
-import { printable } from "./markdown";
+import { cellWidth, printable } from "./markdown";
 import { Diff, diffLines } from "./diff";
 import { Markdown, Panel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
@@ -15,59 +20,125 @@ import { PALETTE } from "./theme";
 /** Keys pressed this soon after the prompt appears were meant for something else, so Enter, digits and clicks wait. */
 const GRACE_MS = 500;
 
-/** Lines of a command, diff or file the prompt shows before saying how many more there are. */
-const PREVIEW_LINES = 12;
+/**
+ * `pictureRows`: how tall a diagram in a plan may be. `rows`: the screen's height, half of which a
+ * diff, command or plan may take, so the line that asks stays in view above. `agent`: the subagent
+ * that asks, as `askedBy()` names it. `mode` and `modes`: the mode you're in and those a row may
+ * switch to.
+ */
+type Props = {
+  request: PermissionRequest;
+  agent?: string;
+  cwd: string;
+  home: string;
+  width: number;
+  rows: number;
+  pictureRows: number;
+  mode: PermissionMode;
+  modes: { bypass: boolean; auto: boolean };
+  onDecide: (decision: Decision) => void;
+};
 
-/** Lines of a plan the prompt shows: more than a command's, since the plan is what's being approved. */
-const PLAN_LINES = 30;
-
-/** `pictureRows`: how tall a diagram in a plan may be. `agent`: the subagent that asks, as `askedBy()` names it. */
-type Props = { request: PermissionRequest; agent?: string; cwd: string; home: string; width: number; pictureRows: number; onDecide: (choice: Choice) => void };
-
-/** Choose with the arrow keys and Enter, press a number, or click an option. Esc or Ctrl+C denies. */
-export function DecisionPrompt({ request, agent, cwd, home, width, pictureRows, onDecide }: Props) {
-  const always = alwaysLabel(request.alwaysAllow, home);
-  // Approving a plan is leaving plan mode to carry it out; saying no keeps Claude planning.
-  const plan = request.toolName === "ExitPlanMode";
-  const options: { choice: Choice; label: string }[] = [
-    { choice: "allow", label: plan ? "Start on the plan" : "Allow" },
-    ...(always ? [{ choice: "always" as const, label: always }] : []),
-    { choice: "deny", label: plan ? "Keep planning, and tell Claude what to change" : "Deny, and tell Claude what to do instead" },
-  ];
-  const [selected, setSelected] = useState(request.defaultToNo ? options.length - 1 : 0);
+/**
+ * Choose with the arrow keys and Enter, press a number, or click a row. Esc or Ctrl+C says no.
+ * Shift+Tab picks the row that names it. Claude Code may ask that no one key say yes
+ * (`defaultToNo`): the prompt then starts on No, and numbers pick only the rows that say no.
+ */
+export function DecisionPrompt({ request, agent, cwd, home, width, rows, pictureRows, mode, modes, onDecide }: Props) {
+  const [exists] = useState(() => (request.toolName === "Write" && typeof request.input.file_path === "string" ? existsSync(request.input.file_path) : undefined));
+  const ask = askFor(request, { cwd, home, mode, modes, exists });
+  // The rows you pick, then the plan's comment, which you pick by typing in it.
+  const count = ask.rows.length + (ask.field ? 1 : 0);
+  const no = ask.rows.findIndex((row) => !row.decision.allow);
+  // In a ref, so keys that arrive faster than React draws see the latest: the row you're on, what
+  // you've typed on No after Tab (null while that's closed), and in the plan's last row.
+  const now = useRef({ selected: request.defaultToNo ? (no === -1 ? count - 1 : no) : 0, comment: null as string | null, change: "" });
+  const [, redraw] = useReducer((n: number) => n + 1, 0);
+  const update = (next: Partial<typeof now.current>) => {
+    now.current = { ...now.current, ...next };
+    redraw();
+  };
   const shownAt = useRef(Date.now());
-  const rows = useRef<(DOMElement | null)[]>([]);
+  const { time } = useAnimation({ interval: 1000 });
+  const options = useRef<(DOMElement | null)[]>([]);
   const list = useRef<DOMElement>(null);
-  const note = permissionNote(request, cwd, home);
+  const early = () => Date.now() - shownAt.current < GRACE_MS;
+  /** Where your keys are: on a row, in the plan's comment, or in No's. */
+  const at = () => {
+    const { selected, comment } = now.current;
+    const row = ask.rows[selected];
+    const onField = ask.field !== undefined && selected === ask.rows.length;
+    return { row, onField, typing: onField || (row?.amend !== undefined && comment !== null) };
+  };
+  const type = (edit: (text: string) => string) => update(at().onField ? { change: edit(now.current.change) } : { comment: edit(now.current.comment ?? "") });
+
+  const pick = (index: number) => {
+    const chosen = ask.rows[index];
+    if (!chosen) return update({ selected: index });
+    const { selected, comment } = now.current;
+    if (request.defaultToNo && chosen.decision.allow && index !== selected) return;
+    const said = chosen.amend !== undefined && index === selected ? comment?.trim() : undefined;
+    onDecide(said ? { allow: false, comment: said } : chosen.decision);
+  };
 
   useMouse((event) => {
     if (event.type !== "press" || event.button !== "left") return;
-    const index = options.findIndex((_, i) => hit(rows.current[i], event));
-    const option = options[index];
-    if (!option) return;
+    const index = options.current.findIndex((element, i) => i < count && hit(element, event));
+    if (index === -1) return;
     event.handled = true;
-    setSelected(index);
-    if (Date.now() - shownAt.current >= GRACE_MS) onDecide(option.choice);
+    update({ selected: index });
+    if (!early()) pick(index);
   });
   const hovered = useHover(list, (_x, _y, pointer) => {
-    const index = options.findIndex((_, i) => hit(rows.current[i], pointer));
+    const index = options.current.findIndex((element, i) => i < count && hit(element, pointer));
     return index === -1 ? null : { key: index, shape: "pointer" };
   });
 
   useInput((input, key) => {
     if (key.eventType === "release") return;
-    if (key.upArrow) setSelected((i) => (i + options.length - 1) % options.length);
-    else if (key.downArrow || (key.tab && !key.shift)) setSelected((i) => (i + 1) % options.length);
-    else if (key.escape || (key.ctrl && input === "c")) onDecide("deny");
-    else if (Date.now() - shownAt.current < GRACE_MS) return;
-    else if (key.return) onDecide(options[selected]?.choice ?? "deny");
-    else if (/^[1-9]$/.test(input)) {
-      const option = options[Number(input) - 1];
-      if (option) onDecide(option.choice);
+    const { row, onField, typing } = at();
+    if (key.escape || (key.ctrl && input === "c")) return onDecide({ allow: false });
+    if (key.upArrow) return update({ selected: (now.current.selected + count - 1) % count });
+    if (key.downArrow) return update({ selected: (now.current.selected + 1) % count });
+    if (key.tab && !key.shift) {
+      if (row?.amend !== undefined) update({ comment: now.current.comment === null ? "" : null });
+      return;
     }
+    if (typing && (key.backspace || key.delete)) return type((text) => text.slice(0, -1));
+    if (early()) return;
+    if (key.tab && key.shift) {
+      const index = ask.rows.findIndex((one) => one.key === "shift+tab");
+      if (index !== -1) pick(index);
+      return;
+    }
+    if (key.return) {
+      // An empty comment says nothing, so Enter waits for one; Esc is how to say no without it.
+      if (onField) return void (now.current.change.trim() && onDecide({ allow: false, comment: now.current.change.trim() }));
+      return pick(now.current.selected);
+    }
+    if (typing) {
+      if (!key.ctrl && !key.meta && input) type((text) => text + input);
+      return;
+    }
+    if (/^[1-9]$/.test(input) && Number(input) <= count) pick(Number(input) - 1);
   });
 
+  const { selected, comment, change } = now.current;
+  const { row, onField } = at();
   const inner = width - 2;
+  const note = request.toolName === "Bash" ? undefined : permissionNote(request, cwd, home);
+  const plan = typeof request.input.planFilePath === "string" ? shortPath(request.input.planFilePath, cwd, home) : "";
+  const hint = ask.cancel ? `Esc to cancel${row?.amend !== undefined && comment === null ? " · Tab to amend" : ""}` : plan;
+  // What the tool would do takes at most half the screen, and less where the rest of the panel
+  // needs it, so the line that asks stays in view above, and the status bar below.
+  const lines = (text: string, room: number) => Math.max(1, Math.ceil(cellWidth(text) / Math.max(1, room)));
+  const chrome =
+    5 +
+    [agent !== undefined, ask.subject, note, ask.field !== undefined].filter(Boolean).length +
+    (ask.question ? lines(ask.question, inner) : 0) +
+    ask.rows.reduce((sum, one) => sum + lines(rowText(one), inner - 5), 0) +
+    (hint ? 2 : 0);
+  const limit = Math.max(3, Math.min(Math.floor(rows / 2), rows - chrome - 3));
   return (
     <Panel width={width} accent={PALETTE.gold}>
       {agent !== undefined ? (
@@ -76,89 +147,140 @@ export function DecisionPrompt({ request, agent, cwd, home, width, pictureRows, 
           <Text color={PALETTE.teal}>{agent || "asks from inside a workflow"}</Text>
         </Text>
       ) : null}
-      <Text bold color={PALETTE.star}>
-        {permissionTitle(request)}
-      </Text>
+      <Box justifyContent="space-between">
+        <Text bold color={PALETTE.star}>
+          {ask.header}
+        </Text>
+        <Text color={PALETTE.gold}>{`waiting ${duration(time)}`}</Text>
+      </Box>
+      {ask.subject ? <Text color={PALETTE.haze}>{ask.subject}</Text> : null}
       {note ? <Text color={PALETTE.haze}>{note}</Text> : null}
       <Box flexDirection="column" marginTop={1}>
-        <Details request={request} cwd={cwd} home={home} width={inner} note={note} pictureRows={pictureRows} />
+        <Details request={request} cwd={cwd} home={home} width={inner} limit={limit} pictureRows={pictureRows} />
       </Box>
-      <Box ref={list} flexDirection="column" marginTop={1}>
-        {options.map((option, i) => (
+      {ask.question ? (
+        <Box marginTop={1}>
+          <Text>{ask.question}</Text>
+        </Box>
+      ) : null}
+      <Box ref={list} flexDirection="column" marginTop={ask.question ? 0 : 1}>
+        {ask.rows.map((one, i) => (
           <Box
-            key={option.choice}
+            key={i}
             ref={(element) => {
-              rows.current[i] = element;
+              options.current[i] = element;
             }}
           >
             <ChoiceRow selected={i === selected} hovered={i === hovered} width={inner}>
-              <Text bold={i === selected} color={i === selected ? PALETTE.star : undefined}>
-                {`${i + 1}  ${option.label}`}
-              </Text>
+              <Choice row={one} index={i} selected={i === selected} comment={one.amend !== undefined ? comment : null} />
             </ChoiceRow>
           </Box>
         ))}
+        {ask.field !== undefined ? (
+          <Box
+            ref={(element) => {
+              options.current[ask.rows.length] = element;
+            }}
+          >
+            <ChoiceRow selected={onField} hovered={hovered === ask.rows.length} width={inner}>
+              <Text>
+                <Text color={onField ? PALETTE.star : undefined}>{`${ask.rows.length + 1}  `}</Text>
+                {change ? <Text color={PALETTE.star}>{change}</Text> : <Text color={PALETTE.dust} italic>{ask.field}</Text>}
+                {onField ? <Caret /> : null}
+              </Text>
+            </ChoiceRow>
+          </Box>
+        ) : null}
       </Box>
-      <Box marginTop={1}>
-        <Text color={PALETTE.dust}>↑↓ to choose   enter to confirm   esc to deny</Text>
-      </Box>
+      {hint ? (
+        <Box marginTop={1}>
+          <Text color={PALETTE.dust}>{hint}</Text>
+        </Box>
+      ) : null}
     </Panel>
   );
 }
 
-/** What the tool would do. `note` is already shown above, so a description that says the same isn't repeated. */
-function Details({ request, cwd, home, width, pictureRows, note }: Pick<Props, "request" | "cwd" | "home" | "width" | "pictureRows"> & { note?: string }) {
+/** A row: its number and label, then its note and key, dim. With its comment open, what you type takes the label's place after the first word. */
+function Choice({ row, index, selected, comment }: { row: Row; index: number; selected: boolean; comment: string | null }) {
+  const color = selected ? PALETTE.star : undefined;
+  if (comment !== null && row.amend !== undefined) {
+    return (
+      <Text>
+        <Text bold={selected} color={color}>{`${index + 1}  ${row.label}, `}</Text>
+        {comment ? <Text color={PALETTE.star}>{comment}</Text> : <Text color={PALETTE.dust} italic>{row.amend}</Text>}
+        {selected ? <Caret /> : null}
+      </Text>
+    );
+  }
+  return (
+    <Text>
+      <Text bold={selected} color={color}>{`${index + 1}  ${row.label}`}</Text>
+      {row.note ? <Text color={PALETTE.haze}>{` ${row.note}`}</Text> : null}
+      {row.key ? <Text color={PALETTE.dust}>{` (${row.key})`}</Text> : null}
+    </Text>
+  );
+}
+
+function Caret() {
+  return (
+    <Text backgroundColor={PALETTE.gold} color={PALETTE.ink}>
+      {" "}
+    </Text>
+  );
+}
+
+/**
+ * What the tool would do, at most `limit` lines of it. A command shows once, then Claude's
+ * description of it, unless that's only the command again.
+ */
+function Details({ request, cwd, home, width, limit, pictureRows }: Pick<Props, "request" | "cwd" | "home" | "width" | "pictureRows"> & { limit: number }) {
   const text = (key: string) => {
     const value = request.input[key];
     return typeof value === "string" ? printable(value) : "";
   };
   switch (request.toolName) {
-    case "Bash":
+    case "Bash": {
+      const description = permissionNote({ ...request, description: text("description") || request.description }, cwd, home);
       return (
         <>
           <Text>
             <Text color={PALETTE.dust}>$ </Text>
-            <Text color={PALETTE.star}>{preview(text("command"))}</Text>
+            <Text color={PALETTE.star}>{preview(text("command"), limit)}</Text>
           </Text>
-          {text("description") && text("description") !== note ? <Text color={PALETTE.haze}>{text("description")}</Text> : null}
+          {description ? <Text color={PALETTE.haze}>{description}</Text> : null}
         </>
       );
+    }
     case "Edit":
-      return (
-        <>
-          <Text color={PALETTE.star}>{shortPath(text("file_path"), cwd, home)}</Text>
-          <Diff lines={diffLines(text("old_string"), text("new_string"))} width={width} limit={PREVIEW_LINES * 2} path={text("file_path")} framed={false} />
-        </>
-      );
+      return <Diff lines={diffLines(text("old_string"), text("new_string"))} width={width} limit={limit} path={text("file_path")} framed={false} />;
     case "Write":
-      return (
-        <>
-          <Text color={PALETTE.star}>{shortPath(text("file_path"), cwd, home)}</Text>
-          <Text color={PALETTE.haze}>{preview(text("content"))}</Text>
-        </>
-      );
+      return <Text color={PALETTE.haze}>{preview(text("content"), limit)}</Text>;
     case "WebFetch":
       return <Text color={PALETTE.sky}>{text("url")}</Text>;
     case "ExitPlanMode": {
-      // The plan as Claude wrote it, and the file Claude Code keeps it in.
+      // The plan as Claude wrote it; the file Claude Code keeps it in is on the hint line.
       const lines = text("plan").replace(/\n+$/, "").split("\n");
-      const file = text("planFilePath");
-      const more = lines.length - PLAN_LINES;
+      const more = lines.length - limit;
       return (
         <>
-          {file ? <Text color={PALETTE.haze}>{shortPath(file, cwd, home)}</Text> : null}
-          {text("plan") ? <Markdown text={lines.slice(0, PLAN_LINES).join("\n")} width={width} diagrams={{ rows: pictureRows }} /> : <Text color={PALETTE.haze}>Claude didn't send the plan with it.</Text>}
-          {more > 0 ? <Text color={PALETTE.dust}>{`… ${plural(more, "more line")}${file ? ", in the file above" : ""}`}</Text> : null}
+          {text("plan") ? (
+            // A plan's Markdown can take more rows than it has lines.
+            <Box flexDirection="column" maxHeight={limit} overflow="hidden">
+              <Markdown text={lines.slice(0, limit).join("\n")} width={width} diagrams={{ rows: pictureRows }} />
+            </Box>
+          ) : null}
+          {more > 0 ? <Text color={PALETTE.dust}>{`… ${plural(more, "more line")}${text("planFilePath") ? ", in the file below" : ""}`}</Text> : null}
         </>
       );
     }
     default:
-      return <Text color={PALETTE.haze}>{preview(JSON.stringify(request.input, null, 2))}</Text>;
+      return <Text color={PALETTE.haze}>{preview(JSON.stringify(request.input, null, 2), limit)}</Text>;
   }
 }
 
-function preview(text: string) {
+function preview(text: string, limit: number) {
   const lines = text.replace(/\n+$/, "").split("\n");
-  if (lines.length <= PREVIEW_LINES) return lines.join("\n");
-  return `${lines.slice(0, PREVIEW_LINES).join("\n")}\n… ${plural(lines.length - PREVIEW_LINES, "more line")}`;
+  if (lines.length <= limit) return lines.join("\n");
+  return `${lines.slice(0, limit).join("\n")}\n… ${plural(lines.length - limit, "more line")}`;
 }
