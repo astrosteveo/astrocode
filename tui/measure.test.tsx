@@ -180,6 +180,27 @@ test("under 100 columns a result that doesn't fit beside its line goes under it,
 
 const KEYS = { ctrlO: "\x0f", down: "\x1b[B", enter: "\r" };
 
+test("closing a call in a conversation that then fits leaves it at the top, as it started, with the blank rows above the box", async () => {
+  // Short enough that the call opened doesn't fit, and closed it does.
+  const { screen, press } = await launch(turn(), 120, 32);
+  const before = screen();
+  expect(before[1]).toStartWith("  astrocode");
+  expect(transcriptOf(before, 120).at(-1)).toBe("");
+  await press(KEYS.ctrlO);
+  await press("/");
+  for (const key of "whole suite") await press(key);
+  await press(KEYS.enter);
+  await press(KEYS.enter);
+  expect(screen().some((line) => line.includes("Sent to Claude"))).toBe(true);
+  // It doesn't fit open: the scrollbar shows.
+  expect(screen().some((line) => line.trimEnd().endsWith("┃"))).toBe(true);
+  await press(KEYS.enter);
+  const after = screen();
+  expect(after.some((line) => line.includes("Sent to Claude"))).toBe(false);
+  expect(after[1]).toStartWith("  astrocode");
+  expect(transcriptOf(after, 120).at(-1)).toBe("");
+}, 30_000);
+
 test("render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger", async () => {
   for (const [columns, rows] of [
     [80, 24],
