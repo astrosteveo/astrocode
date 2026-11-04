@@ -97,6 +97,8 @@ type Props = {
   onFollow?: () => void;
   /** ← in an empty box: the agents view, as in Claude Code. */
   onAgents?: () => void;
+  /** Whether the empty box mentions ←: there are other conversations, and you've never opened the view. */
+  hintAgents?: boolean;
   /** A message put aside with Ctrl+S. It stays until Ctrl+S brings it back, whatever is sent meanwhile. */
   stash: string | null;
   onStash: (text: string | null) => void;
@@ -677,7 +679,9 @@ export function Prompt(props: Props) {
         ? "Claude is waiting for your OK above"
         : busy
           ? "Claude is working. Type to queue a message"
-          : "";
+          : props.hintAgents
+            ? "← for conversations"
+            : "";
   const caret = (character: string) =>
     active ? (
       <Text backgroundColor={PALETTE.gold} color={PALETTE.ink}>

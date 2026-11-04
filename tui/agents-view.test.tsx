@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import { installedBinary } from "../src/claude";
-import { AgentsView } from "./agents";
+import { loadSettings, remember } from "../src/settings";
+import { AgentsView, othersListed } from "./agents";
 import { Fleet } from "./fleet";
 import { Store } from "./store";
 
@@ -17,6 +18,8 @@ const here = join(root, "here");
 const other = join(root, "other");
 const third = join(root, "third");
 const dispatched = join(root, "dispatched");
+/** What the stand-in's `agents --json` prints. */
+const listed = join(root, "listed.json");
 const saved = { PATH: process.env.PATH, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR };
 
 beforeAll(() => {
@@ -26,11 +29,9 @@ beforeAll(() => {
     { id: "1a1b2c3d", cwd: other, kind: "background", startedAt: 2, state: "done", name: "newer" },
     { id: "2a1b2c3d", cwd: third, kind: "background", startedAt: 3, state: "done", name: "elsewhere" },
   ]);
+  writeFileSync(listed, list);
   const claude = join(root, "bin", "claude");
-  writeFileSync(
-    claude,
-    `#!/bin/sh\nif [ "$1" = "--bg" ]; then pwd > '${dispatched}'; echo 'backgrounded · 9f8e7d6c · task'; exit 0; fi\necho '${list}'\n`,
-  );
+  writeFileSync(claude, `#!/bin/sh\nif [ "$1" = "--bg" ]; then pwd > '${dispatched}'; echo 'backgrounded · 9f8e7d6c · task'; exit 0; fi\ncat '${listed}'\n`);
   chmodSync(claude, 0o755);
   process.env.PATH = `${join(root, "bin")}:${process.env.PATH}`;
   process.env.CLAUDE_CONFIG_DIR = root;
@@ -180,4 +181,35 @@ test("Ctrl+X stops one of astrocode's conversations, and its row goes", async ()
   app.unmount();
   expect(stopped).toEqual(["astrocode-1"]);
   expect(screen().split("Agents").at(-1)).toContain("Stopped first.");
+});
+
+test("the box mentions ← while the view would list a conversation besides this one", async () => {
+  expect(await othersListed(undefined)).toBe(true);
+  const kept = await Bun.file(listed).text();
+  try {
+    // A conversation handed to the background service before is listed there, as this one.
+    writeFileSync(listed, JSON.stringify([{ id: "3a1b2c3d", cwd: here, kind: "background", startedAt: 4, state: "stopped", sessionId: "this-one" }]));
+    expect(await othersListed("this-one")).toBe(false);
+    expect(await othersListed("another")).toBe(true);
+    writeFileSync(listed, "[]");
+    expect(await othersListed(undefined)).toBe(false);
+    // A `claude` that can't list them says nothing worth a hint.
+    writeFileSync(listed, "not json");
+    expect(await othersListed(undefined)).toBe(false);
+  } finally {
+    writeFileSync(listed, kept);
+  }
+});
+
+test("having opened the view is remembered, so the box stops mentioning ← next time", async () => {
+  const kept = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = root;
+  try {
+    expect((await loadSettings()).agentsViewed).toBeUndefined();
+    await remember({ agentsViewed: true });
+    expect((await loadSettings()).agentsViewed).toBe(true);
+  } finally {
+    if (kept === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = kept;
+  }
 });

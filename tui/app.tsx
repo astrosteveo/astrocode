@@ -182,11 +182,15 @@ type Props = {
   onAgents: () => void;
   /** The conversations astrocode runs, this one among them. */
   fleet: Fleet;
+  /** Whether the empty box mentions ←, once that's known. */
+  agentsHint: Promise<boolean>;
 };
 
-export function App({ store, session, branch, fullscreen, onToggleFullscreen, onAgents, fleet }: Props) {
+export function App({ store, session, branch, fullscreen, onToggleFullscreen, onAgents, fleet, agentsHint }: Props) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const othersWaiting = useSyncExternalStore(fleet.watch, () => needsYou(fleet.getSnapshot(), store));
+  const [hintAgents, setHintAgents] = useState(false);
+  useEffect(() => void agentsHint.then(setHintAgents), [agentsHint]);
   useModCards(session, state, store.emit);
   const { exit, suspendTerminal } = useApp();
   const mouse = useContext(MouseContext);
@@ -1648,6 +1652,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onFind={fullscreen ? () => setOverlay({ kind: "find" }) : undefined}
           onFollow={toggleFollow}
           onAgents={onAgents}
+          hintAgents={hintAgents}
           workflows={state.ultracodeAvailable !== false}
           stash={stash}
           onStash={(text) => {
