@@ -312,6 +312,5 @@ export async function startTerminal(options: TerminalOptions) {
 
 /** Starts the scrollback over on a clean screen, for the conversation to be written into it again. */
 function redrawScrollback(store: Store) {
-  process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
-  store.redraw();
+  store.redraw((data) => process.stdout.write(data));
 }

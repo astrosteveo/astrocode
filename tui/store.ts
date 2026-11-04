@@ -103,8 +103,9 @@ export class Store {
     return count;
   }
 
-  /** Starts the scrollback over with the same conversation, as when coming back from full screen. */
-  redraw() {
+  /** Starts the scrollback over on a clean screen, for the same conversation to be written into it again. */
+  redraw(write: (data: string) => void) {
+    write("\x1b[2J\x1b[3J\x1b[H");
     this.epoch += 1;
   }
 

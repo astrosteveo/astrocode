@@ -552,8 +552,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
    */
   const redrawScreen = () => {
     if (fullscreen) return write("\x1b[2J\x1b[H");
-    write("\x1b[2J\x1b[3J\x1b[H");
-    store.redraw();
+    store.redraw(write);
     repaint();
   };
 
