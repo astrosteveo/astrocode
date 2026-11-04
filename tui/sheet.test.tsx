@@ -207,6 +207,15 @@ test("an opened ledger's sheet lists its keys first, then the transcript's, and 
   }
 });
 
+test("lists Tab and → for Claude Code's suggestion in the box, each while no binding takes it, as the box takes them", async () => {
+  expect(listed("box")).toContain("tab, →  take the suggestion");
+  const rows = (keymap: Keymap) => sheetOf("box", keymap, true).flatMap((section) => section.rows.map(([key, does]) => `${key}  ${does}`));
+  const tab = await rebound([{ context: "Chat", bindings: { tab: "chat:thinkingToggle" } }]);
+  expect(rows(tab)).toContain("→  take the suggestion");
+  const both = await rebound([{ context: "Chat", bindings: { tab: "chat:thinkingToggle", right: "chat:fastMode" } }]);
+  expect(rows(both).some((row) => row.endsWith("take the suggestion"))).toBe(false);
+});
+
 test("says ↑ in the box takes back what's queued, as it does before it goes back through earlier messages", () => {
   expect(listed("box")).toContain("↑  edit what's queued");
 });

@@ -62,6 +62,7 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean, { pro
       ...own("edit what's queued", "up"),
       ...own("earlier messages", "up down"),
       ...bound("history:search"),
+      ...own("take the suggestion", "tab", "right"),
       ...own("stop Claude", "escape"),
       ...own("clear, or rewind", "escape escape"),
       ...own("conversations", "left"),
