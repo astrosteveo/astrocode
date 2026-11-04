@@ -83,6 +83,8 @@ type Props = {
   onLeave: () => void;
   /** Your keys or a click moved the cursor, which stops an opened call following Claude. */
   onCursor: () => void;
+  /** `x` on a line: what it stands for, as `onToggle` gets it, to stop while it runs. */
+  onStop: (key: string) => void;
   /**
    * A click on an entry, or on what a line of it stands for, such as a step's line for a call. True
    * when it opened or closed in place, false when it opened something else.
@@ -107,7 +109,7 @@ type Props = {
   children: ReactNode;
 };
 
-export function Screen({ state, epoch, start, columns, rows: height, expanded, waiting, opened, reveal, review, keys, focused, keymap, onFocus, onLedger, onLeave, onCursor, onToggle, onCopy, onEdit, onOpen, onPicture, find: sought, finding, onFind, onMatches, children }: Props) {
+export function Screen({ state, epoch, start, columns, rows: height, expanded, waiting, opened, reveal, review, keys, focused, keymap, onFocus, onLedger, onLeave, onCursor, onStop, onToggle, onCopy, onEdit, onOpen, onPicture, find: sought, finding, onFind, onMatches, children }: Props) {
   // A column for the scrollbar and one to keep it off the text.
   const width = Math.max(10, columns - 2);
   const viewport = useRef<DOMElement>(null);
@@ -291,6 +293,14 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     setAnchor({ key: held.key, line: held.line, y: Math.max(0, Math.min(at - top + pad, view - 4)) });
   };
 
+  /** `x`: stops what the cursor's line stands for, while that runs; inside what's open, the call open. */
+  const stop = () => {
+    const { transcript, at } = now.current;
+    const row = at === null ? undefined : transcript.rows[at];
+    if (!row?.hot) return;
+    onStop(row.target === WHOLE && transcript.opened ? callTarget(transcript.opened.id) : (row.target ?? row.key));
+  };
+
   /**
    * The transcript's own keys, while it has yours. True for one of them. The keys that work anywhere,
    * Ctrl+C and Shift+Tab among them, are the box's, which still gets them.
@@ -321,6 +331,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
       });
     } else if (letter === "n" || letter === "N") findNext(letter === "n" ? 1 : -1);
     else if (letter === "v") onEdit(conversation());
+    else if (letter === "x") stop();
     else if (!open) return false;
     else if (key.leftArrow || key.rightArrow) onToggle(moveTarget(key.leftArrow ? -1 : 1));
     else if (key.tab && !key.shift) onToggle(tabTarget(open.tabs[(open.tabs.indexOf(open.tab) + 1) % open.tabs.length]!));

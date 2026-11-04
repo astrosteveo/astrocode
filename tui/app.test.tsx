@@ -200,6 +200,46 @@ test("a running subagent opens under its line, its calls streaming in, rather th
   expect(row(/Running · enter opens one|Find the retry code.*subagent/)).toBe(-1);
 });
 
+test("x stops the running subagent or command under the cursor, opened or not, and nothing that's finished", async () => {
+  const sleeping = call("w", { name: "Bash", input: { command: "sleep 90", description: "Wait for the build", run_in_background: true }, background: "running", taskId: "bash-1", result: "Command running in background with ID: bash-1" });
+  const state = exploring();
+  const items: Item[] = [...state.items.slice(0, 2), { kind: "tool", key: "w", call: sleeping }, ...state.items.slice(2)];
+  const both: State = {
+    ...state,
+    items,
+    tools: Object.fromEntries(items.flatMap((item, i) => (item.kind === "tool" ? [[item.call.id, i]] : []))),
+    taskInfo: { ...state.taskInfo, "bash-1": { id: "bash-1", description: "Wait for the build", type: "local_bash", toolUseId: "w", background: true, status: "running" } },
+  };
+  const { press, asked, row, cursor } = await launch(both);
+  const stopped = () => asked.filter((name) => name === "stopTask").length;
+  await press(KEYS.ctrlO);
+  await press("x");
+  expect(stopped()).toBe(1);
+  // Opened, from inside it.
+  await press(KEYS.enter);
+  await press(KEYS.down);
+  await press("x");
+  expect(stopped()).toBe(2);
+  // A finished call has nothing to stop; a command in the background does.
+  await press(KEYS.esc);
+  await press(KEYS.up);
+  expect(cursor()).toBe(row(/Searched +a in src/));
+  await press("x");
+  expect(stopped()).toBe(2);
+  await press(KEYS.up);
+  expect(cursor()).toBe(row(/Waiting +for the build/));
+  await press("x");
+  expect(stopped()).toBe(3);
+});
+
+test("x on a running call that can't stop on its own says what stops it", async () => {
+  const { press, asked, row } = await launch({ ...turn([call("a", { status: "running", result: undefined })]), busy: true });
+  await press(KEYS.ctrlO);
+  await press("x");
+  expect(asked).not.toContain("stopTask");
+  expect(row(/Ctrl\+C stops Claude/)).not.toBe(-1);
+});
+
 /** A command Claude is running, by its description. */
 const running = (id: string, description: string, more: Partial<ToolCall> = {}) => call(id, { name: "Bash", status: "running", input: { command: `make ${id}`, description }, result: undefined, ...more });
 

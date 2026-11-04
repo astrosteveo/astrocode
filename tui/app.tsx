@@ -17,7 +17,7 @@ import { saveStash } from "../src/stash";
 import { ago, canStopThinking, currentModel } from "../src/view/format";
 import { isCurrent, steps, titleWorthy } from "../src/view/steps";
 import { askedBy } from "../src/view/permissions";
-import { findRunning, runningKeyOf, runningList, type Running } from "../src/view/runs";
+import { findRunning, runningKeyOf, runningList, runningTaskOf, type Running } from "../src/view/runs";
 import type { Item, State, ToolItem } from "../src/view/state";
 import { todoList } from "../src/view/todos";
 import { plural, shortPath } from "../src/view/tools";
@@ -508,6 +508,21 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const stopRunning = (entry: Running) => {
     if (entry.shellId) store.shells.get(entry.shellId)?.abort();
     else if (entry.taskId) session.stopTask(entry.taskId).catch(report);
+  };
+
+  /**
+   * `x` on a line of the transcript: stops the subagent or command it stands for while that runs, a
+   * command of yours too. Another call stops only with Claude.
+   */
+  const stopLine = (key: string) => {
+    const id = targetCall(key);
+    const index = id === undefined ? state.items.findIndex((one) => one.key === key) : state.tools[id];
+    const item = index === undefined ? undefined : state.items[index];
+    if (item?.kind === "shell" && item.status === "running") return store.shells.get(item.id)?.abort();
+    if (item?.kind !== "tool") return;
+    const task = runningTaskOf(item.call, state);
+    if (task) return void session.stopTask(task.id).catch(report);
+    if (item.call.status === "running") setHint({ text: `Only a command or a subagent stops on its own · ${keyLabel(keyFor(store.keymap, "app:interrupt") ?? "ctrl+c")} stops Claude` });
   };
 
   /** Moves a subagent Claude waits on to the background, from its view, as Ctrl+B does for them all. */
@@ -1813,6 +1828,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       onLedger={setInLedger}
       onLeave={() => toTranscript(false)}
       onCursor={() => setInspect((open) => open && { ...open, follow: false })}
+      onStop={stopLine}
       onToggle={toggleTool}
       onCopy={copySelection}
       onEdit={(text) => void handOver(() => readInEditor(text)).catch(report)}
