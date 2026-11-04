@@ -283,3 +283,18 @@ test("Esc's hint names the conversation it goes back to", async () => {
   app.unmount();
   expect(screen().split("Conversations").at(-1)).toContain("esc back to first");
 });
+
+test("the status bar stays under the view, the one you came from's, saying how many others need you", async () => {
+  const { fleet, app, screen } = view({ here: "astrocode-1", mine: ["first", "second"] });
+  fleet.get("astrocode-1")?.store.emit({ kind: "mode", mode: "acceptEdits" });
+  fleet.get("astrocode-2")?.store.emit({ kind: "permission", request: { id: "p", toolName: "Bash", input: { command: "rm -rf dist" } } });
+  await settle(500);
+  app.unmount();
+  const lines = (screen().split("Conversations").at(-1) ?? "").split("\n").filter((line) => line.trim());
+  expect(lines.at(-1)).toMatch(/^ ▐accept edits▌ {2}shift\+tab {2}← 1 needs you/);
+  // Without a conversation to come back to, as under `astrocode agents`, there's no bar.
+  const alone = view();
+  await settle(500);
+  alone.app.unmount();
+  expect(alone.screen()).not.toContain("shift+tab");
+});

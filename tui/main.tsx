@@ -241,6 +241,7 @@ export async function startTerminal(options: TerminalOptions) {
   /** The agents view, until it's left for one of astrocode's conversations or out of astrocode. */
   const showAgents = async (notice?: string): Promise<Leaving> => {
     const settings = await newSettings();
+    const git = shown ? await gitInfo(shown.cwd) : null;
     if (!viewed) {
       viewed = true;
       // Should it not save, the hint only shows again next time.
@@ -256,6 +257,7 @@ export async function startTerminal(options: TerminalOptions) {
         home={homedir()}
         settings={settings}
         notice={notice}
+        git={git}
         onShow={(key) => leave({ kind: "show", key })}
         onOpen={async (agent) => {
           if (!agent.sessionId) throw new Error(`Claude Code hasn't said which conversation ${agent.name} is.`);
