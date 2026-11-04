@@ -1576,7 +1576,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const inspectedAt = inspect ? state.tools[inspect.id] : undefined;
   const inspectedItem = inspectedAt === undefined ? undefined : state.items[inspectedAt];
   const inspected = inspectedItem?.kind === "tool" ? inspectedItem.call : undefined;
-  // The key sheet a decision's `?` opened stands in the decision's place until it closes.
+  // The key sheet a decision's `?` opened, which stands in the decision's place until it closes.
   const sheet = overlay?.kind === "keys" && overlay.place === "decision";
   // Your keys are in one place: a decision, else an overlay (scrollback's inspector among them), else
   // the transcript once it's been given them, else the box.
@@ -1618,10 +1618,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     setToast(`Copied the ${what}, ${plural(text.split("\n").length, "line")}`);
   };
   const overlaid = picker();
-  // A decision takes the box's place until you answer it, and the key sheet its `?` opened takes the decision's.
-  const decision = sheet ? (
-    overlaid
-  ) : question ? (
+  // A decision takes the box's place until you answer it.
+  const decision = question ? (
     <QuestionPrompt key={question.id} request={question} width={width} rows={rows} onAnswer={(answers) => session.answer(question.id, answers)} />
   ) : elicitation ? (
     <ElicitationPrompt
@@ -1636,17 +1634,24 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       onAnswer={(answer) => session.answerElicitation(elicitation.id, answer)}
     />
   ) : request ? (
-    <DecisionPrompt
-      key={request.id}
-      request={request}
-      agent={askedBy(request, state.taskInfo)}
-      {...view}
-      rows={rows}
-      mode={state.mode}
-      modes={state.modesAvailable}
-      onDecide={(answer) => session.decide(request.id, answer)}
-      onEdit={(path) => handOver(() => editFile(path)).catch(report)}
-    />
+    // The key sheet its `?` opened stands in its place, and the decision stays under it, hidden, as you left it.
+    <>
+      {sheet ? overlaid : null}
+      <Box display={sheet ? "none" : "flex"} flexDirection="column">
+        <DecisionPrompt
+          key={request.id}
+          request={request}
+          agent={askedBy(request, state.taskInfo)}
+          {...view}
+          rows={rows}
+          mode={state.mode}
+          modes={state.modesAvailable}
+          active={!sheet}
+          onDecide={(answer) => session.decide(request.id, answer)}
+          onEdit={(path) => handOver(() => editFile(path)).catch(report)}
+        />
+      </Box>
+    </>
   ) : null;
   const above = decision ? null : overlaid ? (
     overlaid

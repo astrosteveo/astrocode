@@ -28,7 +28,8 @@ const GRACE_MS = 500;
  * `pictureRows`: how tall a diagram in a plan may be. `rows`: the screen's height, half of which a
  * diff, command or plan may take, so the line that asks stays in view above. `agent`: the subagent
  * that asks, as `askedBy()` names it. `mode` and `modes`: the mode you're in and those a row may
- * switch to. `onEdit`: opens a file in your editor, done once you've closed it.
+ * switch to. `onEdit`: opens a file in your editor, done once you've closed it. `active`: false
+ * while the key sheet covers it, which keeps its choice for when it's back.
  */
 type Props = {
   request: PermissionRequest;
@@ -40,6 +41,7 @@ type Props = {
   pictureRows: number;
   mode: PermissionMode;
   modes: { bypass: boolean; auto: boolean };
+  active?: boolean;
   onDecide: (decision: Decision) => void;
   onEdit: (path: string) => Promise<void>;
 };
@@ -49,7 +51,7 @@ type Props = {
  * Shift+Tab picks the row that names it. Claude Code may ask that no one key say yes
  * (`defaultToNo`): the prompt then starts on No, and numbers pick only the rows that say no.
  */
-export function DecisionPrompt({ request, agent, cwd, home, width, rows, pictureRows, mode, modes, onDecide, onEdit }: Props) {
+export function DecisionPrompt({ request, agent, cwd, home, width, rows, pictureRows, mode, modes, active = true, onDecide, onEdit }: Props) {
   const [exists] = useState(() => (request.toolName === "Write" && typeof request.input.file_path === "string" ? existsSync(request.input.file_path) : undefined));
   // A plan you edited with Ctrl+G is the one shown, and the one a yes approves.
   const file = request.toolName === "ExitPlanMode" && typeof request.input.planFilePath === "string" ? request.input.planFilePath : undefined;
@@ -96,11 +98,11 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
     event.handled = true;
     update({ selected: index });
     if (!early()) pick(index);
-  });
+  }, { isActive: active });
   const hovered = useHover(list, (_x, _y, pointer) => {
     const index = options.current.findIndex((element, i) => i < count && hit(element, pointer));
     return index === -1 ? null : { key: index, shape: "pointer" };
-  });
+  }, active);
 
   useInput((input, key) => {
     if (key.eventType === "release") return;
@@ -139,7 +141,7 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
       return;
     }
     if (/^[1-9]$/.test(input) && Number(input) <= count) pick(Number(input) - 1);
-  });
+  }, { isActive: active });
 
   const { selected, comment, change } = now.current;
   const { row, onField } = at();

@@ -979,3 +979,18 @@ test("a decision that comes while the box's key sheet is open takes its place, a
   await update(THREE);
   expect(sheetFirst(screen())).toBe("In the box");
 });
+
+test("the key sheet over a permission prompt keeps its choice: No is still chosen after ? and Esc", async () => {
+  const { press, update, row, asked } = await launch(THREE);
+  await update({ ...THREE, pending: [{ id: "c", toolName: "Bash", input: { command: "rm -rf build" } }] });
+  // ↑ from the first row goes round to the last, No.
+  await press(KEYS.up);
+  expect(row(/› \d {2}No\b/)).not.toBe(-1);
+  await press("?");
+  await press(KEYS.esc);
+  expect(row(/› \d {2}No\b/)).not.toBe(-1);
+  expect(row(/› 1 {2}Yes\b/)).toBe(-1);
+  // The prompt has been in view long enough that Enter answers it at once.
+  await press(KEYS.enter);
+  expect(asked).toContain("decide");
+});
