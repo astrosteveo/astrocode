@@ -472,3 +472,26 @@ test("while the transcript has your keys, the line over the box names the key th
   expect(row(/esc to stop/)).toBe(-1);
   expect(row(/ctrl\+c to stop/)).not.toBe(-1);
 });
+
+test("Ctrl+C in the transcript stops Claude and leaves what's typed in the box alone", async () => {
+  const { press, row, asked, boxKeys } = await launch({ ...THREE, busy: true });
+  await press("keep me");
+  await press(KEYS.ctrlO);
+  expect(boxKeys()).toBe(false);
+  await press(KEYS.ctrlC);
+  expect(asked).toContain("interrupt");
+  await press(KEYS.esc);
+  expect(boxKeys()).toBe(true);
+  expect(row(/^ ❯ keep me/)).not.toBe(-1);
+});
+
+test("Ctrl+C in the transcript with Claude idle is the first press of the two that exit, and leaves what's typed alone", async () => {
+  const { press, row, boxKeys } = await launch(THREE);
+  await press("keep me");
+  await press(KEYS.ctrlO);
+  await press(KEYS.ctrlC);
+  expect(row(/Press Ctrl\+C again to exit/)).not.toBe(-1);
+  await press(KEYS.esc);
+  expect(boxKeys()).toBe(true);
+  expect(row(/^ ❯ keep me/)).not.toBe(-1);
+});
