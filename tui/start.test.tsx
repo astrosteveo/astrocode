@@ -56,7 +56,7 @@ test("says where you are, what came from Claude Code, the recent sessions here a
   const keys = lines.indexOf(lineWith(lines, "Keys")!);
   expect(lines.slice(keys + 1, keys + 3).map((line) => line.trim().split(/ {2,}/))).toEqual([
     ["/ commands", "@ files", "! shell command", "/help keys and commands"],
-    ["shift+tab mode", "ctrl+o tool output", "← agents", "esc stop Claude"],
+    ["shift+tab mode", "ctrl+o tool output", "← conversations", "esc stop Claude"],
   ]);
   // Nothing is drawn large, and the mirror is gone.
   expect(lines.join("\n")).not.toMatch(/[⬢▄█▀]/);
@@ -73,7 +73,7 @@ test("fits 80 columns with the keys two across, and keeps to the measure at 200"
     ["/ commands", "@ files"],
     ["! shell command", "/help keys and commands"],
     ["shift+tab mode", "ctrl+o tool output"],
-    ["← agents", "esc stop Claude"],
+    ["← conversations", "esc stop Claude"],
   ]);
 
   const wide = draw(fresh(), 200);

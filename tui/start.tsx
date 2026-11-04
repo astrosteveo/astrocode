@@ -71,7 +71,7 @@ export function startOf(state: State, branch: string | undefined, keymap: Keymap
       ["/help", "keys and commands"],
       ...bound("chat:cycleMode"),
       ...bound("app:toggleTranscript"),
-      ["←", "agents"],
+      ["←", "conversations"],
       ["esc", "stop Claude"],
     ],
   };
