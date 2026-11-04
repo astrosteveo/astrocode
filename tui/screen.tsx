@@ -6,7 +6,7 @@
 // or Ctrl+O gives your keys back to the box. Dragging selects text and copies it, a click on a
 // link opens it, and on a picture enlarges it. Ctrl+F finds text in it, and Alt+↑ and Alt+↓ jump
 // between your messages, with Shift between tool calls and commands.
-import { Box, Text, useBoxMetrics, useInput, useStdout, type DOMElement, type Key } from "ink";
+import { Box, measureElement, Text, useBoxMetrics, useInput, useStdout, type DOMElement, type Key } from "ink";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
 import type { State } from "../src/view/state";
@@ -656,10 +656,14 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   // With no line at all to be on, your keys go back to the box.
   const hadKeys = useRef(false);
   useEffect(() => {
+    const { at, top, view, pad } = now.current;
+    // The view is measured a render late. On the render the panel under it changes height, as when
+    // the key sheet closes, `view` is still the old one, and judged by it the cursor would go to its
+    // last line; the measure renders again with the new one.
+    if (viewport.current && Math.max(1, measureElement(viewport.current).height) !== view) return;
     const arriving = focused && !hadKeys.current;
     hadKeys.current = focused;
     if (!focused) return;
-    const { at, top, view, pad } = now.current;
     if (at !== null && at >= top && at < top + view - pad) return;
     const index = !arriving && at !== null && at < top ? firstShown() : lastShown();
     if (index === -1) return onLeave();
