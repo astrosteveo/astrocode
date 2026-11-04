@@ -145,9 +145,9 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, modT
   if (model) segments.push({ text: model, node: <Text color={PALETTE.star}>{model}</Text>, onClick: onModel, rank: 5 });
   // Ultracode takes the effort's place: Claude Code runs it at its own level.
   if (state.ultracode) {
-    segments.push({ text: "ultracode", node: <Text>{paintKeywords("ultracode", 0, 9, keywordsIn("ultracode"))}</Text>, onClick: onEffort, rank: 5, joined: true });
+    segments.push({ text: "ultracode", node: <Text>{paintKeywords("ultracode", 0, 9, keywordsIn("ultracode"))}</Text>, onClick: onEffort, rank: 5, joined: Boolean(model) });
   } else if (state.effort) {
-    segments.push({ text: state.effort, node: <Text color={PALETTE.haze}>{state.effort}</Text>, onClick: onEffort, rank: 5, joined: true });
+    segments.push({ text: state.effort, node: <Text color={PALETTE.haze}>{state.effort}</Text>, onClick: onEffort, rank: 5, joined: Boolean(model) });
   }
   // Fast mode is off unless turned on; after a rate limit it pauses for a while.
   if (state.fast?.state === "on") segments.push({ text: "↯ fast", node: <Text color={PALETTE.teal}>↯ fast</Text>, onClick: onFast, rank: 8 });

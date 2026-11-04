@@ -18,7 +18,7 @@ const state: State = {
 };
 
 /** The bar on a fake terminal `columns` wide, with a mouse that `click` presses at a cell of it. */
-function bar(columns: number, props: { needsYou?: number; armed?: string | null; mode?: PermissionMode; toast?: string; running?: number; onNeedsYou?: () => void; onMode?: () => void; onModel?: () => void; onEffort?: () => void }) {
+function bar(columns: number, props: { state?: State; needsYou?: number; armed?: string | null; mode?: PermissionMode; toast?: string; running?: number; onNeedsYou?: () => void; onMode?: () => void; onModel?: () => void; onEffort?: () => void }) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns, rows: 10 });
   let drawn = "";
   stdout.on("data", (chunk: Buffer) => {
@@ -32,7 +32,7 @@ function bar(columns: number, props: { needsYou?: number; armed?: string | null;
   const app = render(
     <MouseContext value={mouse}>
       <StatusBar
-        state={state}
+        state={props.state ?? state}
         mode={props.mode ?? "default"}
         git={{ branch: "feat/cache-clock", changes: 3 }}
         width={columns}
@@ -148,6 +148,13 @@ test("draws each reading in as few cells as says it: the context's share, the mo
   const shown = line();
   stop();
   expect(shown).toContain("◌ 2 running   context 18%   5h 31%   7d 64%   Opus 5.5 xhigh   feat/cache-clock ±3");
+});
+
+test("an effort with no model named stands as a reading of its own", () => {
+  const { line, stop } = bar(200, { state: { ...state, model: undefined } });
+  const shown = line();
+  stop();
+  expect(shown).toContain("7d 64%   xhigh");
 });
 
 test("with another conversation waiting and two things running, keeps what's running at 80 columns, and the model and effort at 120", () => {
