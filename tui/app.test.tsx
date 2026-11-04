@@ -1317,19 +1317,24 @@ test("while Claude writes its reply, the step before it is done and still: only 
   }
 });
 
-test("an idle screen stays as it was drawn", async () => {
-  const { writes } = await launch(THREE);
-  expect(new Set(await framesOver(writes, 1100)).size).toBe(1);
-});
+// Principle 7's test: two seconds of an idle screen, and of one waiting on you, in either layout.
+for (const fullscreen of [true, false]) {
+  const layout = fullscreen ? "full screen" : "scrollback";
 
-test("waiting on you, the step's mark stops as a gold ◇, and only the decision's waiting Ns moves", async () => {
-  const command = { command: "rm -rf build", description: "Clean the build" };
-  const asking = { ...turn([call("a"), call("b", { name: "Bash", input: command, status: "running", result: undefined })]), busy: true };
-  const { writes } = await launch({ ...asking, pending: [{ id: "b", toolName: "Bash", input: command, description: command.description }] }, { columns: 120, rows: 30 });
-  const frames = await framesOver(writes, 1100);
-  expect(stripVTControlCharacters(frames[0]!).split("\n").find((line) => line.includes("Looking around"))?.[0]).toBe("◇");
-  expect(new Set(frames.map((frame) => frame.replace(/waiting \d+s/, "waiting Ns"))).size).toBe(1);
-});
+  test(`an idle screen stays as it was drawn (${layout})`, async () => {
+    const { writes } = await launch({ ...THREE, ...STARTED }, { fullscreen });
+    expect(new Set(await framesOver(writes, 2000)).size).toBe(1);
+  });
+
+  test(`waiting on you, the step's mark stops as a gold ◇, and only the decision's waiting Ns moves (${layout})`, async () => {
+    const command = { command: "rm -rf build", description: "Clean the build" };
+    const asking = { ...turn([call("a"), call("b", { name: "Bash", input: command, status: "running", result: undefined })]), ...STARTED, busy: true };
+    const { writes } = await launch({ ...asking, pending: [{ id: "b", toolName: "Bash", input: command, description: command.description }] }, { fullscreen, columns: 120, rows: 30 });
+    const frames = await framesOver(writes, 2000);
+    expect(stripVTControlCharacters(frames[0]!).split("\n").find((line) => line.includes("Looking around"))?.[0]).toBe("◇");
+    expect(new Set(frames.map((frame) => frame.replace(/waiting \d+s/, "waiting Ns"))).size).toBe(1);
+  });
+}
 
 test("an MCP server's form stops its call's step as a gold ◇ too, though the call doesn't wait for an OK", async () => {
   // Claude Code names a server's tools with anything but letters, digits, `_` and `-` in its name as `_`.
