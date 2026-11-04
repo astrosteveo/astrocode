@@ -6,7 +6,7 @@
 import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import { ANYWHERE } from "./focus";
-import { ACTIONS, DEFAULT_KEYMAP, hintKey, hintOf, startsChord, type Action, type Keymap } from "./keys";
+import { ACTIONS, hintKey, hintOf, startsChord, type Action, type Keymap } from "./keys";
 import { cellWidth } from "./markdown";
 import { Panel } from "./markdown-view";
 import { PALETTE } from "./theme";
@@ -21,6 +21,9 @@ export type Section = { title: string; rows: Row[] };
 /** Cells between two columns of keys. */
 const GAP = 3;
 
+/** Claude Code's other spellings of Ctrl+_, which terminals send for the one key. */
+const SPELLINGS = new Set(["ctrl+-", "ctrl+shift+-", "ctrl+shift+_"]);
+
 export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean): Section[] {
   /**
    * Keys of the box's own, in the keymap's spelling, that no binding has taken from it: the box asks
@@ -31,15 +34,12 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean): Sect
   const own = (does: string, ...keys: string[]) => row(does, free(keys).map(hintOf));
   const send = hintKey(keymap, "chat:submit");
   /**
-   * An action's keys: the first, as every hint names it, and any you bound to it. Claude Code's other
-   * defaults are the same key spelled another way (Ctrl+- for Ctrl+_), or a chord for terminals
-   * without the first. `also` are keys of the box's own that do the same.
+   * Every key bound to an action, the one every hint names first; a chord such as Ctrl+X Ctrl+S is
+   * how a terminal without the kitty keyboard protocol sends what Ctrl+Enter would. `also` are keys of
+   * the box's own that do the same.
    */
-  const bound = (action: Action, does: string = ACTIONS[action], ...also: string[]): Row[] => {
-    const first = hintKey(keymap, action);
-    const added = [...keymap].flatMap(([chord, to]) => (to === action && DEFAULT_KEYMAP.get(chord) !== action ? [hintOf(chord)] : []));
-    return row(does, [...new Set([...free(also).map(hintOf), ...(first ? [first] : []), ...added])]);
-  };
+  const bound = (action: Action, does: string = ACTIONS[action], ...also: string[]): Row[] =>
+    row(does, [...free(also), ...[...keymap].flatMap(([chord, to]) => (to === action && !SPELLINGS.has(chord) ? [chord] : []))].map(hintOf));
 
   const box: Section = {
     title: "In the box",
