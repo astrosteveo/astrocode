@@ -99,6 +99,8 @@ type Props = {
   onAgents?: () => void;
   /** Whether the empty box mentions ←: there are other conversations, and you've never opened the view. */
   hintAgents?: boolean;
+  /** Called as the box empties or gets something in it. */
+  onEmpty?: (empty: boolean) => void;
   /** A message put aside with Ctrl+S. It stays until Ctrl+S brings it back, whatever is sent meanwhile. */
   stash: string | null;
   onStash: (text: string | null) => void;
@@ -183,6 +185,7 @@ export function Prompt(props: Props) {
     if (edit === "fresh") undo.current = [];
     lastEdit.current = edit === "word" ? "type" : edit;
     buffer.current = { text, cursor };
+    if (!before.text !== !text) props.onEmpty?.(!text);
     if (!/\bultracode\b/i.test(text)) ignoreUltracode.current = false;
     redraw();
   };
