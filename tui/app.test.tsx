@@ -200,6 +200,63 @@ test("a running subagent opens under its line, its calls streaming in, rather th
   expect(row(/Running · enter opens one|Find the retry code.*subagent/)).toBe(-1);
 });
 
+/** A command Claude is running, by its description. */
+const running = (id: string, description: string, more: Partial<ToolCall> = {}) => call(id, { name: "Bash", status: "running", input: { command: `make ${id}`, description }, result: undefined, ...more });
+
+test("opening the running call's line opens each call Claude starts after it under its own line, and the one before closes, until you move the cursor", async () => {
+  const first = { ...turn([call("a"), running("b", "Build the app")]), busy: true };
+  const { press, update, screen, row, cursor } = await launch(first);
+  const under = (line: RegExp) => screen()[row(line) + 1] ?? "";
+  const opened = () => screen().filter((line) => /‹ \d of \d ›/.test(line)).length;
+  await press(KEYS.ctrlO);
+  expect(cursor()).toBe(row(/Building +the app/));
+  await press(KEYS.enter);
+  expect(under(/Building +the app/)).toContain("‹ 2 of 2 ›");
+  const built = running("b", "Build the app", { status: "done", result: "built" });
+  await update({ ...turn([call("a"), built, running("c", "Lint the code")]), busy: true });
+  expect(under(/Linting +the code/)).toContain("‹ 3 of 3 ›");
+  expect(opened()).toBe(1);
+  expect(cursor()).toBe(row(/Linting +the code/));
+  // Moving the cursor stops it: the call open stays open, and the next one opens only if you open it.
+  await press(KEYS.up);
+  await update({ ...turn([call("a"), built, running("c", "Lint the code", { status: "done", result: "clean" }), running("d", "Test the code")]), busy: true });
+  expect(under(/Linted +the code/)).toContain("‹ 3 of 4 ›");
+  expect(opened()).toBe(1);
+});
+
+test("a line of several reads, the last of them running, opens on the one running, and follows Claude from there", async () => {
+  const read = (id: string, file: string, more: Partial<ToolCall> = {}) => call(id, { name: "Read", input: { file_path: `/p/src/${file}` }, result: "1\tx", ...more });
+  const { press, update, screen } = await launch({ ...turn([call("g"), read("r1", "a.ts"), read("r2", "b.ts", { status: "running", result: undefined })]), busy: true });
+  const opened = () => screen().find((line) => /‹ \d of \d ›/.test(line))?.match(/‹ \d of \d ›/)?.[0];
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  expect(opened()).toBe("‹ 3 of 3 ›");
+  await update({ ...turn([call("g"), read("r1", "a.ts"), read("r2", "b.ts"), running("c", "Lint the code")]), busy: true });
+  expect(opened()).toBe("‹ 4 of 4 ›");
+});
+
+test("a finished call opened while Claude works stays open as Claude starts the next", async () => {
+  const { press, update, screen, row } = await launch({ ...turn([call("a"), running("b", "Build the app")]), busy: true });
+  await press(KEYS.ctrlO);
+  await press(KEYS.up);
+  await press(KEYS.enter);
+  expect(screen()[row(/Searched +a in src/) + 1]).toContain("‹ 1 of 2 ›");
+  await update({ ...turn([call("a"), running("b", "Build the app", { status: "done", result: "built" }), running("c", "Lint the code")]), busy: true });
+  expect(screen()[row(/Searched +a in src/) + 1]).toContain("‹ 1 of 3 ›");
+});
+
+test("opening the running call's line at the end of the conversation keeps the view following the end", async () => {
+  const before = long();
+  const state: State = { ...before, busy: true, items: [...before.items, { kind: "tool", key: "z", call: call("z", { status: "running", result: undefined }) }], tools: { ...before.tools, z: before.items.length } };
+  const { press, update, row, cursor } = await launch(state, { rows: 24 });
+  await press(KEYS.ctrlO);
+  expect(cursor()).toBe(row(/Searching +z in src/));
+  await press(KEYS.enter);
+  await update({ ...state, live: { messageId: "m", blocks: [{ kind: "text", text: "Nothing matched z." }], finalized: 0 } });
+  expect(row(/Nothing matched z/)).not.toBe(-1);
+  expect(row(/more lines?/)).toBe(-1);
+});
+
 test("full screen opens on the start screen, which names Ctrl+O by the transcript it gives your keys to", async () => {
   const { screen } = await launch(initialState("/p", "/home/u"));
   expect(screen().join("\n")).toContain("ctrl+o transcript");

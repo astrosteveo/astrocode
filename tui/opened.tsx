@@ -15,8 +15,11 @@ import { fit } from "./markdown-view";
 import { GUTTER, Railed } from "./rail";
 import { PALETTE } from "./theme";
 
-/** The call open under its line, the tab it shows (unset, its first) and whether that tab is whole rather than folded. */
-export type Opened = { id: string; tab?: TabId; whole?: boolean };
+/**
+ * The call open under its line, the tab it shows (unset, its first), whether that tab is whole rather
+ * than folded, and whether it follows Claude, opening each call Claude starts in its place.
+ */
+export type Opened = { id: string; tab?: TabId; whole?: boolean; follow?: boolean };
 
 /** Cells of a row that a click acts on in a way of their own, such as a tab's name. */
 export type Spot = { from: number; to: number; target: string };

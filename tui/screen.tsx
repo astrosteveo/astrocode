@@ -81,6 +81,8 @@ type Props = {
   onLedger?: (inside: boolean) => void;
   /** Esc, q or Ctrl+O, which give your keys back to the box. */
   onLeave: () => void;
+  /** Your keys or a click moved the cursor, which stops an opened call following Claude. */
+  onCursor: () => void;
   /**
    * A click on an entry, or on what a line of it stands for, such as a step's line for a call. True
    * when it opened or closed in place, false when it opened something else.
@@ -105,7 +107,7 @@ type Props = {
   children: ReactNode;
 };
 
-export function Screen({ state, epoch, start, columns, rows: height, expanded, waiting, opened, reveal, review, keys, focused, keymap, onFocus, onLedger, onLeave, onToggle, onCopy, onEdit, onOpen, onPicture, find: sought, finding, onFind, onMatches, children }: Props) {
+export function Screen({ state, epoch, start, columns, rows: height, expanded, waiting, opened, reveal, review, keys, focused, keymap, onFocus, onLedger, onLeave, onCursor, onToggle, onCopy, onEdit, onOpen, onPicture, find: sought, finding, onFind, onMatches, children }: Props) {
   // A column for the scrollbar and one to keep it off the text.
   const width = Math.max(10, columns - 2);
   const viewport = useRef<DOMElement>(null);
@@ -223,6 +225,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
    * PgUp and PgDn, which go as far as there are lines.
    */
   const moveCursor = (by: -1 | 1, lines = 1) => {
+    onCursor();
     const { transcript, at } = now.current;
     const { rows } = transcript;
     let index = Math.max(0, Math.min(rows.length - 1, (at ?? lastShown()) + by * lines));
@@ -264,6 +267,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
 
   /** Home or End: the cursor to the first line or the last, and the view to the top or the end, which it then follows. */
   const endCursor = (by: -1 | 1) => {
+    onCursor();
     const { rows } = now.current.transcript;
     const index = by < 0 ? rows.findIndex(isStop) : rows.findLastIndex(isStop);
     if (index === -1) return;
@@ -546,13 +550,15 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
           if (url) return later(() => onOpen(url));
           const image = imageAt(row.text, point.col);
           if (image) return onPicture(image);
-          // A click puts the cursor on its line, with your keys, and does there what Enter does.
+          // A click puts the cursor on its line, with your keys, and does there what Enter does. One
+          // on a tab of what's open is Tab, which, unlike moving the cursor, keeps it following Claude.
+          const spot = spotAt(row, point.col);
           if (isStop(row)) {
             place(index);
             onFocus();
+            if (!spot) onCursor();
           }
           if (!row.hot) return;
-          const spot = spotAt(row, point.col);
           if (spot) return onToggle(spot);
           const y = index - top + pad;
           if (!closes(row)) {
@@ -610,6 +616,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
    * puts it. Past the last one, it goes to the end.
    */
   const jumpCursor = (by: -1 | 1, tools: boolean) => {
+    onCursor();
     const { transcript, at } = now.current;
     const from = at ?? lastShown();
     const lines = startsOf(tools).flatMap((start) => {
@@ -662,6 +669,9 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     keeping.current = undefined;
     if (index === undefined) return;
     if (focused) place(index);
+    // Following Claude, a view that shows the line from the end stays at the end, so what Claude
+    // writes after the call shows too.
+    if (opened?.follow && index >= now.current.maxTop) return setAnchor(null);
     show(index, keep === undefined ? index : openedEnd(transcript, index));
   }, [keep, transcript]);
 
