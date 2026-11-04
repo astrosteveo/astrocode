@@ -9,12 +9,14 @@ import type { TerminalWindow } from "./window";
 import { initialState, reduce, type State, type ViewEvent } from "../src/view/state";
 
 /**
- * The session's events folded into view state. `epoch` counts resets, so the scrollback Ink has
- * already written can start over. It outlives the interface, which starts again when it switches
- * between scrollback and full screen.
+ * The session's events folded into view state. `epoch` counts the times the scrollback Ink has
+ * already written starts over: a reset, or the same conversation written out again. It outlives
+ * the interface, which starts again when it switches between scrollback and full screen.
  */
 export class Store {
   epoch = 0;
+  /** Counts resets, a new or resumed session, which what the conversation before it started mustn't reach. */
+  resets = 0;
   /** What you've sent, oldest first, for ↑ in the message box. Kept through /clear, like a shell's history. */
   readonly sent: string[] = [];
   /** Images attached in the message box, by the number its `[Image #n]` shows. */
@@ -89,6 +91,7 @@ export class Store {
     this.held = [];
     this.asides = [];
     this.state = { ...initialState(this.cwd, this.home), plan, models, commands, limits, mode, model, effort, thinking, ultracode, ultracodeAvailable, fast };
+    this.resets += 1;
     this.epoch += 1;
     this.notify();
   }

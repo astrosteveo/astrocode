@@ -288,7 +288,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     setExpanded(new Set());
     setTranscriptKeys(false);
     setInspect(null);
-  }, [store.epoch]);
+  }, [store.resets]);
 
   // An Agent call waits for you while its subagent, or one under it, does.
   const waiting = new Set([
@@ -717,14 +717,14 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     if (!command) return;
     const id = randomUUID();
     const controller = new AbortController();
-    const epoch = store.epoch;
+    const resets = store.resets;
     store.shells.set(id, controller);
     store.emit({ kind: "shell", id, command, at: Date.now() });
     const onOutput = (output: string) => store.emit({ kind: "shell-output", id, output, at: Date.now() });
     void runShell(command, { cwd: state.cwd, cols: width - GUTTER - 2, signal: controller.signal, onOutput }).then((result) => {
       store.shells.delete(id);
       // After /clear or a resume, the conversation it belonged to is gone.
-      if (store.epoch !== epoch) return;
+      if (store.resets !== resets) return;
       store.emit({ kind: "shell-done", id, stdout: result.output, stderr: "", code: result.code, stopped: result.stopped, at: Date.now() });
       const said = result.output.replace(ANSI, "").slice(-MAX_SHELL_OUTPUT);
       for (const message of shellMessages(command, said || "(Bash completed with no output)", result.stopped ? "Stopped by the user." : "")) session.note(message);
