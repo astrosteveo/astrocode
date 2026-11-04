@@ -336,19 +336,22 @@ One row over the box, only during a turn. It reads mark · what · time · token
 
 ### Decisions
 
-A decision takes the box's place, with a gold hairline and your keys. The line that asks sits right above it. For the first half second it ignores Enter, Space and digits.
+A decision takes the box's place, with a gold hairline and your keys. The line that asks sits right above it. Its title row ends with `waiting 4s`, the one place that says Claude waits. For the first half second it ignores Enter, Space and digits.
 
-| Kind | Body | Options |
-| :-- | :-- | :-- |
-| Permission: Bash | `$ command` once, then Claude's description in haze | `claude`'s, word for word: Yes · Yes, and don't ask again for `<each command>` here · Yes, and switch to auto mode (where offered) · No, and tell Claude what to do instead |
-| Permission: Edit, Write | The diff, with line numbers | `claude`'s: Yes · Yes, and accept edits for this session (shift+tab) · No |
-| Permission: other | Tool, server and input, as `claude` shows them | `claude`'s |
-| From a subagent | `Explore asks:` above the title | Same |
-| Claude's question | The question as the title. Options with descriptions; the preview beside them at 100 columns and up, under them below that, and a picture in kitty | Digits pick, Space checks (multi), Other… types, `n` adds a note (as `claude`), Esc dismisses |
-| Plan | The plan is drawn in the transcript as Claude's entry, right above. The panel holds the plan's file and the choices | `claude`'s plan choices |
-| MCP form | The server's fields | Tab next field · Enter submit · Esc decline |
+The words are `claude`'s, read from `claude` 2.1.318's screen, a table per tool in `src/view/permissions.ts`:
 
-Tab on Yes or No opens a comment field for that answer, as in `claude`. Every decision's hint line is `↑↓ or 1–N choose · enter confirm · tab comment · ctrl+o whole file`.
+| Kind | Title, and the line under it | Body | Asks | Options |
+| :-- | :-- | :-- | :-- | :-- |
+| Permission: Bash | Bash command | `$ command` once, then Claude's description in haze | Do you want to proceed? | Yes · Yes, and don't ask again for `<commands>` commands in `<cwd>` (or: Yes, and always allow access to `<folder>` from this project) · Yes, and switch to auto mode · auto mode handles these prompts for you (asking first, where auto mode is on) · No |
+| Permission: Edit, Write | Edit file, Create file or Overwrite file; the path | The diff, with line numbers, or the new file | Do you want to make this edit to `<file>`? (create, overwrite) | Yes · Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab) · No |
+| Permission: WebFetch | Fetch; Claude wants to fetch content from `<site>` | The address | Do you want to allow Claude to fetch this content? | Yes · Yes, and don't ask again for `<site>` · No, and tell Claude what to do differently (esc) |
+| Permission: MCP and other tools | Tool use; `<server> — <tool>` Tool: (MCP) | The input | Do you want to proceed? | Yes · Yes, and don't ask again for `<server> — <tool>` commands in `<cwd>` · No |
+| From a subagent | `Explore asks:` above the title | Same | Same | Same |
+| Claude's question | The question as the title | Options with descriptions; the preview beside them at 100 columns and up, under them below that, and a picture in kitty | | Digits pick, Space checks (multi), Other… types, `n` adds a note (as `claude`), Esc dismisses |
+| Plan | Ready to code?; Here is Claude's plan: | The plan is drawn in the transcript as Claude's entry, right above. The panel holds the plan's file and the choices | Claude has written up a plan and is ready to execute. Would you like to proceed? | The first your settings allow of: Yes, and switch to BYPASS PERMISSIONS (no further prompts) for this session · Yes, and use auto mode · Yes, auto-accept edits. Then Yes, manually approve edits · Tell Claude what to change, a row you type in, which Enter sends as the reason for no |
+| MCP form | The server's | The server's fields | | Tab next field · Enter submit · Esc decline |
+
+Tab on No opens a comment field, `No, and tell Claude what to do differently`, as in `claude`; what you type goes to Claude as the reason for no, and Claude carries on with it. `claude` takes a comment on Yes too, and the plan's Shift+Tab approves with feedback; both wait until the Agent SDK can carry a comment on an approval. Shift+Tab picks the row that names it. The hint line is `claude`'s: `Esc to cancel`, with `· Tab to amend` while No is chosen and its field is closed. WebFetch's prompt has none, and a plan's shows the plan's file. Claude Code may ask that no one key say yes: the prompt then starts on No, and digits pick only the rows that say no.
 
 | Permission, 120×40 | Permission, 80×24 | Question |
 | :-- | :-- | :-- |
@@ -675,5 +678,5 @@ Every PR keeps `bun test` and `bun run typecheck` passing, is checked in the run
 These need checking before their PRs; none blocks the earlier ones.
 
 1. **Prompt suggestions through the SDK.** `claude -p` emits `prompt_suggestion` messages with `--prompt-suggestions` (Claude Code docs, interactive mode). Whether the Agent SDK's streaming mode exposes the same option needs a spike before PR 15.
-2. **`claude`'s plan-approval choices.** I couldn't confirm their current wording in 2.1.316's binary. PR 8 should read them from the running `claude` and copy them.
+2. **`claude`'s plan-approval choices.** Resolved in PR 8: read from `claude` 2.1.318's screen and code, and copied under [Decisions](#decisions). Its MCP prompt was checked live too.
 3. **Per-turn git snapshots** (PR 5) need care with untracked files and large repos. A spike should measure the cost on a big repo before it ships.
