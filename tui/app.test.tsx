@@ -468,6 +468,33 @@ test("Enter on a turn's closing line opens its ledger, Enter on a file its diff,
   expect(boxKeys()).toBe(true);
 });
 
+test("Esc on a file's line closes its diff, not the ledger, and on a file with no diff open closes the ledger", async () => {
+  const { press, cursor, row, screen } = await launch(ledgers(), { columns: 120 });
+  const shown = (text: string) => screen().some((line) => line.includes(text));
+  await press(KEYS.ctrlO);
+  for (let i = 0; i < 3; i++) await press(KEYS.up);
+  await press(KEYS.enter);
+  await press(KEYS.down);
+  await press(KEYS.enter);
+  expect(cursor()).toBe(row(fileLine("src/a.ts", "+1 −1")));
+  expect(shown("this.clock.now()")).toBe(true);
+  await press(KEYS.esc);
+  expect(shown("this.clock.now()")).toBe(false);
+  expect(cursor()).toBe(row(fileLine("src/a.ts", "+1 −1")));
+  expect(row(fileLine("src/b.ts", "new +4"))).toBeGreaterThan(-1);
+  // With every diff open, Esc on a file closes that file's alone.
+  await press("a");
+  await press(KEYS.right);
+  expect(cursor()).toBe(row(fileLine("src/b.ts", "new +4")));
+  await press(KEYS.esc);
+  expect(shown("Its diff wasn't kept.")).toBe(false);
+  expect(shown("this.clock.now()")).toBe(true);
+  expect(cursor()).toBe(row(fileLine("src/b.ts", "new +4")));
+  await press(KEYS.esc);
+  expect(row(fileLine("src/b.ts", "new +4"))).toBe(-1);
+  expect(cursor()).toBe(row(/6s · 2 files \+5 −1/));
+});
+
 test("in an opened ledger ← and → move between its files, a opens every file's diff, and a again closes them", async () => {
   const { press, cursor, row, screen } = await launch(ledgers());
   await press(KEYS.ctrlO);
