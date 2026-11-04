@@ -65,6 +65,8 @@ test("Ctrl+L in scrollback lets a running ! command finish, and Claude hears wha
   await press("!sleep 0.3; echo done-here", KEYS.enter, KEYS.ctrlL);
   expect(written()).toContain(CLEARED);
   await settle(800);
+  // The command went into the scratch prompt history; the line has to land before the scratch folder goes.
+  await store.prompts.written();
   ink.unmount();
   const shell = store.getSnapshot().items.find((item) => item.kind === "shell");
   expect(shell?.status).toBe("done");
