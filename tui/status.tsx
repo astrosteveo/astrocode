@@ -1,6 +1,7 @@
 // The status bar under the message box. On the left, the permission mode as a solid chip, or for
 // bypass, rose words without the fill, since it stays on all session and a solid rose block would
-// outshout everything else; on the right, readings: how full the context is, the model, what runs
+// outshout everything else, then `← N needs you` in gold while another of astrocode's conversations
+// waits on you, which the readings make room for; on the right, readings: how full the context is, the model, what runs
 // in the background, your plan's usage windows once they're half used (or always, or never, as
 // /config says), the git branch and the
 // plan, as many as fit, most important first. After the context, how long the prompt cache stays
@@ -8,7 +9,7 @@
 // Remote Control is on, teal once connected and rose if it failed. In full
 // screen, clicking the chip changes the mode, clicking the model switches it, clicking the effort
 // sets it, clicking "thinking off" turns it back on, clicking the cache turns keep-warm on or off,
-// clicking `⇄ remote` opens Remote Control's link and QR code, clicking `◉ following` turns Follow
+// clicking `⇄ remote` opens Remote Control's link and QR code, clicking `← N needs you` opens the agents view, as ← in an empty box does, clicking `◉ following` turns Follow
 // Claude off (or on again, once you've looked back at a call), and clicking the running count opens what's running: Claude Code's background tasks and your
 // `!` commands. A mod's toast takes the readings' place for a moment, as the app's own do, and
 // the lines mods pin show above the bar, one to a mod.
@@ -68,6 +69,9 @@ type Props = {
   keepWarm: boolean;
   /** When the plan's usage windows show: once half used, always, or never. */
   usageMode: UsageMode;
+  /** How many of astrocode's other conversations wait on you. */
+  needsYou?: number;
+  onNeedsYou?: () => void;
   /** Follow Claude: on, held on a call you're looking at, or off when undefined. */
   follow?: "on" | "paused";
   onFollow?: () => void;
@@ -81,13 +85,15 @@ type Props = {
   onRemote?: () => void;
 };
 
-export function StatusBar({ state, mode, git, width, armed, running, toast, modToast, keepWarm, usageMode, follow, onFollow, onMode, onModel, onEffort, onThinking, onFast, onTasks, onCache, onRemote }: Props) {
+export function StatusBar({ state, mode, git, width, armed, running, toast, modToast, keepWarm, usageMode, needsYou, onNeedsYou, follow, onFollow, onMode, onModel, onEffort, onThinking, onFast, onTasks, onCache, onRemote }: Props) {
   const bar = useRef<DOMElement>(null);
   const now = useNow(15_000, state.cache !== undefined);
   const chip = MODE_CHIPS[mode];
   // The chip's caps are half blocks, so it reads as a solid lozenge.
   const left = armed ?? `▐${chip.label}▌`;
-  const room = width - 2 - cellWidth(left) - (armed ? 0 : cellWidth("  shift+tab")) - 2;
+  const hint = armed ? "" : "  shift+tab";
+  const needs = needsYou ? `← ${needsYou} needs you` : "";
+  const room = width - 2 - cellWidth(left) - cellWidth(hint) - (needs ? 2 + cellWidth(needs) : 0) - 2;
 
   // In order of importance: the bar keeps what fits from the start of this list.
   const segments: Segment[] = [];
@@ -170,10 +176,12 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, modT
     used += cost;
   }
 
-  /** What a click at cell `x` of the bar acts on: the chip, a reading by its place in `shown`, or nothing. */
-  const targetAt = (x: number): "mode" | number | null => {
+  /** What a click at cell `x` of the bar acts on: the chip, the count of conversations waiting, a reading by its place in `shown`, or nothing. */
+  const targetAt = (x: number): "mode" | "needs" | number | null => {
     // The chip starts after the bar's padding; the readings end before it, at the right.
     if (!armed && x >= 1 && x < 1 + cellWidth(left)) return onMode ? "mode" : null;
+    const needsAt = 1 + cellWidth(left) + cellWidth(hint) + 2;
+    if (needs && x >= needsAt && x < needsAt + cellWidth(needs)) return onNeedsYou ? "needs" : null;
     let start = width - 1 - used;
     for (const [i, segment] of shown.entries()) {
       if (i > 0) start += GAP.length;
@@ -190,36 +198,47 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, modT
     event.handled = true;
     const target = targetAt(at.x);
     if (target === "mode") onMode?.();
+    else if (target === "needs") onNeedsYou?.();
     else if (target !== null) shown[target]?.onClick?.();
   });
   const hovered = useHover(bar, (x) => {
     const target = targetAt(x);
     return target === null ? null : { key: target, shape: "pointer" };
   });
-  const hover = (key: "mode" | number) => (hovered === key ? PALETTE.hover : undefined);
+  const hover = (key: "mode" | "needs" | number) => (hovered === key ? PALETTE.hover : undefined);
 
   return (
     <Box ref={bar} width={width} paddingX={1} justifyContent="space-between">
-      {armed ? (
-        <Text color={PALETTE.ember}>{left}</Text>
-      ) : (
-        <Text>
-          <Text backgroundColor={hover("mode")}>
-            {mode === "bypassPermissions" ? (
-              <Text color={chip.color} bold>{` ${chip.label} `}</Text>
-            ) : (
-              <>
-                <Text color={chip.color}>▐</Text>
-                <Text backgroundColor={chip.color} color={PALETTE.ink} bold>
-                  {chip.label}
-                </Text>
-                <Text color={chip.color}>▌</Text>
-              </>
-            )}
+      <Text>
+        {armed ? (
+          <Text color={PALETTE.ember}>{left}</Text>
+        ) : (
+          <Text>
+            <Text backgroundColor={hover("mode")}>
+              {mode === "bypassPermissions" ? (
+                <Text color={chip.color} bold>{` ${chip.label} `}</Text>
+              ) : (
+                <>
+                  <Text color={chip.color}>▐</Text>
+                  <Text backgroundColor={chip.color} color={PALETTE.ink} bold>
+                    {chip.label}
+                  </Text>
+                  <Text color={chip.color}>▌</Text>
+                </>
+              )}
+            </Text>
+            <Text color={PALETTE.dust}>{hint}</Text>
           </Text>
-          <Text color={PALETTE.dust}>{"  shift+tab"}</Text>
-        </Text>
-      )}
+        )}
+        {needs ? (
+          <Text>
+            {"  "}
+            <Text color={PALETTE.gold} backgroundColor={hover("needs")}>
+              {needs}
+            </Text>
+          </Text>
+        ) : null}
+      </Text>
       <Text>
         {shown.map((segment, i) => (
           <Text key={i}>
