@@ -10,7 +10,7 @@ import type { AgentSession } from "../src/session";
 import { initialState, type State } from "../src/view/state";
 import { App } from "./app";
 import { cellWidth } from "./markdown";
-import { DEFAULT_KEYMAP, type Keymap } from "./keys";
+import { DEFAULT_KEYMAP, loadKeymap, type Keymap } from "./keys";
 import { StartScreen, startOf, startReady } from "./start";
 import { Store } from "./store";
 
@@ -255,4 +255,20 @@ test("a resumed conversation waits for the start screen, which lists the other s
   // Its history follows the start screen.
   const keys = lines.findIndex((line) => line.trim() === "Keys");
   expect(lines.findIndex((line) => line.includes("Make retries back off") && !line.includes("Resumed"))).toBeGreaterThan(keys);
+});
+
+test("names your keybindings only when keybindings.json was taken", async () => {
+  const file = join(root, "keybindings.json");
+  const loaded = async (text: string) => {
+    writeFileSync(file, text);
+    return startOf(fresh(), undefined, (await loadKeymap()).keymap).loaded;
+  };
+  try {
+    // A file that's turned down is said to be, and none of it is used.
+    expect(await loaded('{ "bindings": [ oops')).not.toContain("your keybindings");
+    expect(await loaded('{ "keys": [] }')).not.toContain("your keybindings");
+    expect(await loaded(JSON.stringify({ bindings: [{ context: "Chat", bindings: { "meta+m": "chat:cycleMode" } }] }))).toContain("your keybindings");
+  } finally {
+    rmSync(file, { force: true });
+  }
 });

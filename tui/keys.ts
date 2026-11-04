@@ -113,7 +113,8 @@ function keybindingsPath() {
 
 /**
  * The defaults with the user's keybindings.json over them. `problems` says what in the file
- * astrocode couldn't use: a malformed file, or actions it doesn't have.
+ * astrocode couldn't use: a malformed file, or actions it doesn't have. With no file, or one that's
+ * turned down, it's `DEFAULT_KEYMAP` itself, which is how the start screen knows yours weren't used.
  */
 export async function loadKeymap(): Promise<{ keymap: Keymap; problems: { tone: "info" | "error"; text: string }[] }> {
   let raw: string;
@@ -129,10 +130,10 @@ export async function loadKeymap(): Promise<{ keymap: Keymap; problems: { tone: 
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    return { keymap, problems: [{ tone: "error", text: `${keybindingsPath()} isn't valid JSON: ${error instanceof Error ? error.message : String(error)}` }] };
+    return { keymap: DEFAULT_KEYMAP, problems: [{ tone: "error", text: `${keybindingsPath()} isn't valid JSON: ${error instanceof Error ? error.message : String(error)}` }] };
   }
   const blocks = typeof parsed === "object" && parsed !== null ? (parsed as { bindings?: unknown }).bindings : undefined;
-  if (!Array.isArray(blocks)) return { keymap, problems: [{ tone: "error", text: `${keybindingsPath()} needs a "bindings" array, as Claude Code's does.` }] };
+  if (!Array.isArray(blocks)) return { keymap: DEFAULT_KEYMAP, problems: [{ tone: "error", text: `${keybindingsPath()} needs a "bindings" array, as Claude Code's does.` }] };
   for (const block of blocks) {
     if (typeof block !== "object" || block === null) continue;
     const { context, bindings } = block as { context?: unknown; bindings?: unknown };
