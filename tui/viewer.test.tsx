@@ -263,3 +263,16 @@ test("exiting from the viewer goes back to the scrollback first, with what settl
   expect(out().lastIndexOf(LEAVE)).toBeGreaterThan(out().lastIndexOf(ENTER));
   expect(count(scrollbackOf(out()), "Compacted: 142k tokens to 18k")).toBe(1);
 });
+
+test("/ in the viewer finds as claude's does: Enter closes the bar on the match, and n goes on to the next one", async () => {
+  const { press, screen, row } = await scrollback(finished());
+  await press(KEYS.ctrlO);
+  const cursor = () => screen().findIndex((line) => [...line][1] === "›");
+  await press("/");
+  await press("Searched");
+  await press(KEYS.enter);
+  expect(row(/Find /)).toBe(-1);
+  expect(cursor()).toBe(row(/Searched +c in src/));
+  await press("n");
+  expect(cursor()).toBe(row(/Searched +a in src/));
+});

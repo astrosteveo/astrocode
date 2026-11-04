@@ -1,7 +1,9 @@
-// Ctrl+F in full screen: a line to type what to find in the transcript. The matches are drawn in
-// the transcript itself (`markMatches()`), and the viewport follows the one search is on. Enter or
-// ↑ goes to the next match up, older; ↓ or Shift+Enter the next one down. Esc closes it and leaves
-// the view where it is.
+// Ctrl+F, in full screen and scrollback's transcript viewer: a line to type what to find in the
+// transcript. The matches are drawn in the transcript itself (`markMatches()`), and the viewport
+// follows the one search is on. Enter or ↑ goes to the next match up, older; ↓ or Shift+Enter the
+// next one down. Esc closes it and leaves the view where it is. Opened with `/` in the transcript,
+// it works as `claude`'s does instead: Enter accepts the match, and Esc cancels, back to the view
+// and to what was found before.
 import { Box, Text, useInput } from "ink";
 import { useRef, useState } from "react";
 import { cellWidth } from "./markdown";
@@ -18,9 +20,11 @@ type Props = {
   width: number;
   onChange: (find: Find) => void;
   onClose: () => void;
+  /** `/`'s Esc, which puts back the view and what was found before; with it, Enter accepts. */
+  onCancel?: () => void;
 };
 
-export function FindBar({ find, count, width, onChange, onClose }: Props) {
+export function FindBar({ find, count, width, onChange, onClose, onCancel }: Props) {
   // Keys can come faster than renders, so the query is kept here as well as in the parent.
   const latest = useRef(find);
   latest.current = find;
@@ -34,7 +38,8 @@ export function FindBar({ find, count, width, onChange, onClose }: Props) {
   useInput((input, key) => {
     if (key.eventType === "release") return;
     const { query, back } = latest.current;
-    if (key.escape || (key.ctrl && (input === "c" || input === "f" || input === "g"))) return onClose();
+    if (key.escape || (key.ctrl && (input === "c" || input === "f" || input === "g"))) return (onCancel ?? onClose)();
+    if (onCancel && key.return && !key.shift) return onClose();
     if ((key.return && !key.shift) || key.upArrow) return change({ query, back: count ? (back + 1) % count : 0 });
     if ((key.return && key.shift) || key.downArrow) return change({ query, back: count ? (back - 1 + count) % count : 0 });
     if (key.backspace) return change({ query: [...query].slice(0, -1).join(""), back: 0 });
@@ -45,7 +50,7 @@ export function FindBar({ find, count, width, onChange, onClose }: Props) {
 
   const { query, back } = latest.current;
   const status = !query ? "" : count ? `${count - (back % count)} of ${count}` : "no matches";
-  const hint = "enter ↑ older   ↓ newer   esc closes";
+  const hint = onCancel ? "↑ older   ↓ newer   enter accepts   esc cancels" : "enter ↑ older   ↓ newer   esc closes";
   const room = width - 4 - cellWidth(status) - 3;
   const shown = cellWidth(query) > room - 8 ? `…${[...query].slice(-(room - 9)).join("")}` : query;
   return (
