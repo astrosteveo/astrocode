@@ -1574,7 +1574,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const pinned = showTodos && todos ? <PinnedTodos todos={todos} rows={Math.max(3, Math.min(8, rows - 20))} /> : null;
   const panel = (
     <Box ref={panelBox} flexDirection="column">
-      <Activity state={state} width={width} />
+      {/* In the transcript Esc leaves it, and Ctrl+C, which works anywhere, stops Claude. */}
+      <Activity state={state} width={width} stop={focus === "transcript" ? (keyFor(store.keymap, "app:interrupt") ?? undefined) : undefined} />
       {/* The message box's own top edge sets it apart; what sits above it needs a row. */}
       <Box marginTop={above || pinned || state.queue.length ? 1 : 0} flexDirection="column">
         {pinned}

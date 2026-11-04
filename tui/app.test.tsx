@@ -452,3 +452,12 @@ test("exactly one gold mark in every place your keys can be, and Esc from an ove
   await press(KEYS.esc);
   expect(where()).toEqual({ marks: 1, cursor: true, box: false });
 });
+
+test("while the transcript has your keys, the line over the box names the key that stops Claude there", async () => {
+  const { press, row } = await launch({ ...THREE, busy: true });
+  expect(row(/esc to stop/)).not.toBe(-1);
+  await press(KEYS.ctrlO);
+  // Esc there leaves the transcript; Ctrl+C, a key that works anywhere, stops Claude.
+  expect(row(/esc to stop/)).toBe(-1);
+  expect(row(/ctrl\+c to stop/)).not.toBe(-1);
+});
