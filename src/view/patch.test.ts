@@ -45,3 +45,12 @@ test("splits the lines where the diff leaves some out, counting them", () => {
   // Lines without numbers, as an edit's own diff can be, are one run.
   expect(runsOf([{ kind: "removed", text: "a" }, { kind: "added", text: "b" }])).toEqual([{ skipped: 0, lines: [{ kind: "removed", text: "a" }, { kind: "added", text: "b" }] }]);
 });
+
+test("starts a run again where a line comes above the one before it, as in a diff made of edits", () => {
+  const far = patchLines("@@ -200,2 +200,2 @@\n a\n-b\n+B\n");
+  const near = patchLines("@@ -10,2 +10,3 @@\n-c\n+C\n+D\n e\n");
+  expect(runsOf([...far, ...near]).map((run) => [run.skipped, run.lines.length])).toEqual([
+    [199, 3],
+    [0, 4],
+  ]);
+});
