@@ -47,6 +47,7 @@ function box(options: { busy?: boolean; history?: string[] } = {}) {
       onCycleMode={call("cycleMode")}
       onExit={call("exit")}
       onArmed={(hint) => void armed.push(hint)}
+      onClearIntoHistory={(text) => void history.push(text)}
       onRedraw={call("redraw")}
       onOpenOutput={call("openOutput")}
       prefill={null}
@@ -130,4 +131,54 @@ test("Ctrl+C while Claude works stops it, however often it's pressed", async () 
   await press(KEYS.ctrlC, KEYS.ctrlC);
   app.unmount();
   expect(calls).toEqual(["interrupt", "interrupt"]);
+});
+
+test("Esc Esc with text clears it into history, and ↑ brings it back, as in claude", async () => {
+  const { press, calls, sent, armed, history, app } = box({ history: ["older"] });
+  await press("draft", KEYS.escape);
+  expect(armed).toEqual(["Esc again to clear"]);
+  await press(KEYS.escape);
+  expect(history).toEqual(["older", "draft"]);
+  await press(KEYS.enter);
+  expect(sent).toEqual([]);
+  await press(KEYS.up, KEYS.enter);
+  app.unmount();
+  expect(sent).toEqual(["draft"]);
+  expect(calls).toEqual([]);
+});
+
+test("one Esc never throws away what's typed", async () => {
+  const { press, calls, sent, history, app } = box();
+  await press("draft", KEYS.escape);
+  await settle(900);
+  await press(KEYS.escape, KEYS.enter);
+  app.unmount();
+  expect(sent).toEqual(["draft"]);
+  expect(history).toEqual([]);
+  expect(calls).toEqual([]);
+});
+
+test("Esc Esc clears a blank box without keeping it", async () => {
+  const { press, sent, history, app } = box();
+  await press("   ", KEYS.escape, KEYS.escape, "x", KEYS.enter);
+  app.unmount();
+  expect(history).toEqual([]);
+  expect(sent).toEqual(["x"]);
+});
+
+test("Esc Esc on an empty box rewinds, with nothing said after the first Esc", async () => {
+  const { press, calls, armed, app } = box();
+  await press(KEYS.escape, KEYS.escape);
+  app.unmount();
+  expect(calls).toEqual(["rewind"]);
+  expect(armed.filter(Boolean)).toEqual([]);
+});
+
+test("Esc while Claude works stops it and keeps what's typed", async () => {
+  const { press, calls, sent, history, app } = box({ busy: true });
+  await press("draft", KEYS.escape, KEYS.escape, KEYS.enter);
+  app.unmount();
+  expect(calls).toEqual(["interrupt", "interrupt"]);
+  expect(history).toEqual([]);
+  expect(sent).toEqual(["draft"]);
 });

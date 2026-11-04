@@ -137,7 +137,7 @@ const MAX_SHELL_OUTPUT = 30_000;
 
 const HELP = [
   "Enter sends. Shift+Enter, Alt+Enter, Ctrl+J, or \\ then Enter starts a new line. Type / for commands; partway through a message, choosing one writes it in.",
-  "Esc stops Claude. Esc twice on an empty box rewinds to an earlier message (/rewind).",
+  "Esc stops Claude. Esc twice clears the box, and ↑ brings back what it had; on an empty box, Esc twice rewinds to an earlier message (/rewind).",
   "A message sent while Claude works waits above the box until Claude takes it; until then, ↑ in an empty box takes it back to edit.",
   "Shift+Tab changes the permission mode. Alt+P switches the model and its effort, Alt+T turns thinking off and on, Alt+O turns fast mode on and off. ↑ and ↓ recall earlier messages; Ctrl+R searches them.",
   "ultrathink in a message asks for deeper reasoning that turn, and ultracode for a workflow of agents; Alt+W keeps the message's ultracode from starting one. /effort ultracode has Claude run a workflow on every task, for this session.",
@@ -1612,6 +1612,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onBackground={background}
           onToggleTodos={() => setTodoMode(showTodos ? "off" : "on")}
           onRewind={openRewind}
+          onClearIntoHistory={(text) => void store.sent.push(text)}
           onSuspend={suspend}
           onToggleThinking={toggleThinking}
           keymap={store.keymap}
