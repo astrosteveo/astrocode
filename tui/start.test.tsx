@@ -32,8 +32,8 @@ const fresh = (more: Partial<State> = {}): State => ({
 });
 
 /** The start screen as plain lines, `width` columns wide. */
-const draw = (state: State, width = 120, keymap: Keymap = DEFAULT_KEYMAP) =>
-  stripVTControlCharacters(renderToString(<StartScreen start={startOf(state, "feat/cache-clock", keymap, NOW)} width={width} />, { columns: width })).split("\n");
+const draw = (state: State, width = 120, keymap: Keymap = DEFAULT_KEYMAP, branch = "feat/cache-clock") =>
+  stripVTControlCharacters(renderToString(<StartScreen start={startOf(state, branch, keymap, NOW)} width={width} />, { columns: width })).split("\n");
 
 const lineWith = (lines: string[], text: string) => lines.find((line) => line.includes(text));
 
@@ -99,6 +99,25 @@ test("says only what it knows: nothing from Claude Code before it reports, not e
   const some = draw(fresh({ loaded: { version: "2.1.318", claudeMd: 2, plugins: 1, mcpServers: 0, skills: undefined }, effort: undefined }));
   expect(some[2]).toBe("  ~/retrykit · feat/cache-clock · Opus 5.5 · ask first");
   expect(some[3]).toBe("  From Claude Code: 2 CLAUDE.md files · 1 plugin");
+});
+
+test("keeps the folder's name when the rest of where you are fills the line, and cuts a long branch first", () => {
+  const state = fresh({ cwd: "/home/u/Projects/work/clients/retrykit", mode: "auto" });
+  const where = (width: number, branch: string) => draw(state, width, DEFAULT_KEYMAP, branch)[2];
+
+  const long = where(80, "dependabot/npm_and_yarn/anthropic-ai/claude-agent-sdk-0.3.302");
+  expect(long).toStartWith("  …/retrykit · dependabot/");
+  expect(long).toContain("…");
+  expect(long).toEndWith(" · Opus 5.5 xhigh · auto");
+  expect(cellWidth(long)).toBeLessThanOrEqual(78);
+
+  // With no room to spare, the line is cut at its end, after the folder and the branch.
+  const narrow = where(40, "main");
+  expect(narrow).toStartWith("  …/retrykit · main · Opus 5.5");
+  expect(cellWidth(narrow)).toBeLessThanOrEqual(38);
+
+  // With room enough, all of it.
+  expect(where(120, "main")).toBe("  ~/Projects/work/clients/retrykit · main · Opus 5.5 xhigh · auto");
 });
 
 test("names keys as you've bound them, and your keybindings as loaded", () => {
