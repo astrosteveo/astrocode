@@ -382,3 +382,51 @@ test("Enter on a line of several calls closes the one of them that's open", asyn
   await press(KEYS.enter);
   expect(opened()).toBeUndefined();
 });
+
+test("PgUp and PgDn move the cursor half a screen, Home and End to the top and the end, which the view follows again", async () => {
+  const { press, cursor, row, screen } = await launch(long(), { rows: 24 });
+  await press(KEYS.ctrlO);
+  const end = cursor();
+  expect(end).toBe(row(/Searched +c14 in src/));
+  await press("\x1b[5~");
+  const up = cursor();
+  expect(up).not.toBe(-1);
+  // The view went up with it, so it's still half a screen up from the end.
+  expect(row(/Searched +c14 in src/)).toBe(-1);
+  await press("\x1b[6~");
+  expect(cursor()).toBe(row(/Searched +c14 in src/));
+  await press("\x1b[H");
+  expect(cursor()).toBe(row(/message 0\b/));
+  await press("\x1b[F");
+  expect(cursor()).toBe(row(/Searched +c14 in src/));
+  expect(screen().some((line) => /more lines/.test(line))).toBe(false);
+});
+
+test("{ and }, Alt+↑ and Alt+↓ move the cursor to your message before or after, and Alt+Shift to a call", async () => {
+  const { press, cursor, row } = await launch(long(), { rows: 24 });
+  await press(KEYS.ctrlO);
+  await press("{");
+  expect(cursor()).toBe(row(/message 14\b/));
+  await press("{");
+  expect(cursor()).toBe(row(/message 13\b/));
+  await press("}");
+  expect(cursor()).toBe(row(/message 14\b/));
+  await press("\x1b\x1b[A");
+  expect(cursor()).toBe(row(/message 13\b/));
+  await press("\x1b\x1b[B");
+  expect(cursor()).toBe(row(/message 14\b/));
+  await press("\x1b[1;4A");
+  expect(cursor()).toBe(row(/Searched +c13 in src/));
+});
+
+test("the transcript's hint in the box's edge lists four to six keys, all of them at 80 columns", async () => {
+  const { press, screen } = await launch(THREE, { columns: 80, rows: 24 });
+  const pairs = () => (screen().find((line) => line.startsWith("▄") && /↑↓/.test(line)) ?? "").replace(/^▄+ | ▄$/g, "").split("   ");
+  await press(KEYS.ctrlO);
+  expect(pairs().length).toBeGreaterThanOrEqual(4);
+  expect(pairs().length).toBeLessThanOrEqual(6);
+  await press(KEYS.enter);
+  expect(pairs().length).toBeGreaterThanOrEqual(4);
+  expect(pairs().length).toBeLessThanOrEqual(6);
+  expect(pairs().at(-1)).toBe("esc close");
+});

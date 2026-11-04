@@ -162,7 +162,7 @@ const HELP = [
 
 const FULLSCREEN_HELP = [
   "Full screen: the wheel, PgUp and PgDn scroll; Ctrl+Home and Ctrl+End go to the top and the end.",
-  "Ctrl+O, or a click on a line, moves your keys to the transcript: ↑ and ↓ move its cursor, and Enter opens or closes the line it's on, a call under its own line. In an opened call ← and → open the call before or after, Tab its next tab, c copies the tab and e opens it in $EDITOR. Esc closes what's open, then gives your keys back to the box, as Ctrl+O and q do.",
+  "Ctrl+O, or a click on a line, moves your keys to the transcript: ↑ and ↓ move its cursor, and Enter opens or closes the line it's on, a call under its own line. PgUp and PgDn move it half a screen, Home and End to the top and the end, { and } (or Alt+↑ and Alt+↓) to your message before or after. In an opened call ← and → open the call before or after, Tab its next tab, c copies the tab and e opens it in $EDITOR. Esc closes what's open, then gives your keys back to the box, as Ctrl+O and q do. Ctrl+C, Shift+Tab, Alt+L and the other keys that work anywhere still work there.",
   "Ctrl+F finds text in the conversation: Enter or ↑ goes to the match before, ↓ to the one after. Alt+↑ and Alt+↓ jump between your messages, Alt+Shift+↑ and Alt+Shift+↓ between tool calls and commands.",
   "Drag to copy, double-click to copy a word, triple-click to copy a line.",
   "Click a line of a step to open that call under it, at any width, and again to close it; a step's name to open it with Claude's thinking and every line, a command of yours to open it (a running one shows its live output), an option to choose it, the mode, the model or the effort to change it.",
