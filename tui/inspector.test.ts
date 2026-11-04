@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ToolCall } from "../src/view/state";
-import { LABELS, tabsOf } from "./inspector";
+import { firstTab, LABELS, tabsOf } from "./inspector";
 
 const call = (id: string, more: Partial<ToolCall> = {}): ToolCall => ({ id, name: "Agent", input: {}, status: "done", subagentCalls: 0, ...more });
 
@@ -12,4 +12,11 @@ test("a subagent opens on its calls while it works, in the background too, and o
   expect(tabsOf(call("s", { background: "running" }), log)[0]).toBe("transcript");
   expect(tabsOf(call("s"), log).map((tab) => LABELS[tab])).toEqual(["Report", "Calls", "Prompt", "Input"]);
   expect(tabsOf(call("s"))).toEqual(["report", "prompt", "input"]);
+});
+
+test("a command waiting for your OK opens on the command itself, since it has no output yet", () => {
+  const bash = call("b", { name: "Bash", status: "running", input: { command: "rm -rf build" } });
+  expect(firstTab(bash, undefined, true)).toBe("command");
+  expect(firstTab(bash, undefined, false)).toBe("output");
+  expect(firstTab(call("s", { status: "running" }), undefined, true)).toBe("transcript");
 });

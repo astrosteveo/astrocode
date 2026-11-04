@@ -90,6 +90,12 @@ export function tabsOf(call: ToolCall, log?: AgentLine[]): TabId[] {
   }
 }
 
+/** The tab a call opens on: a command waiting for your OK opens on the command itself, since it has no output yet. */
+export function firstTab(call: ToolCall, log: AgentLine[] | undefined, waiting: boolean) {
+  const tabs = tabsOf(call, log);
+  return waiting && tabs.includes("command") ? "command" : tabs[0]!;
+}
+
 /**
  * What the header calls the call: Claude's description of a command or subagent, else its activity
  * line, whose path keeps its end when it's cut to fit. `waiting`: it waits for your OK, so its verb asks.
