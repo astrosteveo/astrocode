@@ -483,7 +483,7 @@ export class AgentSession {
     if (!waiting) return;
     this.permissions.delete(id);
     if (decision.allow) {
-      waiting.resolve({ behavior: "allow", updatedInput: waiting.value.input, updatedPermissions: decision.updates });
+      waiting.resolve({ behavior: "allow", updatedInput: decision.input ?? waiting.value.input, updatedPermissions: decision.updates });
     } else if (decision.comment) {
       // As in Claude Code: Claude reads what you said in the call's place, and carries on with it.
       waiting.resolve({ behavior: "deny", message: `${REJECTED} To tell you how to proceed, the user said:\n${decision.comment}`, interrupt: false });

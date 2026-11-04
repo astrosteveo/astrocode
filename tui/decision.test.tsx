@@ -1,10 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
 import { render, renderToString } from "ink";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { Decision, PermissionRequest } from "../src/events";
 import { DecisionPrompt } from "./decision";
+import { editorName } from "./editor";
 import { Markdown } from "./markdown-view";
 
 const KEYS = { up: "\x1b[A", down: "\x1b[B", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", backspace: "\x7f" };
@@ -20,7 +24,7 @@ afterEach(() => {
 });
 
 /** The prompt for `request` on a fake terminal: the last frame, keys to press, and what it decided. */
-async function ask(request: PermissionRequest, { mode = "auto" as PermissionMode, rows = 40, width = 100 } = {}) {
+async function ask(request: PermissionRequest, { mode = "auto" as PermissionMode, rows = 40, width = 100, onEdit = async (_path: string) => {} } = {}) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: width, rows });
   let drawn = "";
   stdout.on("data", (chunk: Buffer) => {
@@ -29,7 +33,7 @@ async function ask(request: PermissionRequest, { mode = "auto" as PermissionMode
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
   const decided: Decision[] = [];
   const app = render(
-    <DecisionPrompt request={request} cwd="/tmp/ac" home="/home/u" width={width} rows={rows} pictureRows={10} mode={mode} modes={{ bypass: true, auto: true }} onDecide={(one) => decided.push(one)} />,
+    <DecisionPrompt request={request} cwd="/tmp/ac" home="/home/u" width={width} rows={rows} pictureRows={10} mode={mode} modes={{ bypass: true, auto: true }} onDecide={(one) => decided.push(one)} onEdit={onEdit} />,
     { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, exitOnCtrlC: false, patchConsole: false, debug: true },
   );
   quit = () => app.unmount();
@@ -226,3 +230,33 @@ for (const [width, rows] of [
     expect(screen()).toContain(width === 120 ? "1. Branch feat/cache-injectable-clock off main." : "Context");
   });
 }
+
+test("Ctrl+G opens the plan's file in your editor; what you saved there is the plan shown, and the plan a yes approves", async () => {
+  const folder = mkdtempSync(join(tmpdir(), "astrocode-plan-"));
+  try {
+    const file = join(folder, "plan.md");
+    writeFileSync(file, PLAN);
+    const plan: PermissionRequest = { id: "p", toolName: "ExitPlanMode", input: { plan: PLAN, planFilePath: file } };
+    const opened: string[] = [];
+    // Your editor, which saves a shorter plan.
+    const onEdit = async (path: string) => {
+      opened.push(path);
+      writeFileSync(path, "# Plan: a shorter one\n\n1. Only this step.\n");
+    };
+    const { screen, press, decided } = await ask(plan, { width: 80, rows: 24, mode: "plan", onEdit });
+    expect(screen().replace(/\s+/g, " ")).toContain(`ctrl+g to edit in ${editorName()} · ${file}`);
+    expect(screen()).toContain("more lines, in the file below");
+    await press("\x07");
+    await settle(100);
+    expect(opened).toEqual([file]);
+    expect(screen()).toContain("1. Only this step.");
+    expect(screen()).not.toContain("more lines");
+    await grace();
+    await press(KEYS.enter);
+    expect(decided).toEqual([
+      { allow: true, updates: [{ type: "setMode", mode: "bypassPermissions", destination: "session" }], input: { plan: "# Plan: a shorter one\n\n1. Only this step.\n", planFilePath: file } },
+    ]);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+});

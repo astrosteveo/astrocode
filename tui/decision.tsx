@@ -1,9 +1,11 @@
 // Asking you before a tool runs, in the box's place, on a panel with a gold top edge: what Claude
 // wants to do, and the choices, in `claude`'s words (src/view/permissions.ts). The panel is the one
 // place that says Claude is waiting, and for how long. Tab on No opens a comment, which goes to
-// Claude as the reason; a plan's last row is a comment of its own, saying what to change.
+// Claude as the reason; a plan's last row is a comment of its own, saying what to change, and
+// Ctrl+G opens the plan's file in your editor, as in `claude`.
 import { Box, renderToString, Text, useAnimation, useInput, type DOMElement } from "ink";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import wrapAnsi from "wrap-ansi";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
@@ -14,6 +16,7 @@ import { plural, shortPath } from "../src/view/tools";
 import { ChoiceRow } from "./choice";
 import { printable } from "./markdown";
 import { Diff, diffLines } from "./diff";
+import { editorName } from "./editor";
 import { Markdown, Panel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
@@ -25,7 +28,7 @@ const GRACE_MS = 500;
  * `pictureRows`: how tall a diagram in a plan may be. `rows`: the screen's height, half of which a
  * diff, command or plan may take, so the line that asks stays in view above. `agent`: the subagent
  * that asks, as `askedBy()` names it. `mode` and `modes`: the mode you're in and those a row may
- * switch to.
+ * switch to. `onEdit`: opens a file in your editor, done once you've closed it.
  */
 type Props = {
   request: PermissionRequest;
@@ -38,6 +41,7 @@ type Props = {
   mode: PermissionMode;
   modes: { bypass: boolean; auto: boolean };
   onDecide: (decision: Decision) => void;
+  onEdit: (path: string) => Promise<void>;
 };
 
 /**
@@ -45,9 +49,13 @@ type Props = {
  * Shift+Tab picks the row that names it. Claude Code may ask that no one key say yes
  * (`defaultToNo`): the prompt then starts on No, and numbers pick only the rows that say no.
  */
-export function DecisionPrompt({ request, agent, cwd, home, width, rows, pictureRows, mode, modes, onDecide }: Props) {
+export function DecisionPrompt({ request, agent, cwd, home, width, rows, pictureRows, mode, modes, onDecide, onEdit }: Props) {
   const [exists] = useState(() => (request.toolName === "Write" && typeof request.input.file_path === "string" ? existsSync(request.input.file_path) : undefined));
-  const ask = askFor(request, { cwd, home, mode, modes, exists });
+  // A plan you edited with Ctrl+G is the one shown, and the one a yes approves.
+  const file = request.toolName === "ExitPlanMode" && typeof request.input.planFilePath === "string" ? request.input.planFilePath : undefined;
+  const [edited, setEdited] = useState<string | null>(null);
+  const current = useMemo(() => (edited === null ? request : { ...request, input: { ...request.input, plan: edited } }), [request, edited]);
+  const ask = askFor(current, { cwd, home, mode, modes, exists });
   // The rows you pick, then the plan's comment, which you pick by typing in it.
   const count = ask.rows.length + (ask.field ? 1 : 0);
   const no = ask.rows.findIndex((row) => !row.decision.allow);
@@ -78,7 +86,7 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
     const { selected, comment } = now.current;
     if (request.defaultToNo && chosen.decision.allow && index !== selected) return;
     const said = chosen.amend !== undefined ? comment?.trim() : undefined;
-    onDecide(said ? { allow: false, comment: said } : chosen.decision);
+    onDecide(said ? { allow: false, comment: said } : chosen.decision.allow && edited !== null ? { ...chosen.decision, input: current.input } : chosen.decision);
   };
 
   useMouse((event) => {
@@ -98,6 +106,16 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
     if (key.eventType === "release") return;
     const { row, onField, typing } = at();
     if (key.escape || (key.ctrl && input === "c")) return onDecide({ allow: false });
+    if (key.ctrl && input === "g" && file) {
+      const before = typeof current.input.plan === "string" ? current.input.plan : "";
+      void onEdit(file)
+        .then(() => readFile(file, "utf8"))
+        .then((text) => {
+          if (text.trim() !== before.trim()) setEdited(text);
+        })
+        .catch(() => {});
+      return;
+    }
     if (key.upArrow) return update({ selected: (now.current.selected + count - 1) % count });
     if (key.downArrow) return update({ selected: (now.current.selected + 1) % count });
     if (key.tab && !key.shift) {
@@ -127,7 +145,7 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
   const { row, onField } = at();
   const inner = width - 2;
   const note = request.toolName === "Bash" ? undefined : permissionNote(request, cwd, home);
-  const plan = typeof request.input.planFilePath === "string" ? shortPath(request.input.planFilePath, cwd, home) : "";
+  const plan = file ? `ctrl+g to edit in ${editorName()} · ${shortPath(file, cwd, home)}` : "";
   const hint = ask.cancel ? `Esc to cancel${row?.amend !== undefined && comment === null ? " · Tab to amend" : ""}` : plan;
   // What the tool would do takes at most half the screen, and less where the rest of the panel
   // needs it, so the line that asks stays in view above, and the status bar below. Rows are
@@ -140,7 +158,7 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
     (ask.field !== undefined ? rowsOf(`${change || ask.field} `, inner - 5) : 0) +
     (hint ? 1 + rowsOf(hint, inner) : 0);
   const limit = Math.max(3, Math.min(Math.floor(rows / 2), rows - chrome - 3));
-  const body = useMemo(() => details(request, cwd, home, inner, pictureRows), [request, cwd, home, inner, pictureRows]);
+  const body = useMemo(() => details(current, cwd, home, inner, pictureRows), [current, cwd, home, inner, pictureRows]);
   const shown = useFitting(body, limit, inner);
   return (
     <Panel width={width} accent={PALETTE.gold}>
