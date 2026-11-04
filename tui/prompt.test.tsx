@@ -29,6 +29,7 @@ function box(options: { busy?: boolean; history?: string[] } = {}) {
   const history = options.history ?? [];
   const calls: string[] = [];
   const sent: string[] = [];
+  const armed: (string | null)[] = [];
   const effort: number[] = [];
   const call = (name: string) => () => void calls.push(name);
   const app = render(
@@ -44,8 +45,8 @@ function box(options: { busy?: boolean; history?: string[] } = {}) {
       onSendQueuedNow={call("sendQueuedNow")}
       onInterrupt={call("interrupt")}
       onCycleMode={call("cycleMode")}
-      onCtrlC={call("ctrlC")}
       onExit={call("exit")}
+      onArmed={(hint) => void armed.push(hint)}
       onRedraw={call("redraw")}
       onOpenOutput={call("openOutput")}
       prefill={null}
@@ -75,7 +76,7 @@ function box(options: { busy?: boolean; history?: string[] } = {}) {
       await settle();
     }
   };
-  return { press, calls, sent, effort, history, app, screen: () => stripVTControlCharacters(screen) };
+  return { press, calls, sent, armed, effort, history, app, screen: () => stripVTControlCharacters(screen) };
 }
 
 const settle = (ms = 60) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -86,4 +87,47 @@ test("Ctrl+L redraws the screen and keeps what's typed, as in claude", async () 
   app.unmount();
   expect(calls).toEqual(["redraw"]);
   expect(sent).toEqual(["hello"]);
+});
+
+test("Ctrl+D on an empty box exits on the second press, and says so after the first", async () => {
+  const { press, calls, armed, app } = box();
+  await press(KEYS.ctrlD);
+  expect(calls).toEqual([]);
+  expect(armed).toEqual(["Press Ctrl+D again to exit"]);
+  await press(KEYS.ctrlD);
+  app.unmount();
+  expect(calls).toEqual(["exit"]);
+});
+
+test("Ctrl+D pressed again after 800 ms starts over rather than exiting", async () => {
+  const { press, calls, armed, app } = box();
+  await press(KEYS.ctrlD);
+  await settle(900);
+  await press(KEYS.ctrlD);
+  app.unmount();
+  expect(calls).toEqual([]);
+  expect(armed).toEqual(["Press Ctrl+D again to exit", null, "Press Ctrl+D again to exit"]);
+});
+
+test("Ctrl+D with text deletes the character after the cursor, as in claude", async () => {
+  const { press, calls, sent, app } = box();
+  await press("abc", KEYS.left, KEYS.left, KEYS.ctrlD, KEYS.ctrlD, KEYS.enter);
+  app.unmount();
+  expect(calls).toEqual([]);
+  expect(sent).toEqual(["a"]);
+});
+
+test("Ctrl+C then Ctrl+D is one double press, as in claude", async () => {
+  const { press, calls, armed, app } = box();
+  await press(KEYS.ctrlC, KEYS.ctrlD);
+  app.unmount();
+  expect(armed[0]).toBe("Press Ctrl+C again to exit");
+  expect(calls).toEqual(["exit"]);
+});
+
+test("Ctrl+C while Claude works stops it, however often it's pressed", async () => {
+  const { press, calls, app } = box({ busy: true });
+  await press(KEYS.ctrlC, KEYS.ctrlC);
+  app.unmount();
+  expect(calls).toEqual(["interrupt", "interrupt"]);
 });

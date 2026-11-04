@@ -18,7 +18,7 @@ import { ANYWHERE } from "./focus";
 import { cellWidth, takeCells } from "./markdown";
 import { fit, Panel } from "./markdown-view";
 import { clipboardImage, imageLabel, pastedImageFile } from "./images";
-import { chordHint, keyFor, startsChord, strokeOf, type Action, type Keymap } from "./keys";
+import { chordHint, DOUBLE_PRESS_MS, keyFor, keyLabel, startsChord, strokeOf, type Action, type Keymap } from "./keys";
 import { keywordsIn, paintKeywords } from "./keywords";
 import { hit, useHover, useMouse } from "./mouse";
 import { prepare } from "./pictures";
@@ -50,9 +50,10 @@ type Props = {
   onSendQueuedNow: () => void;
   onInterrupt: () => void;
   onCycleMode: () => void;
-  /** Ctrl+C on an empty box: the app stops Claude or gets ready to exit. */
-  onCtrlC: () => void;
+  /** Ctrl+C or Ctrl+D pressed twice on an empty box, as in `claude`. Ctrl+C stops Claude instead while it works. */
   onExit: () => void;
+  /** What pressing a key again soon would do, such as `Press Ctrl+D again to exit`, or null once it wouldn't. */
+  onArmed: (hint: string | null) => void;
   /** Ctrl+L: the screen drawn again, as `claude` does, for one left garbled. The box keeps what's typed. */
   onRedraw: () => void;
   onOpenOutput: () => void;
@@ -98,9 +99,6 @@ type Props = {
   workflows: boolean;
 };
 
-/** Two presses of Esc this close together are a double press. */
-const DOUBLE_ESC_MS = 600;
-
 /** Rows a menu shows at once. */
 const MENU_ROWS = 6;
 
@@ -140,6 +138,8 @@ export function Prompt(props: Props) {
   const area = useRef<DOMElement>(null);
   const menuBox = useRef<DOMElement>(null);
   const lastEscape = useRef(0);
+  /** A key pressed once, and when, that pressed again soon does more: Ctrl+C or Ctrl+D exits. */
+  const armed = useRef<{ key: "exit"; at: number } | null>(null);
   /** Earlier texts for Ctrl+_, and whether the last change was typing, which a run of undoes as one. */
   const undo = useRef<{ text: string; cursor: number }[]>([]);
   const lastEdit = useRef<"type" | "edit" | "undo" | "fresh">("edit");
@@ -188,6 +188,37 @@ export function Prompt(props: Props) {
     killed.current = text.slice(from, to);
     set(text.slice(0, from) + text.slice(to), from);
   };
+
+  /** Delete, and Ctrl+D with text, as in `claude`: the character after the cursor goes. */
+  const deleteForward = () => {
+    const { text, cursor } = buffer.current;
+    if (cursor < text.length) set(text.slice(0, cursor) + text.slice(next(text, cursor)), cursor);
+  };
+
+  /**
+   * Whether this press of `key` is the second within DOUBLE_PRESS_MS. A first press says what a
+   * second would do, with `hint`, until the time is up.
+   */
+  const pressedTwice = (key: "exit", hint: string | null) => {
+    const at = Date.now();
+    const first = armed.current;
+    if (first?.key === key && at - first.at < DOUBLE_PRESS_MS) {
+      armed.current = null;
+      props.onArmed(null);
+      return true;
+    }
+    armed.current = { key, at };
+    props.onArmed(hint);
+    setTimeout(() => {
+      if (armed.current?.at !== at) return;
+      armed.current = null;
+      props.onArmed(null);
+    }, DOUBLE_PRESS_MS);
+    return false;
+  };
+  /** Ctrl+C and Ctrl+D on an empty box, which share one double press, as in `claude`. */
+  const exitOnSecond = (action: "app:interrupt" | "app:exit") =>
+    pressedTwice("exit", `Press ${keyLabel(keyFor(props.keymap, action) ?? "")} again to exit`) ? props.onExit() : undefined;
 
   /** Ctrl+S: the message goes aside, or comes back, or the two trade places. */
   const toggleStash = () => {
@@ -394,10 +425,11 @@ export function Prompt(props: Props) {
       case "app:interrupt":
         // From the transcript the box's text isn't what you're working on: Ctrl+C stops Claude, or
         // counts toward the two presses that exit, and leaves the text alone.
-        if (!active) return props.onCtrlC();
-        return text ? set("", 0) : props.onCtrlC();
+        if (!active) return busy ? props.onInterrupt() : exitOnSecond(action);
+        if (text) return set("", 0);
+        return busy ? props.onInterrupt() : exitOnSecond(action);
       case "app:exit":
-        return text ? undefined : props.onExit();
+        return text ? deleteForward() : exitOnSecond(action);
       case "app:toggleTodos":
         return props.onToggleTodos();
       case "app:toggleTranscript":
@@ -527,7 +559,7 @@ export function Prompt(props: Props) {
         if (busy) return props.onInterrupt();
         if (text) return;
         const now = Date.now();
-        if (now - lastEscape.current < DOUBLE_ESC_MS) {
+        if (now - lastEscape.current < DOUBLE_PRESS_MS) {
           lastEscape.current = 0;
           return props.onRewind();
         }
@@ -548,10 +580,7 @@ export function Prompt(props: Props) {
         }
         return;
       }
-      if (key.delete) {
-        if (cursor < text.length) set(text.slice(0, cursor) + text.slice(next(text, cursor)), cursor);
-        return;
-      }
+      if (key.delete) return deleteForward();
       if (key.meta && input === "b") return set(text, wordStart(text, cursor));
       if (key.meta && input === "f") return set(text, wordEnd(text, cursor));
       if (key.meta && input === "d") return cut(cursor, wordEnd(text, cursor));
