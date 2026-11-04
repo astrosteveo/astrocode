@@ -48,9 +48,9 @@ afterAll(() => {
 });
 
 /** The agents view on a fake terminal, over a fleet of stand-in conversations, with what it was asked to do. */
-function view(options: { here?: string; mine?: string[]; settings?: SessionSettings } = {}) {
+function view(options: { here?: string; mine?: string[]; settings?: SessionSettings; columns?: number; cwd?: string } = {}) {
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 100, rows: 30 });
+  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: options.columns ?? 100, rows: 30 });
   let screen = "";
   stdout.on("data", (chunk: Buffer) => {
     screen += chunk.toString();
@@ -62,7 +62,7 @@ function view(options: { here?: string; mine?: string[]; settings?: SessionSetti
     store.emit({ kind: "prompt", text: task });
     return fleet.add({ key: `astrocode-${fleet.getSnapshot().length + 1}`, store, session: { knownId: undefined }, cwd });
   };
-  for (const task of options.mine ?? []) add(task, here);
+  for (const task of options.mine ?? []) add(task, options.cwd ?? here);
   const started: { task: string; cwd: string }[] = [];
   const shownKeys: string[] = [];
   const stopped: string[] = [];
@@ -70,7 +70,7 @@ function view(options: { here?: string; mine?: string[]; settings?: SessionSetti
     <AgentsView
       fleet={fleet}
       here={options.here}
-      cwd={here}
+      cwd={options.cwd ?? here}
       home={root}
       settings={options.settings ?? {}}
       onShow={(key) => shownKeys.push(key)}
@@ -297,4 +297,15 @@ test("the status bar stays under the view, the one you came from's, saying how m
   await settle(500);
   alone.app.unmount();
   expect(alone.screen()).not.toContain("shift+tab");
+});
+
+test("the header stays on one line, the folder cut from its start to fit", async () => {
+  const deep = join(root, "projects", "a-rather-long-project-folder-name", "with-a-worktree-under-it");
+  const { app, screen } = view({ columns: 80, cwd: deep, here: "astrocode-1", mine: ["first"], settings: { model: "claude-opus-5-5", effort: "xhigh", mode: "bypassPermissions" } });
+  await settle(500);
+  app.unmount();
+  const [header, counts] = (screen().split("Conversations").at(-1) ?? "").split("\n");
+  expect(header).toMatch(/^ {3}new ones start in …[^ ]*-it · Opus 5\.5 xhigh · bypass permissions$/);
+  expect(("Conversations" + header).length).toBeLessThanOrEqual(78);
+  expect(counts).toContain("working");
 });

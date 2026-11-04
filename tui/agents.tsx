@@ -411,6 +411,8 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, git = nul
   const newModel = settings.model ?? back?.store.getSnapshot().model;
   const model = [newModel && modelLabel(newModel), settings.effort].filter(Boolean).join(" ");
   const newSessions = [model, MODE_CHIPS[settings.mode ?? DEFAULT_MODE].label].filter(Boolean).join(" · ");
+  // The folder gets what room the line leaves it, keeping its end, so the header stays one line.
+  const startsIn = fit(shortPath(target, "", home), inner - cellWidth(`Conversations   new ones start in  · ${newSessions}`), true);
 
   const peekLines = peek && focused ? peekOf(focused, focusedMine && { name: nameOf(focusedMine), state: focusedMine.store.getSnapshot(), shells: focusedMine.store.shells.size, cwd: focusedMine.cwd }, home) : [];
   const peekRows = peekLines.reduce((sum, line) => sum + Math.max(1, Math.ceil(cellWidth(line.text) / Math.max(1, inner - 10))), 0) + (peekLines.length ? 1 : 0);
@@ -437,7 +439,7 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, git = nul
         <Text bold color={PALETTE.star}>
           Conversations
         </Text>
-        <Text color={PALETTE.haze}>{`   new ones start in ${shortPath(target, "", home)}${newSessions ? ` · ${newSessions}` : ""}`}</Text>
+        <Text color={PALETTE.haze}>{`   new ones start in ${startsIn} · ${newSessions}`}</Text>
       </Text>
       {agents ? (
         <Text>
