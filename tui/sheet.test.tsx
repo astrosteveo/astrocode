@@ -106,19 +106,20 @@ test("fits 80 columns and the rows it's given, and says ↑↓ scrolls the rest"
   // Its edges, the title, a blank row, ten rows of keys, a blank row and the hint.
   expect(lines.length).toBe(16);
   expect(lines.at(-2)).toContain("↑↓ to scroll");
-  // Two columns side by side at 80, and none cut short.
-  expect(lines.find((line) => line.includes("In the box"))).toMatch(/In the box {3,}\S/);
+  // None cut short.
   expect(lines.join("\n")).not.toContain("…");
 });
 
-test("at 120 and 200 columns the box's keys fit in their rows whole, side by side", () => {
+test("at 120 and 200 columns the box's keys stand side by side, and at 200 they fit in their rows whole", () => {
   for (const width of [120, 200]) {
     const lines = draw("box", DEFAULT_KEYMAP, { width, rows: 27 });
     for (const line of lines) expect(cellWidth(line)).toBeLessThanOrEqual(width);
-    expect(lines.at(-2)).not.toContain("↑↓ to scroll");
-    expect(lines.join("\n")).toContain("ctrl+y");
-    expect(lines.join("\n")).toContain("triple click");
+    expect(lines.find((line) => line.includes("In the box"))).toMatch(/In the box {3,}\S/);
   }
+  const lines = draw("box", DEFAULT_KEYMAP, { width: 200, rows: 27 });
+  expect(lines.at(-2)).not.toContain("↑↓ to scroll");
+  expect(lines.join("\n")).toContain("ctrl+y");
+  expect(lines.join("\n")).toContain("triple click");
   // Wider, it's shorter.
   expect(draw("box", DEFAULT_KEYMAP, { width: 200, rows: 27 }).length).toBeLessThan(draw("box", DEFAULT_KEYMAP, { width: 120, rows: 27 }).length);
 });
@@ -144,4 +145,14 @@ test("\\ makes the key that sends a new line, so it goes with that key", async (
   expect(text).toMatch(/alt\+s +send/);
   expect(text).toMatch(/alt\+enter, \\ alt\+s +new line/);
   expect(text).not.toContain("\\ enter");
+});
+
+test("lists every key Claude Code binds to an action, as Ctrl+X Ctrl+S sends now where Ctrl+Enter can't, but one key's other spellings once", () => {
+  const text = draw("box").join("\n");
+  expect(text).toMatch(/ctrl\+enter, ctrl\+x ctrl\+s +send now/);
+  expect(text).toMatch(/ctrl\+g, ctrl\+x ctrl\+e +editor/);
+  expect(text).toMatch(/ctrl\+b, ctrl\+x ctrl\+b +background/);
+  // Ctrl+- and Ctrl+Shift+- are Ctrl+_ as other terminals send it.
+  expect(text).toMatch(/ctrl\+_ +undo/);
+  expect(text).not.toContain("ctrl+-");
 });

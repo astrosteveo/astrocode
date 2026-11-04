@@ -216,7 +216,8 @@ test("/diff in scrollback while Claude works says to run it again once Claude is
 test("/help shows the key sheet in scrollback too, with Ctrl+O's tool output and without full screen's mouse", async () => {
   const { press, store, ink, written } = app();
   await settle();
-  await press("/help", KEYS.enter);
+  // The sheet is taller than 30 rows; typing filters it to the row.
+  await press("/help", KEYS.enter, "tool");
   // /help went into the scratch prompt history; the line has to land before the scratch folder goes.
   await store.prompts.written();
   ink.unmount();
