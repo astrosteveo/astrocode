@@ -51,6 +51,7 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean): Sect
       ...row(ACTIONS["chat:newline"], [...free(["meta+enter"]).map(hintOf), ...(send ? [`\\ ${send}`] : [])]),
       ...bound("chat:sendNow"),
       ...bound("chat:queueSubmit"),
+      ...own("edit what's queued", "up"),
       ...own("earlier messages", "up down"),
       ...bound("history:search"),
       ...own("stop Claude", "escape"),
