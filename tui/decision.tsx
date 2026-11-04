@@ -2,16 +2,17 @@
 // wants to do, and the choices, in `claude`'s words (src/view/permissions.ts). The panel is the one
 // place that says Claude is waiting, and for how long. Tab on No opens a comment, which goes to
 // Claude as the reason; a plan's last row is a comment of its own, saying what to change.
-import { Box, Text, useAnimation, useInput, type DOMElement } from "ink";
+import { Box, renderToString, Text, useAnimation, useInput, type DOMElement } from "ink";
 import { existsSync } from "node:fs";
-import { useReducer, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
+import wrapAnsi from "wrap-ansi";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { Decision, PermissionRequest } from "../src/events";
 import { duration } from "../src/view/format";
 import { askFor, permissionNote, rowText, type Row } from "../src/view/permissions";
 import { plural, shortPath } from "../src/view/tools";
 import { ChoiceRow } from "./choice";
-import { cellWidth, printable } from "./markdown";
+import { printable } from "./markdown";
 import { Diff, diffLines } from "./diff";
 import { Markdown, Panel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
@@ -130,15 +131,18 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
   const plan = typeof request.input.planFilePath === "string" ? shortPath(request.input.planFilePath, cwd, home) : "";
   const hint = ask.cancel ? `Esc to cancel${row?.amend !== undefined && comment === null ? " · Tab to amend" : ""}` : plan;
   // What the tool would do takes at most half the screen, and less where the rest of the panel
-  // needs it, so the line that asks stays in view above, and the status bar below.
-  const lines = (text: string, room: number) => Math.max(1, Math.ceil(cellWidth(text) / Math.max(1, room)));
+  // needs it, so the line that asks stays in view above, and the status bar below. Rows are
+  // counted as they wrap.
   const chrome =
     5 +
-    [agent !== undefined, ask.subject, note, ask.field !== undefined].filter(Boolean).length +
-    (ask.question ? lines(ask.question, inner) : 0) +
-    ask.rows.reduce((sum, one) => sum + lines(rowText(one), inner - 5), 0) +
-    (hint ? 2 : 0);
+    (agent !== undefined ? 1 : 0) +
+    [ask.subject, note, ask.question].reduce((sum, text) => sum + (text ? rowsOf(text, inner) : 0), 0) +
+    ask.rows.reduce((sum, one) => sum + rowsOf(one.amend !== undefined && comment !== null ? `${one.label}, ${comment || one.amend} ` : rowText(one), inner - 5), 0) +
+    (ask.field !== undefined ? rowsOf(`${change || ask.field} `, inner - 5) : 0) +
+    (hint ? 1 + rowsOf(hint, inner) : 0);
   const limit = Math.max(3, Math.min(Math.floor(rows / 2), rows - chrome - 3));
+  const body = useMemo(() => details(request, cwd, home, inner, pictureRows), [request, cwd, home, inner, pictureRows]);
+  const shown = useFitting(body, limit, inner);
   return (
     <Panel width={width} accent={PALETTE.gold}>
       {agent !== undefined ? (
@@ -156,7 +160,7 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
       {ask.subject ? <Text color={PALETTE.haze}>{ask.subject}</Text> : null}
       {note ? <Text color={PALETTE.haze}>{note}</Text> : null}
       <Box flexDirection="column" marginTop={1}>
-        <Details request={request} cwd={cwd} home={home} width={inner} limit={limit} pictureRows={pictureRows} />
+        {body.draw(shown)}
       </Box>
       {ask.question ? (
         <Box marginTop={1}>
@@ -244,53 +248,109 @@ function Caret() {
   );
 }
 
+/** The rows `text` takes in `room` columns, wrapped as Ink wraps it. */
+function rowsOf(text: string, room: number) {
+  return wrapAnsi(text, Math.max(1, room), { trim: false, hard: true }).split("\n").length;
+}
+
 /**
- * What the tool would do, at most `limit` lines of it. A command shows once, then Claude's
- * description of it, unless that's only the command again.
+ * What the tool would do: how many lines it has, and a drawing of its first `limit`, with a line
+ * saying how many more there are. A command shows once, then Claude's description of it, unless
+ * that's only the command again.
  */
-function Details({ request, cwd, home, width, limit, pictureRows }: Pick<Props, "request" | "cwd" | "home" | "width" | "pictureRows"> & { limit: number }) {
+function details(request: PermissionRequest, cwd: string, home: string, width: number, pictureRows: number): Body {
   const text = (key: string) => {
     const value = request.input[key];
     return typeof value === "string" ? printable(value) : "";
   };
+  const count = (some: string) => some.replace(/\n+$/, "").split("\n").length;
   switch (request.toolName) {
     case "Bash": {
+      const command = text("command");
       const description = permissionNote({ ...request, description: text("description") || request.description }, cwd, home);
-      return (
-        <>
-          <Text>
-            <Text color={PALETTE.dust}>$ </Text>
-            <Text color={PALETTE.star}>{preview(text("command"), limit)}</Text>
-          </Text>
-          {description ? <Text color={PALETTE.haze}>{description}</Text> : null}
-        </>
-      );
+      return {
+        lines: count(command),
+        draw: (limit) => (
+          <>
+            <Text>
+              <Text color={PALETTE.dust}>$ </Text>
+              <Text color={PALETTE.star}>{preview(command, limit)}</Text>
+            </Text>
+            {description ? <Text color={PALETTE.haze}>{description}</Text> : null}
+          </>
+        ),
+      };
     }
-    case "Edit":
-      return <Diff lines={diffLines(text("old_string"), text("new_string"))} width={width} limit={limit} path={text("file_path")} framed={false} />;
+    case "Edit": {
+      const lines = diffLines(text("old_string"), text("new_string"));
+      return { lines: lines.length, draw: (limit) => <Diff lines={lines} width={width} limit={limit} path={text("file_path")} framed={false} /> };
+    }
     case "Write":
-      return <Text color={PALETTE.haze}>{preview(text("content"), limit)}</Text>;
+      return { lines: count(text("content")), draw: (limit) => <Text color={PALETTE.haze}>{preview(text("content"), limit)}</Text> };
     case "WebFetch":
-      return <Text color={PALETTE.sky}>{text("url")}</Text>;
+      return { lines: 1, draw: () => <Text color={PALETTE.sky}>{text("url")}</Text> };
     case "ExitPlanMode": {
       // The plan as Claude wrote it; the file Claude Code keeps it in is on the hint line.
       const lines = text("plan").replace(/\n+$/, "").split("\n");
-      const more = lines.length - limit;
-      return (
-        <>
-          {text("plan") ? (
-            // A plan's Markdown can take more rows than it has lines.
-            <Box flexDirection="column" maxHeight={limit} overflow="hidden">
-              <Markdown text={lines.slice(0, limit).join("\n")} width={width} diagrams={{ rows: pictureRows }} />
-            </Box>
-          ) : null}
-          {more > 0 ? <Text color={PALETTE.dust}>{`… ${plural(more, "more line")}${text("planFilePath") ? ", in the file below" : ""}`}</Text> : null}
-        </>
-      );
+      return {
+        lines: lines.length,
+        draw: (limit) => (
+          <>
+            {text("plan") ? <Markdown text={lines.slice(0, limit).join("\n")} width={width} diagrams={{ rows: pictureRows }} /> : null}
+            {lines.length > limit ? <Text color={PALETTE.dust}>{`… ${plural(lines.length - limit, "more line")}${text("planFilePath") ? ", in the file below" : ""}`}</Text> : null}
+          </>
+        ),
+      };
     }
-    default:
-      return <Text color={PALETTE.haze}>{preview(JSON.stringify(request.input, null, 2), limit)}</Text>;
+    default: {
+      const json = JSON.stringify(request.input, null, 2);
+      return { lines: count(json), draw: (limit) => <Text color={PALETTE.haze}>{preview(json, limit)}</Text> };
+    }
   }
+}
+
+type Body = { lines: number; draw: (limit: number) => ReactNode };
+
+/**
+ * How many of the body's lines fit in `rows` rows: worked out just after React commits, since Ink
+ * can't render to a string in the middle of rendering. Until then, as many as fit before, or one.
+ */
+function useFitting(body: Body, rows: number, width: number) {
+  const [fit, setFit] = useState<{ body: Body; rows: number; width: number; shown: number } | null>(null);
+  const known = fit?.body === body && fit.rows === rows && fit.width === width;
+  useEffect(() => {
+    if (known) return;
+    let alive = true;
+    queueMicrotask(() => {
+      if (alive) setFit({ body, rows, width, shown: fitting(body, rows, width) });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [body, rows, width, known]);
+  return fit?.shown ?? 1;
+}
+
+/**
+ * The most of the body's lines whose drawing, `width` wide, takes no more than `rows` rows, as
+ * they wrap and as Markdown lays them out; one at least.
+ */
+function fitting(body: Body, rows: number, width: number) {
+  const fits = (limit: number) =>
+    renderToString(
+      <Box flexDirection="column" width={width}>
+        {body.draw(limit)}
+      </Box>,
+      { columns: width },
+    ).split("\n").length <= rows;
+  if (fits(body.lines)) return body.lines;
+  let [low, high] = [1, body.lines - 1];
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (fits(middle)) low = middle;
+    else high = middle - 1;
+  }
+  return low;
 }
 
 function preview(text: string, limit: number) {

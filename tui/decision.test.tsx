@@ -1,9 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
-import { render } from "ink";
+import { render, renderToString } from "ink";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
+import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { Decision, PermissionRequest } from "../src/events";
 import { DecisionPrompt } from "./decision";
+import { Markdown } from "./markdown-view";
 
 const KEYS = { up: "\x1b[A", down: "\x1b[B", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", backspace: "\x7f" };
 
@@ -18,7 +20,7 @@ afterEach(() => {
 });
 
 /** The prompt for `request` on a fake terminal: the last frame, keys to press, and what it decided. */
-async function ask(request: PermissionRequest, { mode = "auto" as const, rows = 40, width = 100 } = {}) {
+async function ask(request: PermissionRequest, { mode = "auto" as PermissionMode, rows = 40, width = 100 } = {}) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: width, rows });
   let drawn = "";
   stdout.on("data", (chunk: Buffer) => {
@@ -173,3 +175,54 @@ test("a row whose label wraps keeps two spaces after its number, and goes on und
   expect(lines[first + 1]!.indexOf("session")).toBe(label);
   expect(lines[first + 2]!.indexOf("Yes, manually")).toBe(label);
 });
+
+const PLAN = `# Plan: injectable clock for the cache
+
+## Context
+
+cache.ts calls Date.now() directly in get (line 10) and set (line 18), so TTL expiry can't be tested without real waits, which makes the tests slow and flaky on CI.
+
+## Approach
+
+Pass a clock into the constructor. Default it to Date.now so existing callers keep working without any change at all.
+
+## Steps
+
+1. Branch feat/cache-injectable-clock off main.
+2. In cache.ts, add export type Clock = () => number; and a second constructor param, private now: Clock = Date.now.
+3. Replace both Date.now() calls with this.now().
+4. Add cache.test.ts using a fake clock: value returned before the TTL, undefined after it, and the expired entry is deleted.
+5. Run the project's tests and typecheck.
+6. Commit, with files staged by name.
+7. Open a PR with gh.
+
+## Risks
+
+- Callers that subclass Cache and override get or set: none found in the repo.
+- The default argument is evaluated per instance, which is fine here.
+
+## Verification
+
+- bun test passes.
+- bun run typecheck passes.
+`;
+
+for (const [width, rows] of [
+  [120, 40],
+  [80, 24],
+] as const) {
+  test(`a plan too long for ${width}×${rows} shows its first rows as the plan draws them, then how many lines are left`, async () => {
+    const plan: PermissionRequest = { id: "p", toolName: "ExitPlanMode", input: { plan: PLAN, planFilePath: "/home/u/.claude/plans/a.md" } };
+    const { screen } = await ask(plan, { width, rows, mode: "plan" });
+    const lines = screen().split("\n");
+    const top = lines.findIndex((line) => line.includes("Plan: injectable clock"));
+    const end = lines.findIndex((line) => /more lines?, in the file below/.test(line));
+    expect(top).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(top);
+    // The plan alone, drawn whole at the panel's inner width: the panel shows its first rows, none squeezed or written over.
+    const whole = stripVTControlCharacters(renderToString(<Markdown text={PLAN} width={width - 2} />, { columns: width - 2 })).split("\n");
+    const shown = lines.slice(top, end).map((line) => line.slice(1).trimEnd());
+    expect(shown.slice(0, -1)).toEqual(whole.slice(0, shown.length - 1).map((line) => line.trimEnd()));
+    expect(screen()).toContain(width === 120 ? "1. Branch feat/cache-injectable-clock off main." : "Context");
+  });
+}

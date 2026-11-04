@@ -321,6 +321,30 @@ test("at 80×24 a long diff or plan is cut short, so the line that asks stays in
   }
 });
 
+test("at 80×24 a decision's long lines count as the rows they wrap to, so the whole panel fits under the line that asks", async () => {
+  const wide = Array.from({ length: 40 }, (_, i) => `  const value${i} = compute(${i}); // a fairly long line of code that wraps at eighty columns`).join("\n");
+  const edit = { file_path: "/p/src/cache.ts", old_string: "a", new_string: wide };
+  const write = { file_path: "/p/src/wide.ts", content: wide };
+  const bash = { command: wide.replaceAll("const", "echo"), description: "Echo the values" };
+  for (const [name, input, asks] of [
+    ["Edit", edit, /Edit\s+src\/cache\.ts/],
+    ["Write", write, /Write\s+src\/wide\.ts/],
+    ["Bash", bash, /Echo\s+the values/],
+  ] as const) {
+    const asking = turn([call("a"), call("x", { name, input, status: "running" })]);
+    const pending = [{ id: "x", toolName: name, input, description: "description" in input ? input.description : undefined, alwaysAllow: [{ type: "setMode" as const, mode: "acceptEdits" as const, destination: "session" as const }] }];
+    const { screen, row } = await launch({ ...asking, busy: true, pending }, { columns: 80, rows: 24 });
+    const edge = row(/^▁+$/);
+    expect(screen().slice(0, edge).some((line) => asks.test(line))).toBe(true);
+    expect(screen().length).toBeLessThanOrEqual(24);
+    expect(row(/ \d {2}No\b/)).toBeGreaterThan(edge);
+    expect(row(/Esc to cancel/)).toBeGreaterThan(edge);
+    // The status bar is the last row, under the decision.
+    expect(screen().at(-1)).toMatch(/ask first|auto|default/i);
+    quit?.();
+  }
+});
+
 test("the view follows the cursor past the screen's edge", async () => {
   const items: Item[] = Array.from({ length: 15 }, (_, i): Item[] => [
     { kind: "prompt", key: `p${i}`, text: `message ${i}` },
