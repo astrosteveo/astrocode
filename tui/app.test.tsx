@@ -299,6 +299,22 @@ test("with the call that waits open in the transcript, \"waiting\" is still said
   expect(screen().join("\n").match(/waiting/gi)).toEqual(["waiting"]);
 });
 
+test("Claude's question and an MCP server's form say once, on their title row, how long Claude has waited", async () => {
+  const question = { id: "q", questions: [{ question: "Which cache?", header: "Cache", multiSelect: false, options: [{ label: "LRU", description: "least recently used" }, { label: "TTL", description: "time based" }] }] };
+  const form = { id: "e", server: "hello", message: "Your name?", mode: "form" as const, fields: [{ name: "name", label: "Name", type: "string" as const, required: true }] };
+  const asking = turn([call("a"), call("q", { name: "AskUserQuestion", input: {}, status: "running" })]);
+  const cases: [Partial<State>, RegExp][] = [
+    [{ questions: [question] }, /Which cache\?/],
+    [{ elicitations: [form] }, /hello asks for some details/],
+  ];
+  for (const [waiting, title] of cases) {
+    const { screen, row } = await launch({ ...asking, busy: true, ...waiting }, { columns: 120, rows: 30 });
+    expect(screen().join("\n").match(/waiting/gi)).toEqual(["waiting"]);
+    expect(row(/waiting \d+s/)).toBe(row(title));
+    quit?.();
+  }
+});
+
 test("a decision opening brings the end back into view, so the line that asks sits right above it", async () => {
   const command = { command: "rm -rf build", description: "Clean the build" };
   const asking = turn([call("a"), call("b", { name: "Bash", input: command, status: "running" })]);
