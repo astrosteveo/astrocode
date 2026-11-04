@@ -15,7 +15,7 @@ import { argumentMatches } from "./arguments";
 import { ChoiceRow } from "./choice";
 import { baseName, fileMatches, projectFiles } from "./files";
 import { ANYWHERE } from "./focus";
-import { cellWidth, takeCells } from "./markdown";
+import { cellWidth, lastCells, takeCells } from "./markdown";
 import { fit, Panel } from "./markdown-view";
 import { clipboardImage, imageLabel, pastedImageFile } from "./images";
 import { chordHint, DOUBLE_PRESS_MS, keyFor, keyLabel, startsChord, strokeOf, type Action, type Keymap } from "./keys";
@@ -709,7 +709,7 @@ export function Prompt(props: Props) {
           <Text color={PALETTE.dust}>{query ? "Nothing you've sent has that in it." : "Type to search. ctrl+r older   enter keeps it   esc cancels"}</Text>
         ) : (
           <Box paddingLeft={2}>
-            <Highlighted text={match} query={query} />
+            <Highlighted text={match} query={query} room={width - 4} />
           </Box>
         )}
       </Panel>
@@ -796,17 +796,35 @@ function useFold(target: number, snap: boolean) {
   return shown;
 }
 
-/** A match from Ctrl+R, with the first place the search found in gold. */
-function Highlighted({ text, query }: { text: string; query: string }) {
-  const at = text.toLowerCase().indexOf(query.toLowerCase());
-  if (at === -1) return <Text color={PALETTE.star}>{text}</Text>;
+/**
+ * A match from Ctrl+R on one row of `room` cells, as Claude Code lists a match on one: the line the
+ * search found it on, with the place found in gold and in view, and how many lines it has besides.
+ * Claude Code shows a match's first line, which would hide a place found deep in a long paste.
+ */
+function Highlighted({ text, query, room }: { text: string; query: string; room: number }) {
+  const found = text.toLowerCase().indexOf(query.toLowerCase());
+  const at = Math.max(0, found);
+  const end = text.indexOf("\n", at);
+  const others = text.split("\n").length - 1;
+  const more = others > 0 ? `  +${others} lines` : "";
+  const space = Math.max(1, room - cellWidth(more));
+  const hit = found === -1 ? "" : takeCells(text.slice(at, at + query.length), space)[0];
+  let before = text.slice(text.lastIndexOf("\n", at - 1) + 1, at);
+  let after = text.slice(at + (found === -1 ? 0 : query.length), end === -1 ? text.length : end);
+  if (cellWidth(before) + cellWidth(hit) + cellWidth(after) > space) {
+    // What's before the place found gives way first, down to a third of what's left of the row.
+    const kept = Math.floor((space - cellWidth(hit)) / 3);
+    if (cellWidth(before) > kept) before = kept > 1 ? `…${lastCells(before, kept - 1)}` : "";
+    after = fit(after, space - cellWidth(before) - cellWidth(hit), false);
+  }
   return (
-    <Text color={PALETTE.star}>
-      {text.slice(0, at)}
+    <Text color={PALETTE.star} wrap="truncate-end">
+      {before}
       <Text color={PALETTE.gold} bold>
-        {text.slice(at, at + query.length)}
+        {hit}
       </Text>
-      {text.slice(at + query.length)}
+      {after}
+      <Text color={PALETTE.dust}>{more}</Text>
     </Text>
   );
 }
