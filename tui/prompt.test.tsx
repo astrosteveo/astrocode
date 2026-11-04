@@ -3,7 +3,7 @@ import { render } from "ink";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import type { CommandInfo } from "../src/events";
-import { DEFAULT_KEYMAP } from "./keys";
+import { DEFAULT_KEYMAP, type Action, type Keymap } from "./keys";
 import { Prompt } from "./prompt";
 
 /** Keys as a terminal sends them. */
@@ -24,7 +24,7 @@ const KEYS = {
 };
 
 /** The message box on a fake terminal, with what it asked the app to do. */
-function box(options: { busy?: boolean; history?: string[]; commands?: CommandInfo[]; suggestion?: string; active?: boolean; hidden?: boolean } = {}) {
+function box(options: { busy?: boolean; history?: string[]; commands?: CommandInfo[]; suggestion?: string; active?: boolean; hidden?: boolean; keymap?: Keymap } = {}) {
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 80, rows: 24 });
   let screen = "";
@@ -66,7 +66,7 @@ function box(options: { busy?: boolean; history?: string[]; commands?: CommandIn
       onToggleTodos={call("toggleTodos")}
       onRewind={call("rewind")}
       onSuspend={call("suspend")}
-      keymap={DEFAULT_KEYMAP}
+      keymap={options.keymap ?? DEFAULT_KEYMAP}
       onStepEffort={(by) => void effort.push(by)}
       onToggleThinking={call("toggleThinking")}
       onModelPicker={call("modelPicker")}
@@ -296,6 +296,22 @@ test("without your keys the box shows the suggestion but not tab to use, as Tab 
   app.unmount();
   expect(frame().join("\n")).toContain(SUGGESTED);
   expect(frame().join("\n")).not.toContain("tab to use");
+});
+
+test("with Tab bound in keybindings.json, the box names → for the suggestion, and with → bound too, no key", async () => {
+  const rebound = (bindings: [string, Action][]) => new Map([...DEFAULT_KEYMAP, ...bindings]);
+  const { press, frame, calls, sent, app } = box({ suggestion: SUGGESTED, keymap: rebound([["tab", "chat:thinkingToggle"]]) });
+  expect(frame().join("\n")).not.toContain("tab to use");
+  expect(frame().join("\n")).toContain("→ to use");
+  await press(KEYS.tab);
+  expect(calls).toEqual(["toggleThinking"]);
+  await press(KEYS.right, KEYS.enter);
+  app.unmount();
+  expect(sent).toEqual([SUGGESTED]);
+  const neither = box({ suggestion: SUGGESTED, keymap: rebound([["tab", "chat:thinkingToggle"], ["right", "chat:fastMode"]]) });
+  neither.app.unmount();
+  expect(neither.frame().join("\n")).toContain(SUGGESTED);
+  expect(neither.frame().join("\n")).not.toContain("to use");
 });
 
 test("a long suggestion keeps to the box's one row, with tab to use beside it", async () => {
