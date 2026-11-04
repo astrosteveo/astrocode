@@ -126,11 +126,19 @@ export type Ledger = { files: FileChange[]; commits: string[]; unseen: string[] 
  */
 export type RemoteControl = { status: "connecting" | "connected" | "failed"; url?: string; detail?: string };
 
+/**
+ * What a Claude Code process runs with: its version, and how many CLAUDE.md files, plugins, MCP
+ * servers and skills it loaded. Each is left out when Claude Code can't say.
+ */
+export type Loaded = { version?: string; claudeMd?: number; plugins?: number; mcpServers?: number; skills?: number };
+
 export type SessionEvent =
   /** Claude Code started: the account, and the models and slash commands it offers. */
   | { kind: "ready"; plan?: string; models: ModelChoice[]; commands: CommandInfo[] }
   /** The slash commands changed, after plugins were reloaded. */
   | { kind: "commands"; commands: CommandInfo[] }
+  /** What Claude Code loaded, once it has said. */
+  | { kind: "loaded"; loaded: Loaded }
   /**
    * A message you sent. `uuid` is its id in the transcript, which rewinding goes back to. `images`
    * are the images it carried, by the number of the `[Image #n]` each went with. `at` is when it

@@ -87,11 +87,11 @@ export class Store {
 
   /** Starts over for a new or resumed session. What's known about the account and Claude Code stays. */
   reset() {
-    const { plan, models, commands, limits, mode, model, effort, thinking, ultracode, ultracodeAvailable, fast } = this.state;
+    const { plan, models, commands, loaded, limits, mode, model, effort, thinking, ultracode, ultracodeAvailable, fast } = this.state;
     // Whatever was still waiting on its images belongs to the conversation being left.
     this.held = [];
     this.asides = [];
-    this.state = { ...initialState(this.cwd, this.home), plan, models, commands, limits, mode, model, effort, thinking, ultracode, ultracodeAvailable, fast };
+    this.state = { ...initialState(this.cwd, this.home), plan, models, commands, loaded, limits, mode, model, effort, thinking, ultracode, ultracodeAvailable, fast };
     this.resets += 1;
     this.epoch += 1;
     this.notify();

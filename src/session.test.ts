@@ -16,9 +16,12 @@ let started: Record<string, unknown>[] = [];
 let answer: ((message: SDKUserMessage, out: AsyncQueue<unknown>) => void) | undefined;
 /** What the stand-in last started says, for a turn it starts by itself. */
 let said: AsyncQueue<unknown> | undefined;
+/** How the stand-in starts, and what else it answers. Unless a test says otherwise, it never finishes starting, so it's asked nothing else. */
+let starting: () => Promise<unknown> = () => new Promise(() => {});
+let answers: Record<string, unknown> = {};
 
 // A stand-in Claude Code, in place of the SDK's query: it queues every message, as Claude Code does
-// while Claude works, and keeps what it was sent. It never finishes starting, so it's asked nothing else.
+// while Claude works, and keeps what it was sent.
 mock.module("@anthropic-ai/claude-agent-sdk", () => ({
   ...sdk,
   query: ({ prompt, options }: { prompt: AsyncIterable<SDKUserMessage>; options: Record<string, unknown> }) => {
@@ -38,19 +41,20 @@ mock.module("@anthropic-ai/claude-agent-sdk", () => ({
         sent.push(body);
         return { response: { still_queued: [], send_now: "stopped" } };
       },
-      initializationResult: () => new Promise(() => {}),
+      initializationResult: () => starting(),
       // The queue's own close: this one takes its place on the object.
       close,
+      ...answers,
     });
   },
 }));
 
 const { AgentSession } = await import("./session");
 
-const session = () => {
+const session = (emit: (event: SessionEvent) => void = () => {}) => {
   sent = [];
   answer = undefined;
-  return new AgentSession({ cwd: "/tmp", emit: () => {} });
+  return new AgentSession({ cwd: "/tmp", emit });
 };
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -214,4 +218,43 @@ test("sends your messages and ends the turn when the working tree can't be recor
     if (was === undefined) delete process.env.TMPDIR;
     else process.env.TMPDIR = was;
   }
+});
+
+test("a new Claude Code says what it loaded: its version, and the CLAUDE.md files, plugins, MCP servers and skills in use", async () => {
+  starting = async () => ({ models: [], commands: [], account: {}, claude_code_version: "2.1.318" });
+  answers = {
+    getMemoryDialog: async () => ({ files: [{ path: "/home/u/.claude/CLAUDE.md", exists: true }, { path: "/tmp/CLAUDE.md", exists: false }] }),
+    getSettings: async () => ({ effective: { enabledPlugins: { "a@market": true, "b@market": false, "c@market": true } }, applied: {} }),
+    // astrocode's own server isn't one of Claude Code's, and one turned off isn't in use.
+    mcpServerStatus: async () => [
+      { name: "show", status: "connected", source: "sdk" },
+      { name: "github", status: "pending", source: "user" },
+      { name: "browser", status: "failed", source: "plugin" },
+      { name: "old", status: "disabled", source: "user" },
+    ],
+    getSkillsDialog: async () => ({ skills: [{ name: "review", state: "on" }, { name: "deploy", state: "off" }, { name: "notes", state: "name-only" }] }),
+  };
+  const events: SessionEvent[] = [];
+  try {
+    session((event) => events.push(event)).start();
+    await settle();
+  } finally {
+    starting = () => new Promise(() => {});
+    answers = {};
+  }
+  expect(events.find((event) => event.kind === "loaded")).toEqual({ kind: "loaded", loaded: { version: "2.1.318", claudeMd: 1, plugins: 2, mcpServers: 2, skills: 2 } });
+});
+
+test("what Claude Code can't say it loaded is left out", async () => {
+  starting = async () => ({ models: [], commands: [], account: {}, claude_code_version: "2.1.318" });
+  answers = { mcpServerStatus: async () => [{ name: "github", status: "connected", source: "user" }] };
+  const events: SessionEvent[] = [];
+  try {
+    session((event) => events.push(event)).start();
+    await settle();
+  } finally {
+    starting = () => new Promise(() => {});
+    answers = {};
+  }
+  expect(events.find((event) => event.kind === "loaded")).toEqual({ kind: "loaded", loaded: { version: "2.1.318", mcpServers: 1 } });
 });
