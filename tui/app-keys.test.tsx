@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "ink";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import type { AgentSession } from "../src/session";
+import { saved, settingsPath } from "../src/settings";
 import { App } from "./app";
 import { Store } from "./store";
 
@@ -101,4 +103,14 @@ test("Shift+↑ at the top says once, for a moment, that max takes /effort, as c
   await settle(2200);
   ink.unmount();
   expect(stripVTControlCharacters(written().slice(before))).toContain("ask first");
+});
+
+test("Shift+↑ steps the effort for this session only, as claude does", async () => {
+  const { press, asked, ink } = app();
+  await settle();
+  await press(KEYS.shiftUp);
+  await saved();
+  ink.unmount();
+  expect(asked).toContain("setEffort");
+  expect(existsSync(settingsPath())).toBe(false);
 });
