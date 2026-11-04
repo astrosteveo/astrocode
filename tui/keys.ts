@@ -1,8 +1,9 @@
 // The message box's keys, as actions named the way Claude Code names them, so the same
 // `~/.claude/keybindings.json` changes both `claude` and astrocode. The defaults are Claude Code's
-// own for the actions astrocode has. Editing keys (Ctrl+A, Ctrl+K, Alt+B and the like), Esc and
-// the arrows aren't actions in Claude Code either, and stay as they are unless a binding takes
-// their key.
+// own for the actions astrocode has (`keys.test.ts` checks them against its table). Editing keys
+// (Ctrl+A, Ctrl+K, Alt+B and the like) aren't actions in Claude Code either. Esc and the arrows are
+// there (chat:cancel, history:previous and history:next) but not here, so they stay the box's own,
+// as do the editing keys, unless a binding takes their key.
 import type { Key } from "ink";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -39,7 +40,7 @@ export const ACTIONS = {
 export type Action = keyof typeof ACTIONS;
 
 /**
- * Claude Code's default bindings for the actions astrocode has, in its Global and Chat contexts,
+ * Claude Code's default bindings for the actions astrocode has, in its Global, Chat and Task contexts,
  * and the one for astrocode's own `chat:followClaude`.
  */
 const DEFAULTS: Record<string, Action> = {
