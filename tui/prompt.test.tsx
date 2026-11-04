@@ -127,6 +127,25 @@ test("Ctrl+C then Ctrl+D is one double press, as in claude", async () => {
   expect(calls).toEqual(["exit"]);
 });
 
+test("Ctrl+C with text clears it as the first of the two presses that exit, as in claude", async () => {
+  const { press, calls, sent, armed, app } = box();
+  await press("draft", KEYS.ctrlC);
+  expect(armed).toEqual(["Press Ctrl+C again to exit"]);
+  await press(KEYS.ctrlC);
+  await press("kept", KEYS.enter);
+  app.unmount();
+  expect(calls).toEqual(["exit"]);
+  expect(sent).toEqual(["kept"]);
+});
+
+test("Ctrl+C with text while Claude works only clears it, and the next press stops Claude", async () => {
+  const { press, calls, armed, app } = box({ busy: true });
+  await press("draft", KEYS.ctrlC, KEYS.ctrlC);
+  app.unmount();
+  expect(armed).toEqual([]);
+  expect(calls).toEqual(["interrupt"]);
+});
+
 test("Ctrl+C while Claude works stops it, however often it's pressed", async () => {
   const { press, calls, app } = box({ busy: true });
   await press(KEYS.ctrlC, KEYS.ctrlC);
