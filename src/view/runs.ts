@@ -398,3 +398,9 @@ export function runningKeyOf(item: Item, state: State) {
   const taskId = item.call.taskId ?? field(item.call.output, "backgroundTaskId");
   return typeof taskId === "string" && state.taskInfo[taskId] ? `task:${taskId}` : undefined;
 }
+
+/** The task of Claude Code's that a call started, while it runs: a subagent, or a command in the foreground or the background. */
+export function runningTaskOf(call: ToolCall, state: State) {
+  const taskId = call.taskId ?? field(call.output, "backgroundTaskId");
+  return Object.values(state.taskInfo).find((task) => task.status === "running" && (task.toolUseId === call.id || task.id === taskId));
+}
