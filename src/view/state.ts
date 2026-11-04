@@ -55,6 +55,8 @@ export type ToolCall = {
   taskId?: string;
   /** Who said no without asking you, such as auto mode's classifier or a rule. */
   deniedBy?: string;
+  /** Its prompt went away unanswered, as when Claude is stopped while it waits on you: it never ran. */
+  unanswered?: boolean;
 };
 
 /** A tool call a subagent made, the latest of its calls Claude Code has reported. */
@@ -207,6 +209,8 @@ export type Cache = { at: number; ttl: number; workedAt: number };
 const CACHE_TTL = 60 * 60_000;
 
 export type State = {
+  /** A saved conversation is being replayed, which has no record of the prompts it showed. */
+  replaying?: boolean;
   cwd: string;
   home: string;
   model?: string;
@@ -364,7 +368,8 @@ export function reduce(state: State, event: ViewEvent): State {
       const owner = state.items.find((item): item is ToolItem => item.kind === "tool" && item.call.subagent?.waitingOn === event.id);
       if (owner) return updateTool(next, owner.call.id, (call) => ({ subagent: { nested: [], ...call.subagent, waitingOn: undefined } }));
       if (event.outcome === "deny") return updateTool(next, event.id, () => ({ status: "denied" }));
-      if (event.outcome === "cancelled") return updateTool(next, event.id, () => ({ status: "stopped" }));
+      if (event.outcome === "cancelled") return updateTool(next, event.id, () => ({ status: "stopped", unanswered: true }));
+      if (event.outcome === "withdrawn") return updateTool(next, event.id, () => ({ unanswered: true }));
       return next;
     }
     case "mode":
@@ -392,8 +397,8 @@ export function reduce(state: State, event: ViewEvent): State {
     case "history": {
       // A saved conversation has no results to end its turns, so every message in it was taken: none waits in the queue.
       const replay = (now: State, one: ViewEvent) => reduce(one.kind === "prompt" ? { ...now, busy: false } : now, one);
-      const replayed = closeTurns(event.events.reduce(replay, state), state.items.length);
-      const settled = { ...stopRunningTools(replayed), busy: false, live: null, turnTokens: 0 };
+      const replayed = closeTurns(event.events.reduce(replay, { ...state, replaying: true }), state.items.length);
+      const settled = { ...stopRunningTools(replayed), busy: false, live: null, turnTokens: 0, replaying: false };
       const count = settled.items.length - state.items.length;
       if (event.notice) return add(settled, { kind: "notice", tone: "info", text: event.notice });
       if (count === 0) return add(settled, { kind: "notice", tone: "info", text: "Resumed a session with nothing to show yet." });
@@ -546,7 +551,7 @@ function applySdk(state: State, message: SDKMessage, images: Record<string, Imag
     case "user":
       return applyUser(state, message, images, at);
     case "result":
-      return applyResult(state, message);
+      return applyResult(state, message, at);
     default:
       return state;
   }
@@ -778,7 +783,9 @@ function applyUser(state: State, message: UserMessage, images: Record<string, Im
   let next = state;
   for (const block of results) {
     const result = resultText(block.content);
-    // A saved conversation has no record of the prompt, only Claude Code's note that it was refused.
+    // Claude Code writes the same note for a call you said no to and one Esc stopped as it ran. Live,
+    // saying no has marked the call denied already, so the note means it was stopped. A saved
+    // conversation has no record of the prompt, so there the note is taken as a no.
     const refused = block.is_error === true && result.startsWith("The user doesn't want to proceed with this tool use");
     next = updateTool(next, block.tool_use_id, (call) => {
       const taskId = launched(call.name, output);
@@ -786,7 +793,7 @@ function applyUser(state: State, message: UserMessage, images: Record<string, Im
         result,
         output,
         images: images[block.tool_use_id],
-        status: call.status === "denied" || call.status === "stopped" ? call.status : refused ? "denied" : block.is_error ? "error" : "done",
+        status: call.status === "denied" || call.status === "stopped" ? call.status : refused ? (state.replaying ? "denied" : "stopped") : block.is_error ? "error" : "done",
         endedAt: at,
         // Started in the background or moved there: Claude Code answers at once, and the work goes on.
         background: taskId ? (call.background ?? "running") : output === undefined && launchedText(call.name, result) ? "unknown" : call.background,
@@ -797,10 +804,10 @@ function applyUser(state: State, message: UserMessage, images: Record<string, Im
   return next;
 }
 
-function applyResult(state: State, message: SDKResultMessage): State {
+function applyResult(state: State, message: SDKResultMessage, at?: number): State {
   // Claude Code answers a message that doesn't start a turn, such as a `!` command's, with a result of no turns.
   if (!state.busy && message.num_turns === 0) return state;
-  const settled = { ...stopRunningTools(state), busy: false, live: null, turnTokens: 0, retry: undefined, compacting: false, fast: fastOf(message) ?? state.fast };
+  const settled = { ...stopRunningTools(state, at), busy: false, live: null, turnTokens: 0, retry: undefined, compacting: false, fast: fastOf(message) ?? state.fast };
   const turn = { kind: "turn" as const, durationMs: message.duration_ms, tokens: state.turnTokens, ...turnWork(state.items) };
   // Stop, Esc and Deny all end the turn early. The SDK reports that as an error, but it isn't one.
   if (message.terminal_reason === "aborted_streaming" || message.terminal_reason === "aborted_tools") {
@@ -885,10 +892,10 @@ function lastAt(item: Item): number | undefined {
   }
 }
 
-/** Whatever was still running when a turn ended won't report back. */
-function stopRunningTools(state: State): State {
+/** Whatever was still running when a turn ended, at `at` where known, won't report back. */
+function stopRunningTools(state: State, at?: number): State {
   const items = state.items.map((item) =>
-    item.kind === "tool" && item.call.status === "running" ? { ...item, call: { ...item.call, status: "stopped" as const } } : item,
+    item.kind === "tool" && item.call.status === "running" ? { ...item, call: { ...item.call, status: "stopped" as const, endedAt: at } } : item,
   );
   return { ...state, items };
 }
@@ -1030,7 +1037,7 @@ function fastOf(message: { fast_mode_state?: FastModeState; fast_mode_disabled_r
 }
 
 /** Who refused a tool call without asking you, from Claude Code's reason for it. */
-function deniedBy(reason: string | undefined) {
+function deniedBy(reason: string | undefined): string {
   switch (reason) {
     case "classifier":
       return "auto mode";
@@ -1041,7 +1048,8 @@ function deniedBy(reason: string | undefined) {
     case "hook":
       return "a hook";
     default:
-      return undefined;
+      // Only you say no by asking; this was said without asking you.
+      return "Claude Code";
   }
 }
 

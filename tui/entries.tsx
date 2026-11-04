@@ -363,6 +363,9 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
   return pieces;
 }
 
+/** Verbs colored by how their line is going: waiting on you, running, or never run or stopped. */
+const VERB_COLORS: Partial<Record<ActivityRow["status"], string>> = { waiting: PALETTE.gold, running: PALETTE.teal, denied: PALETTE.ember, stopped: PALETTE.ember };
+
 /** The tones a lit line draws in gold. The ones that say how something went keep their colors. */
 const LIT = new Set<Tone>(["plain", "bright", "quiet", "faint", "code"]);
 
@@ -370,14 +373,15 @@ const LIT = new Set<Tone>(["plain", "bright", "quiet", "faint", "code"]);
  * `  Edited    src/retry.ts            +9 −4  ■■■■□  ›`: the verb, what the calls acted on, and what
  * came of them against the right edge. `again`: the line above has the same verb, which this one
  * leaves out. The line the inspector shows has a gold mark, and its words are lit in gold, as the
- * pointer lights a line (`lit()`).
+ * pointer lights a line (`lit()`). A line waiting on you is lit in gold too.
  */
 function ActivityLine({ row, width, picked, again, clickable }: { row: ActivityRow; width: number; picked: boolean; again: boolean; clickable: boolean }) {
-  const verbColor = row.status === "waiting" ? PALETTE.gold : row.status === "running" ? PALETTE.teal : picked ? PALETTE.gold : PALETTE.dust;
-  const color = (tone: Tone) => (picked && LIT.has(tone) ? PALETTE.gold : TONES[tone]);
+  const verbColor = VERB_COLORS[row.status] ?? (picked ? PALETTE.gold : PALETTE.dust);
+  const lit = picked || row.status === "waiting";
+  const color = (tone: Tone) => (lit && LIT.has(tone) ? PALETTE.gold : TONES[tone]);
   const named = row.verb.length >= VERB ? `${row.verb} ` : row.verb.padEnd(VERB);
   // A verb the line above has is left out, unless how the line is going colors it.
-  const verb = again && row.status !== "waiting" && row.status !== "running" ? " ".repeat(cellWidth(named)) : named;
+  const verb = again && !VERB_COLORS[row.status] ? " ".repeat(cellWidth(named)) : named;
   const result = row.result.reduce((sum, part) => sum + cellWidth(part.text), 0);
   const bars = row.diff && row.diff.added + row.diff.removed > 0 ? 7 : 0;
   const right = result + bars + (clickable ? 3 : 0);
