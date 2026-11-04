@@ -169,6 +169,11 @@ export class AgentSession {
   private startedWithoutThinking = false;
   private resumeFrom: string | undefined;
   private continueLast: boolean;
+  /**
+   * The id a new conversation starts with. astrocode picks it and gives it to Claude Code, so it's
+   * known from the start, as `claude` knows its own: the prompt history keeps the first message with it.
+   */
+  private fresh = randomUUID();
   /** Where a rewound conversation picks up: the last message kept. Until something new is sent. */
   private resumeAt: string | undefined;
   /** Remote Control asked for. It stays on through a restart of Claude Code, with a new link. */
@@ -194,9 +199,12 @@ export class AgentSession {
     return this.sessionId;
   }
 
-  /** The conversation's id as far as it's known: Claude Code's, else the one being resumed, before Claude Code has said. */
+  /**
+   * The conversation's id as far as it's known: Claude Code's, else, before Claude Code has said,
+   * the one being resumed or the one a new conversation was given.
+   */
   get knownId() {
-    return this.sessionId ?? this.resumeFrom;
+    return this.sessionId ?? this.resumeFrom ?? (this.continueLast ? undefined : this.fresh);
   }
 
   /** Starts Claude Code if it isn't running, picking the conversation back up if there was one. */
@@ -212,6 +220,7 @@ export class AgentSession {
         resume: this.sessionId ?? this.resumeFrom,
         resumeSessionAt: this.resumeAt,
         continue: this.sessionId === undefined && this.resumeFrom === undefined && this.continueLast ? true : undefined,
+        sessionId: this.sessionId === undefined && this.resumeFrom === undefined && !this.continueLast ? this.fresh : undefined,
         includePartialMessages: true,
         // Backups of the files Claude changes, so rewinding can put them back.
         enableFileCheckpointing: true,
@@ -825,6 +834,7 @@ export class AgentSession {
     this.resumeFrom = undefined;
     this.resumeAt = undefined;
     this.continueLast = false;
+    this.fresh = randomUUID();
   }
 
   /** Switches to a saved conversation. */

@@ -254,7 +254,7 @@ export async function startTerminal(options: TerminalOptions) {
         onStart={async (task, cwd) => {
           checkFolder(cwd);
           const conversation = await open(cwd);
-          void prompts.add(task, cwd);
+          void prompts.add(task, cwd, conversation.session.knownId);
           conversation.session.send(task);
           return conversation.key;
         }}
