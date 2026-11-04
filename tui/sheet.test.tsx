@@ -80,11 +80,10 @@ test("offers only the keys that work where yours are", () => {
   expect(keysOn("transcript")).not.toContain("esc esc");
   // The keys that work anywhere reach the transcript.
   for (const action of ANYWHERE) expect(keysOn("transcript")).toContain(hintKey(DEFAULT_KEYMAP, action)!);
-  // A decision and scrollback's inspector keep them from the box: there only Ctrl+L redraws.
-  for (const sections of [sheetOf("decision", DEFAULT_KEYMAP, true), sheetOf("opened", DEFAULT_KEYMAP, false)]) {
-    expect(sections.find((section) => section.title === "Anywhere")?.rows).toEqual([["ctrl+l", "redraw"]]);
-    expect(sections.flatMap((section) => section.rows.map(([, does]) => does))).not.toContain("mode");
-  }
+  // A decision keeps them from the box: there only Ctrl+L redraws.
+  const decision = sheetOf("decision", DEFAULT_KEYMAP, true);
+  expect(decision.find((section) => section.title === "Anywhere")?.rows).toEqual([["ctrl+l", "redraw"]]);
+  expect(decision.flatMap((section) => section.rows.map(([, does]) => does))).not.toContain("mode");
   // Ctrl+L redraws wherever your keys are.
   for (const place of ["box", "transcript", "opened", "decision"] as const) expect(keysOn(place)).toContain("ctrl+l");
   // Every way to start a new line, Alt+Enter for terminals without the kitty keyboard protocol.

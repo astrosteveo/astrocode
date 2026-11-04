@@ -13,8 +13,8 @@ import { hit, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
 
 /**
- * What has your keys as the sheet opens. An opened call is under its line in full screen, and the
- * inspector in scrollback. An opened ledger is full screen's: the cursor is in it.
+ * What has your keys as the sheet opens. An opened call and an opened ledger are under their line
+ * in the transcript, with its cursor in them.
  */
 export type Place = "box" | "transcript" | "opened" | "ledger" | "decision";
 
@@ -31,7 +31,11 @@ const GAP = 3;
 /** Claude Code's other spellings of Ctrl+_, which terminals send for the one key. */
 const SPELLINGS = new Set(["ctrl+-", "ctrl+shift+-", "ctrl+shift+_"]);
 
-/** `prompt`: the keys the permission prompt takes. `scopes`: whether an opened ledger's `[ ]` switch its scope, as in git. */
+/**
+ * `fullscreen`: whether what's around your keys is drawn full screen, as full screen is and as
+ * scrollback's transcript viewer is, with the mouse. `prompt`: the keys the permission prompt
+ * takes. `scopes`: whether an opened ledger's `[ ]` switch its scope, as in git.
+ */
 export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean, { prompt, scopes = false }: { prompt?: Prompted; scopes?: boolean } = {}): Section[] {
   const scoping = place === "ledger" && scopes;
   /**
@@ -108,25 +112,13 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean, { pro
   };
   const opened: Section = {
     title: "In an opened call",
-    rows: fullscreen
-      ? [
-          ["← →", "call before, after"],
-          ["tab", "next tab"],
-          ["c", "copy the tab"],
-          ["e", "the tab in $EDITOR"],
-          ["esc", "close it"],
-        ]
-      : [
-          ["← →", "call before, after"],
-          ["tab, shift+tab", "next, previous tab"],
-          ["1, 2, …", "that tab"],
-          ["↑ ↓", "scroll"],
-          ["pgup, pgdn", "a page"],
-          ["home, end", "top, end"],
-          ["c", "copy the tab"],
-          ...bound("chat:followClaude"),
-          ["esc", "close it"],
-        ],
+    rows: [
+      ["← →", "call before, after"],
+      ["tab", "next tab"],
+      ["c", "copy the tab"],
+      ["e", "the tab in $EDITOR"],
+      ["esc", "close it"],
+    ],
   };
   // In `claude`'s words: its hint line says `Esc to cancel · Tab to amend`.
   const ledger: Section = {
@@ -195,22 +187,22 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean, { pro
       // In the transcript Ctrl+C leaves what's typed alone.
       ...[...ANYWHERE].flatMap((action) => bound(action, action === "app:interrupt" && place !== "box" ? "stop" : ACTIONS[action])),
       // In the transcript it's among the ways back to the box.
-      ...(place === "box" ? bound("app:toggleTranscript", fullscreen ? "transcript" : ACTIONS["app:toggleTranscript"]) : []),
+      ...(place === "box" ? bound("app:toggleTranscript") : []),
       ...bound("chat:clearInput"),
       ...own("suspend", "ctrl+z"),
       ...(fullscreen ? own("find", "ctrl+f") : []),
     ],
   };
   const redraw: Section = { title: "Anywhere", rows: bound("chat:clearInput") };
-  const pointer = fullscreen ? [mouse] : [];
   switch (place) {
     case "box":
       // Full screen's /help shows this one, so it has the transcript's keys too, for after Ctrl+O.
       return [box, typed, editing, ...(fullscreen ? [scrolling, transcript, mouse] : []), anywhere];
+    // The transcript is drawn full screen in either layout: in scrollback, its viewer.
     case "transcript":
-      return [transcript, ...pointer, anywhere];
+      return [transcript, mouse, anywhere];
     case "opened":
-      return fullscreen ? [opened, transcript, mouse, anywhere] : [opened, redraw];
+      return [opened, transcript, mouse, anywhere];
     case "ledger":
       return [ledger, transcript, mouse, anywhere];
     case "decision":

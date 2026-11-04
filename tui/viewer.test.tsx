@@ -273,6 +273,51 @@ test("Ctrl+O after the viewer /diff opened has closed puts the cursor on the las
   expect(cursor()).toBe(row(/─ 3s\b/));
 });
 
+test("? on a call opened in the viewer lists full screen's keys for it, then the transcript's and the mouse", async () => {
+  const { press, screen } = await scrollback(finished());
+  await press(KEYS.ctrlO);
+  // ↑ over the reply to the last call, which Enter opens under its line.
+  for (let i = 0; i < 2; i++) await press(KEYS.up);
+  await press(KEYS.enter);
+  await press("?");
+  const sheet = screen().join("\n");
+  expect(sheet).toContain("In an opened call");
+  expect(sheet).toMatch(/e +the tab in \$EDITOR/);
+  expect(sheet).toContain("In the transcript");
+  expect(sheet).toContain("Mouse");
+  // Not the keys of scrollback's inspector, which the viewer retired.
+  expect(sheet).not.toContain("that tab");
+  expect(sheet).not.toContain("In the box");
+});
+
+test("the key sheet over a call opened in the viewer leaves it on the tab you chose", async () => {
+  const { press, screen } = await scrollback(finished());
+  // The opened call's row of tabs, where the one it shows is set apart.
+  const tab = () => screen().find((line) => /Results/.test(line))?.match(/▐([^▌]+)▌/)?.[1];
+  await press(KEYS.ctrlO);
+  for (let i = 0; i < 2; i++) await press(KEYS.up);
+  await press(KEYS.enter);
+  const first = tab();
+  await press("\t");
+  const chosen = tab();
+  expect(chosen).toBeDefined();
+  expect(chosen).not.toBe(first);
+  await press("?");
+  await press(KEYS.esc);
+  expect(tab()).toBe(chosen);
+});
+
+test("? on a permission prompt in the viewer lists what scrolls the conversation above it, and the mouse, as in full screen", async () => {
+  const { press, screen, update } = await scrollback(finished());
+  await press(KEYS.ctrlO);
+  await update({ ...finished(), pending: [{ id: "c", toolName: "Bash", input: { command: "rm -rf build" } }] });
+  await press("?");
+  const sheet = screen().join("\n");
+  expect(sheet).toContain("In a permission prompt");
+  expect(sheet).toMatch(/pgup, pgdn +a page/);
+  expect(sheet).toMatch(/wheel +scroll/);
+});
+
 test("the mouse works in the viewer, and goes back to the terminal with the scrollback", async () => {
   const { out, press, click, row, screen } = await scrollback(finished());
   expect(out()).not.toContain(MOUSE_ON);
