@@ -292,3 +292,38 @@ test("keeps git's word for one turn only", () => {
   ].reduce(reduce, start());
   expect(closing(state)).toBe("6s");
 });
+
+// Claude Code's guess at your next message comes after a turn's result, and is for the box only
+// until you send something or Claude starts again.
+const suggested = (text: string) => sdk({ type: "prompt_suggestion", suggestion: text, uuid: "g", session_id: "s" });
+const streamStarts = sdk({ type: "stream_event", uuid: "e", session_id: "s", parent_tool_use_id: null, event: { type: "message_start", message: { id: "m2" } } });
+
+test("keeps Claude Code's suggested next prompt from after a turn's result", () => {
+  const state = [{ kind: "prompt", text: "write the first function" } as const, ended(), suggested("next one adds two numbers")].reduce(reduce, start());
+  expect(state.nextPrompt).toBe("next one adds two numbers");
+});
+
+test("drops a suggestion that comes after you've sent another message, as one on its way when you sent it", () => {
+  const sent = [{ kind: "prompt", text: "write the first function" } as const, ended(), { kind: "prompt", text: "now the tests" } as const, suggested("next one adds two numbers")].reduce(reduce, start());
+  expect(sent.nextPrompt).toBeUndefined();
+  const ran = [{ kind: "prompt", text: "write the first function" } as const, ended(), { kind: "shell", id: "x", command: "ls", at: T } as const, suggested("next one adds two numbers")].reduce(reduce, start());
+  expect(ran.nextPrompt).toBeUndefined();
+});
+
+test("forgets the suggestion once you send something, or Claude starts a turn by itself", () => {
+  const offered = [{ kind: "prompt", text: "write the first function" } as const, ended(), suggested("next one adds two numbers")].reduce(reduce, start());
+  expect(reduce(offered, { kind: "prompt", text: "next one adds two numbers" }).nextPrompt).toBeUndefined();
+  expect(reduce(offered, { kind: "shell", id: "x", command: "ls", at: T }).nextPrompt).toBeUndefined();
+  expect(reduce(offered, streamStarts).nextPrompt).toBeUndefined();
+});
+
+test("forgets the suggestion when a message you sent for after the turn starts", () => {
+  const state = [
+    { kind: "prompt", text: "write the first function" } as const,
+    { kind: "prompt", text: "then the tests", uuid: "q", later: true } as const,
+    ended(),
+    suggested("next one adds two numbers"),
+    sdk({ type: "command_lifecycle", command_uuid: "q", state: "started", uuid: "l", session_id: "s" }),
+  ].reduce(reduce, start());
+  expect(state.nextPrompt).toBeUndefined();
+});
