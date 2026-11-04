@@ -156,6 +156,22 @@ test("names the commits the turn made, not one made before it", async () => {
   expect(await edges.end()).toEqual({ files: [{ path: join(top, "a.txt"), added: 1, removed: 0 }], commits: [made] });
 });
 
+test("names a signed commit by its hash when git log shows signatures", async () => {
+  const top = repo({ "a.txt": lines(1) });
+  const keys = folder();
+  Bun.spawnSync(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", join(keys, "key")]);
+  writeFileSync(join(keys, "signers"), `t@example.com ${readFileSync(join(keys, "key.pub"), "utf8")}`);
+  git(top, "config", "gpg.format", "ssh");
+  git(top, "config", "user.signingkey", join(keys, "key"));
+  git(top, "config", "gpg.ssh.allowedSignersFile", join(keys, "signers"));
+  git(top, "config", "log.showSignature", "true");
+  const edges = snapshots(top);
+  await edges.start();
+  write(top, "a.txt", lines(2));
+  git(top, "commit", "-q", "-S", "-am", "two");
+  expect((await edges.end())?.commits).toEqual([git(top, "rev-parse", "--short", "HEAD")]);
+});
+
 test("doesn't count older commits a switch or a pull brings in as the turn's", async () => {
   const top = repo({ "a.txt": lines(1) });
   git(top, "switch", "-q", "-c", "older");

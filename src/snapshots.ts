@@ -78,7 +78,8 @@ export class Snapshots {
       const [numstat, log] = await Promise.all([
         git(repo, ["diff-tree", "-r", "--numstat", "-z", from.tree, this.last.tree], signal),
         // Commits made since the turn started: a pull or a switch brings older ones, which don't count.
-        git(repo, ["log", `--since=@${Math.floor(from.at / 1000)}`, "--format=%h", "HEAD", ...(from.head ? [`^${from.head}`] : [])], signal),
+        // rev-list, not log, which your log settings, such as log.showSignature, would add lines to.
+        git(repo, ["rev-list", "--abbrev-commit", `--since=@${Math.floor(from.at / 1000)}`, "HEAD", ...(from.head ? [`^${from.head}`] : [])], signal),
       ]);
       if (numstat === null) return null;
       return { files: numstats(numstat, repo.top), commits: (log ?? "").split("\n").filter(Boolean).reverse() };
