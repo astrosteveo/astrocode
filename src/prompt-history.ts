@@ -32,7 +32,7 @@ function historyFile() {
  * Claude Code has one for all its sessions.
  */
 export class PromptHistory {
-  private saved: SavedPrompt[] = [];
+  private onFile: SavedPrompt[] = [];
   private sent: SavedPrompt[] = [];
   private all: SavedPrompt[] = [];
   private texts: string[] = [];
@@ -41,7 +41,7 @@ export class PromptHistory {
 
   /** Reads Claude Code's file again, with what's been sent in `claude` meanwhile. */
   async load() {
-    this.saved = await readPrompts();
+    this.onFile = await readPrompts();
     this.merge();
   }
 
@@ -65,6 +65,11 @@ export class PromptHistory {
     return this.writing;
   }
 
+  /** Waits for the lines already asked for, so quitting right after sending doesn't lose one. */
+  written() {
+    return this.writing;
+  }
+
   /** ↑'s messages in a folder, oldest first: its newest hundred, with this session's nearest, as in Claude Code. */
   recall(project: string, sessionId?: string): string[] {
     const here = this.all.filter((prompt) => prompt.project === project).slice(-RECALL_LIMIT);
@@ -80,8 +85,8 @@ export class PromptHistory {
   /** The file's lines in its order, then what's been sent from here that isn't in it yet. */
   private merge() {
     const key = (prompt: SavedPrompt) => `${prompt.timestamp}\0${prompt.sessionId ?? ""}`;
-    const written = new Set(this.saved.map(key));
-    this.all = [...this.saved, ...this.sent.filter((prompt) => !written.has(key(prompt)))];
+    const written = new Set(this.onFile.map(key));
+    this.all = [...this.onFile, ...this.sent.filter((prompt) => !written.has(key(prompt)))];
     this.texts = this.all.map((prompt) => prompt.text);
   }
 }
