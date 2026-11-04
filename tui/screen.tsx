@@ -605,6 +605,11 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     setAnchor(null);
     setSelection(null);
   }, [epoch, sent]);
+  // A decision opening brings the end back into view, so the line that asks sits right above it.
+  const asking = state.pending[0]?.id ?? state.questions[0]?.id ?? state.elicitations[0]?.id;
+  useEffect(() => {
+    if (asking !== undefined) setAnchor(null);
+  }, [asking]);
 
   // Once a call that opens or closes is drawn so, as from ← and → or Esc, the cursor goes to its
   // line, which is scrolled into view with as much of what opened under it as fits.

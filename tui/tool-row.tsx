@@ -129,15 +129,14 @@ function NestedRow({ agent, width }: { agent: NestedAgent; width: number }) {
 function LatestCall({ call, waiting, depth, cwd, home, width }: { call: SubagentCall; waiting: boolean; depth: number; cwd: string; home: string; width: number }) {
   const lead = `${"  ".repeat(depth)}└ `;
   const name = toolLabel(call.name);
-  const said = waiting ? "waiting for your OK: " : "";
-  const room = width - cellWidth(lead) - 2 - cellWidth(said) - cellWidth(name) - 2;
+  const room = width - cellWidth(lead) - 2 - cellWidth(name) - 2;
   const target = fit(toolTarget({ ...call, status: "running", subagentCalls: 0 }, cwd, home), room, PATHLIKE.has(call.name));
   const { glyph, color } = STATUS[waiting ? "waiting" : "running"];
   return (
     <Text wrap="truncate-end">
       <Text color={PALETTE.dust}>{lead}</Text>
       <Text color={color}>{`${glyph} `}</Text>
-      <Text color={waiting ? PALETTE.gold : PALETTE.haze}>{`${said}${name}${target ? `  ${target}` : ""}`}</Text>
+      <Text color={waiting ? PALETTE.gold : PALETTE.haze}>{`${name}${target ? `  ${target}` : ""}`}</Text>
     </Text>
   );
 }

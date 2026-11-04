@@ -155,7 +155,9 @@ test("the empty, idle box says ← for conversations until they've been opened, 
     expect(unseen.frame().join("\n")).not.toContain("← for conversations");
     unseen.here.store.emit({ kind: "permission", request: { id: "p1", toolName: "Bash", input: { command: "ls" } } });
     await settle();
-    expect(box(unseen.frame())).toContain("waiting for your OK");
+    // The decision takes the box's place.
+    expect(box(unseen.frame())).toBe("");
+    expect(unseen.frame().join("\n")).toContain("Bash command");
   } finally {
     unseen.stop();
     seen.stop();

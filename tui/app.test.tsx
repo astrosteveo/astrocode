@@ -270,6 +270,42 @@ test("exactly one place has your keys: a decision takes them from the transcript
   expect([boxKeys(), cursor() !== -1]).toEqual([true, false]);
 });
 
+test("a decision stands in the box's place, right under the line that asks, and says once that Claude waits", async () => {
+  const command = { command: "rm -rf build", description: "Clean the build" };
+  const asking = turn([call("a"), call("b", { name: "Bash", input: command, status: "running" })]);
+  const { screen, row, press, update } = await launch({ ...asking, busy: true }, { columns: 120, rows: 30 });
+  await press("half a thought");
+  await update({ ...asking, busy: true, pending: [{ id: "b", toolName: "Bash", input: command, description: command.description }] });
+  expect(screen().join("\n").match(/waiting/gi)).toEqual(["waiting"]);
+  // No line over the box saying what Claude does, and no box: the decision is in its place.
+  expect(row(/Waiting for your OK|esc to stop/)).toBe(-1);
+  expect(row(/❯|half a thought/)).toBe(-1);
+  expect(row(/^▁+$/)).toBe(row(/Clean\s+the build/) + 1);
+  // The command shows once in the decision, with Claude's description under it.
+  expect(screen().filter((line) => line.includes("rm -rf build"))).toEqual([" $ rm -rf build"]);
+  await update({ ...asking, busy: true });
+  expect(row(/❯ half a thought/)).not.toBe(-1);
+});
+
+test("at 80×24 a long diff or plan is cut short, so the line that asks stays in view above the decision", async () => {
+  const long = Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n");
+  const edit = { file_path: "/p/src/cache.ts", old_string: "a", new_string: long };
+  const plan = { plan: long, planFilePath: "/home/u/.claude/plans/a-plan.md" };
+  for (const [name, input, asks] of [
+    ["Edit", edit, /Edit\s+src\/cache\.ts/],
+    ["ExitPlanMode", plan, /ExitPlanMode/],
+  ] as const) {
+    const asking = turn([call("a"), call("x", { name, input, status: "running" })]);
+    const { screen, row } = await launch({ ...asking, busy: true, pending: [{ id: "x", toolName: name, input }] }, { columns: 80, rows: 24 });
+    const edge = row(/^▁+$/);
+    expect(edge).toBeGreaterThan(0);
+    expect(screen().slice(0, edge).some((line) => asks.test(line))).toBe(true);
+    expect(screen().join("\n").match(/waiting/gi)).toEqual(["waiting"]);
+    expect(screen().some((line) => /more lines/.test(line))).toBe(true);
+    quit?.();
+  }
+});
+
 test("the view follows the cursor past the screen's edge", async () => {
   const items: Item[] = Array.from({ length: 15 }, (_, i): Item[] => [
     { kind: "prompt", key: `p${i}`, text: `message ${i}` },
