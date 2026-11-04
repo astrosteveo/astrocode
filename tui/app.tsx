@@ -162,7 +162,7 @@ const HELP = [
 
 const FULLSCREEN_HELP = [
   "Full screen: the wheel, PgUp and PgDn scroll; Ctrl+Home and Ctrl+End go to the top and the end.",
-  "Ctrl+O, or a click on a line, moves your keys to the transcript: ↑ and ↓ move its cursor, and Enter opens or closes the line it's on, a call under its own line. PgUp and PgDn move it half a screen, Home and End to the top and the end, { and } (or Alt+↑ and Alt+↓) to your message before or after. In an opened call ← and → open the call before or after, Tab its next tab, c copies the tab and e opens it in $EDITOR. Esc closes what's open, then gives your keys back to the box, as Ctrl+O and q do. Ctrl+C, Shift+Tab, Alt+L and the other keys that work anywhere still work there; Ctrl+C stops Claude or exits on a second press, and leaves what's typed in the box alone.",
+  "Ctrl+O, or a click on a line, moves your keys to the transcript: ↑ and ↓ move its cursor, and Enter opens or closes the line it's on, a call under its own line. PgUp and PgDn move it half a screen, Home and End to the top and the end, { and } (or Alt+↑ and Alt+↓) to your message before or after. In an opened call ← and → open the call before or after, Tab its next tab, c copies the tab and e opens it in $EDITOR. Esc closes what's open, then gives your keys back to the box, as Ctrl+O and q do. Ctrl+C, Shift+Tab, Alt+L, Ctrl+L and the other keys that work anywhere still work there; Ctrl+C stops Claude or exits on a second press, and leaves what's typed in the box alone.",
   "Ctrl+F finds text in the conversation: Enter or ↑ goes to the match before, ↓ to the one after. Alt+↑ and Alt+↓ jump between your messages, Alt+Shift+↑ and Alt+Shift+↓ between tool calls and commands.",
   "Drag to copy, double-click to copy a word, triple-click to copy a line.",
   "Click a line of a step to open that call under it, at any width, and again to close it; a step's name to open it with Claude's thinking and every line, a command of yours to open it (a running one shows its live output), an option to choose it, the mode, the model or the effort to change it.",
@@ -1522,9 +1522,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   useMouse((event) => {
     if (event.type === "press" && event.button === "left" && !event.handled && focus === "transcript" && hit(panelBox.current, event)) setTranscriptKeys(false);
   });
-  const boxKeys = !question && !elicitation && !request && !overlay && !inspectorKeys;
-  // Ctrl+L redraws wherever the keys are, as a garbled screen can't wait for an overlay to close.
-  // The message box reads its own, chords and all.
+  const boxKeys = focus === "box";
+  // Ctrl+L redraws wherever the keys are, the transcript too, as a garbled screen can't wait for an
+  // overlay to close. The message box reads its own, chords and all.
   useInput(
     (input, key) => {
       if (key.eventType !== "release" && store.keymap.get(strokeOf(input, key) ?? "") === "chat:clearInput") redrawScreen();
@@ -1604,7 +1604,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         {above ?? <ModBand session={session} width={width} rows={rows} working={state.busy} />}
         <QueuedMessages queue={state.queue} width={width} />
         <Prompt
-          active={focus === "box"}
+          active={boxKeys}
           anywhere={focus === "transcript"}
           // As much of it as fits in the edge with a cell of it at each end.
           hint={focus === "transcript" ? transcriptHint(Boolean(inspected), width - 5) : undefined}

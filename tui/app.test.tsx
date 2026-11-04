@@ -123,10 +123,10 @@ async function launch(state: State, { columns = 200, rows = 40, follow = false }
     const box = lines.findIndex((line) => line.startsWith(" ❯"));
     return /^▁+$/.test(lines[box - 1] ?? "");
   };
-  return { screen, row, press, click, update, cursor, boxKeys, asked };
+  return { screen, row, press, click, update, cursor, boxKeys, asked, writes };
 }
 
-const KEYS = { ctrlO: "\x0f", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", ctrlC: "\x03" };
+const KEYS = { ctrlO: "\x0f", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", ctrlC: "\x03", ctrlL: "\x0c" };
 
 test("at 200 columns a click opens a call under its line, with nothing beside the column, and another closes it", async () => {
   const { screen, row, click } = await launch(THREE);
@@ -494,4 +494,13 @@ test("Ctrl+C in the transcript with Claude idle is the first press of the two th
   await press(KEYS.esc);
   expect(boxKeys()).toBe(true);
   expect(row(/^ ❯ keep me/)).not.toBe(-1);
+});
+
+test("Ctrl+L redraws while the transcript has your keys, and leaves them there", async () => {
+  const { press, boxKeys, writes } = await launch(THREE);
+  await press(KEYS.ctrlO);
+  const before = writes.length;
+  await press(KEYS.ctrlL);
+  expect(writes.slice(before).join("")).toContain("\x1b[2J\x1b[H");
+  expect(boxKeys()).toBe(false);
 });
