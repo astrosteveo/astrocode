@@ -88,10 +88,10 @@ test("a long title is cut to leave room for its age", () => {
   expect(cellWidth(row)).toBe(78);
 });
 
-test("says only what it knows: nothing from Claude Code before it reports, and no counts of none", () => {
+test("says only what it knows: nothing from Claude Code before it reports, not even the mode, and no counts of none", () => {
   const before = draw(fresh({ loaded: undefined, model: undefined, effort: undefined, recent: [] }));
   expect(before[1]).toBe(`  astrocode  ${version}`);
-  expect(before[2]).toBe("  ~/retrykit · feat/cache-clock · ask first");
+  expect(before[2]).toBe("  ~/retrykit · feat/cache-clock");
   expect(lineWith(before, "From Claude Code")).toBeUndefined();
   // With no sessions here yet, there's nothing to list.
   expect(lineWith(before, "Recent sessions")).toBeUndefined();
