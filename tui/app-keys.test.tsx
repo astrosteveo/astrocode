@@ -111,6 +111,18 @@ test("Ctrl+L in scrollback writes the start screen again, at the top of the clea
   expect(stripVTControlCharacters(after.slice(after.indexOf(CLEARED)))).toContain("Claude Code 2.1.318 underneath");
 });
 
+test("Ctrl+L leaves the start screen's sessions as they were listed, without reading them again", async () => {
+  const { press, store, ink } = app();
+  store.emit({ kind: "loaded", loaded: { version: "2.1.318" } });
+  await settle(300);
+  const listed = store.getSnapshot().recent;
+  expect(listed).toBeDefined();
+  await press(KEYS.ctrlL);
+  await settle(300);
+  ink.unmount();
+  expect(store.getSnapshot().recent).toBe(listed);
+});
+
 test("Shift+↑ at the top says once, for a moment, that max takes /effort, as claude does", async () => {
   const { press, store, ink, written } = app();
   await settle();
