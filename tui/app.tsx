@@ -51,7 +51,6 @@ import { fit } from "./markdown-view";
 import { McpPanel } from "./mcp";
 import { MemoryPanel } from "./memory";
 import { ModelPicker } from "./model-picker";
-import { FollowDock, followedCall, useDwell } from "./follow";
 import type { TabId } from "./inspector";
 import { targetMove, targetTab, WHOLE } from "./opened";
 import { listedIn, scopeOf, useReview } from "./review";
@@ -223,12 +222,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     store.keepWarm = on;
     setKeepWarmState(on);
   };
-  /** Whether a panel follows the tool call Claude is making, as Alt+L or /config set it. */
-  const [follow, setFollowState] = useState(store.follow);
-  const setFollow = (on: boolean) => {
-    store.follow = on;
-    setFollowState(on);
-  };
   const title = useSessionTitle(session.knownId, state.cwd, turns, store.epoch);
   const start = startOf(state, branch, store.keymap);
   useAttention({ state, window: store.window, notify: notifyMode, title, git });
@@ -388,7 +381,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         report(error);
       }
     };
-    const { model, effort, ultracode, thinking, mode, todos, notify, usage, keepWarm: warm, agentSummaries, remoteControl, follow: followOn, fullscreen: layout } = changes;
+    const { model, effort, ultracode, thinking, mode, todos, notify, usage, keepWarm: warm, agentSummaries, remoteControl, fullscreen: layout } = changes;
     if (model) await attempt(() => session.setModel(model), () => (kept.model = model));
     if (effort) await attempt(() => session.setEffort(effort), () => (kept.effort = effort));
     // After the effort, since a level of its own turns ultracode off. For this session only.
@@ -418,11 +411,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     if (warm !== undefined) {
       setKeepWarm(warm);
       kept.keepWarm = warm;
-    }
-    if (followOn !== undefined) {
-      setFollow(followOn);
-      if (followOn) setInspect(null);
-      kept.follow = followOn;
     }
     if (agentSummaries !== undefined) {
       store.agentSummaries = agentSummaries;
@@ -608,7 +596,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
 
   /**
    * Your keys to the transcript, or back to the box. In scrollback that opens or closes the viewer,
-   * and a call left open there closes with it, as nothing would show it, or hold Follow Claude on it.
+   * and a call left open there closes with it, as nothing would show it.
    */
   const toTranscript = (on: boolean) => {
     if (fullscreen) return setTranscriptKeys(on);
@@ -745,21 +733,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   };
   const moveOpened = (by: -1 | 1) => {
     if (inspect) moveFrom(inspect.id, by);
-  };
-
-  /**
-   * Alt+L: follow Claude, or stop. Looking at a call yourself holds following on it, and Alt+L then
-   * follows Claude again, as closing the call does. Remembered for next time.
-   */
-  const toggleFollow = () => {
-    if (follow && inspect) {
-      setInspect(null);
-      return setToast("Following Claude again");
-    }
-    setFollow(!follow);
-    keep({ follow: !follow });
-    if (!follow) setInspect(null);
-    setToast(follow ? "Stopped following Claude" : "Following Claude");
   };
 
   const copySelection = (text: string) => {
@@ -980,7 +953,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
               keepWarm,
               agentSummaries: store.agentSummaries,
               remoteControl: store.remoteControl,
-              follow,
             },
           });
         }
@@ -1641,14 +1613,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     },
     { isActive: !boxKeys },
   );
-  // Follow Claude: the call Claude is on, a moment behind a burst of them, while you aren't looking
-  // at one yourself, which holds it until that call closes.
-  const followTarget = follow ? followedCall(state, waiting) : undefined;
-  const followedId = useDwell(followTarget, followTarget !== undefined && waiting.has(followTarget));
-  const followedAt = followedId === undefined ? undefined : state.tools[followedId];
-  const followedItem = followedAt === undefined ? undefined : state.items[followedAt];
-  const followed = followedItem?.kind === "tool" ? followedItem.call : undefined;
-  const following = follow && !inspected;
   const overlaid = picker();
   // A decision takes the box's place until you answer it.
   const decision = question ? (
@@ -1687,20 +1651,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       </Box>
     </>
   ) : null;
-  const above = decision ? null : overlaid ? (
-    overlaid
-  ) : following ? (
-    <FollowDock
-      call={followed}
-      waiting={followed ? waiting.has(followed.id) : false}
-      log={followed ? state.agentLogs[followed.id] : undefined}
-      width={width}
-      rows={Math.max(3, Math.min(8, rows - 18))}
-      cwd={state.cwd}
-      home={state.home}
-      onOpen={inspectCall}
-    />
-  ) : null;
+  const above = decision ? null : overlaid;
   const pinned = showTodos && todos ? <PinnedTodos todos={todos} rows={Math.max(3, Math.min(8, rows - 20))} /> : null;
   const panel = (
     <Box ref={panelBox} flexDirection="column" flexShrink={0}>
@@ -1752,7 +1703,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onFastMode={toggleFast}
           onStopTasks={stopAllTasks}
           onFind={fullscreen || viewer.open ? openFind : undefined}
-          onFollow={toggleFollow}
           onAgents={toAgents}
           onKeys={() => setOverlay({ kind: "keys", place: "box" })}
           hintAgents={hintAgents}
@@ -1792,8 +1742,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           needsYou={othersWaiting}
           // As a click moves your keys where it lands, it leaves the transcript too; never a decision or an overlay.
           onNeedsYou={(boxKeys || focus === "transcript") && boxEmpty ? toAgents : undefined}
-          follow={follow ? (inspected ? "paused" : "on") : undefined}
-          onFollow={toggleFollow}
           onCache={toggleKeepWarm}
           onMode={cycleMode}
           onModel={() => setOverlay({ kind: "model" })}

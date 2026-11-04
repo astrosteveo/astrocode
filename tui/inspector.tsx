@@ -1,7 +1,6 @@
 // Everything about one tool call, in tabs: the exact command or input, the exact output, and the
 // result as Claude got it, whole, with what the header says of the call and how it went. An opened
-// call draws them under its own line (`opened.tsx`), and Follow Claude's dock shows the end of one
-// (`follow.tsx`).
+// call draws them under its own line (`opened.tsx`).
 import { renderToString } from "ink";
 import { useEffect, useState, type ReactNode } from "react";
 import wrapAnsi from "wrap-ansi";
@@ -89,20 +88,6 @@ export function tabsOf(call: ToolCall, log?: AgentLine[]): TabId[] {
     default:
       return ["result", "input"];
   }
-}
-
-/**
- * The tab a call opens on. Following Claude, a command waiting for your OK opens on the command
- * itself, since it has no output yet.
- */
-export function firstTab(call: ToolCall, log: AgentLine[] | undefined, following: boolean, waiting: boolean) {
-  const tabs = tabsOf(call, log);
-  return following && waiting && tabs.includes("command") ? "command" : tabs[0]!;
-}
-
-/** Whether a tab opens on its end: a transcript, which grows, and a command's output while following. */
-export function tailsBody(tab: TabId, following: boolean) {
-  return tab === "transcript" || (following && tab === "output");
 }
 
 /**

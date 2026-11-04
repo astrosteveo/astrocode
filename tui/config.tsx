@@ -31,8 +31,6 @@ export type ConfigValues = {
   agentSummaries: boolean;
   /** Every session starts with Remote Control on. */
   remoteControl: boolean;
-  /** A dock above the message box follows the tool call Claude is making. */
-  follow: boolean;
 };
 
 const TODOS: { mode: TodoMode; label: string; note: string }[] = [
@@ -152,15 +150,6 @@ export function ConfigMenu({ models, initial, path, ultracodeAvailable, width, o
       step: () => update({ fullscreen: !values.fullscreen }),
     },
     {
-      label: "Follow Claude",
-      value: values.follow ? "on" : "off",
-      changed: values.follow !== initial.follow,
-      note: values.follow
-        ? "A dock above the message box shows each tool call as Claude makes it"
-        : "Tool calls show only in the transcript",
-      step: () => update({ follow: !values.follow }),
-    },
-    {
       label: "Plan usage",
       value: USAGE[usageAt]?.label ?? "",
       changed: values.usage !== initial.usage,
@@ -217,7 +206,6 @@ export function ConfigMenu({ models, initial, path, ultracodeAvailable, width, o
     if (values.keepWarm !== initial.keepWarm) changes.keepWarm = values.keepWarm;
     if (values.agentSummaries !== initial.agentSummaries) changes.agentSummaries = values.agentSummaries;
     if (values.remoteControl !== initial.remoteControl) changes.remoteControl = values.remoteControl;
-    if (values.follow !== initial.follow) changes.follow = values.follow;
     onClose(changes);
   };
 

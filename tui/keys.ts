@@ -34,15 +34,11 @@ export const ACTIONS = {
   // Claude Code's name for it, though Ctrl+L redraws the screen there and keeps what's typed.
   "chat:clearInput": "redraw",
   "task:background": "background",
-  "chat:followClaude": "follow Claude",
 } as const;
 
 export type Action = keyof typeof ACTIONS;
 
-/**
- * Claude Code's default bindings for the actions astrocode has, in its Global, Chat and Task contexts,
- * and the one for astrocode's own `chat:followClaude`.
- */
+/** Claude Code's default bindings for the actions astrocode has, in its Global, Chat and Task contexts. */
 const DEFAULTS: Record<string, Action> = {
   "ctrl+c": "app:interrupt",
   "ctrl+d": "app:exit",
@@ -73,7 +69,6 @@ const DEFAULTS: Record<string, Action> = {
   "ctrl+v": "chat:imagePaste",
   "ctrl+b": "task:background",
   "ctrl+x ctrl+b": "task:background",
-  "meta+l": "chat:followClaude",
 };
 
 /**
@@ -81,6 +76,9 @@ const DEFAULTS: Record<string, Action> = {
  * to clear the box or rewind. Claude Code 2.1.318 times all three with this, in its binary.
  */
 export const DOUBLE_PRESS_MS = 800;
+
+/** astrocode's own action for Alt+L until opening the running call's line took its place. */
+const RETIRED = "chat:followClaude";
 
 /** The contexts of keybindings.json that reach the message box. */
 const CONTEXTS = new Set(["Global", "Chat"]);
@@ -126,6 +124,7 @@ export async function loadKeymap(): Promise<{ keymap: Keymap; problems: { tone: 
   const keymap = new Map(DEFAULT_KEYMAP);
   const problems: { tone: "info" | "error"; text: string }[] = [];
   const unknown = new Set<string>();
+  let retired = false;
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -143,13 +142,17 @@ export async function loadKeymap(): Promise<{ keymap: Keymap; problems: { tone: 
       if (!chord) continue;
       if (action === null) keymap.delete(chord);
       else if (typeof action === "string" && action in ACTIONS) keymap.set(chord, action as Action);
-      else if (typeof action === "string") {
+      else if (action === RETIRED) {
+        keymap.delete(chord);
+        retired = true;
+      } else if (typeof action === "string") {
         // A key bound to something astrocode can't do does nothing here, rather than its default.
         keymap.delete(chord);
         unknown.add(action);
       }
     }
   }
+  if (retired) problems.push({ tone: "info", text: `Follow Claude is retired, so ${RETIRED} in keybindings.json does nothing: open the running call's line instead (${keyLabel(keyFor(keymap, "app:toggleTranscript") ?? "ctrl+o")}, then Enter), and each call Claude starts opens under its own line.` });
   if (unknown.size) problems.push({ tone: "info", text: `astrocode doesn't have ${[...unknown].join(", ")} from keybindings.json, so those keys do nothing here.` });
   return { keymap, problems };
 }
@@ -223,11 +226,6 @@ const SHORT: Record<string, string> = { escape: "esc", pageup: "pgup", pagedown:
 export function hintKey(keymap: Keymap, action: Action) {
   const chord = keyFor(keymap, action);
   return chord === null ? null : hintOf(chord);
-}
-
-/** The key that turns Follow Claude on and off, as the lowercase hints write keys: `alt+l`. */
-export function followKey(keymap: Keymap) {
-  return hintKey(keymap, "chat:followClaude") ?? "alt+l";
 }
 
 const ARROWS: Record<string, string> = { up: "↑", down: "↓", left: "←", right: "→" };

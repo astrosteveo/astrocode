@@ -92,7 +92,6 @@ export async function startTerminal(options: TerminalOptions) {
     if (saved.keepWarm !== undefined) store.keepWarm = saved.keepWarm;
     if (saved.agentSummaries !== undefined) store.agentSummaries = saved.agentSummaries;
     if (saved.remoteControl !== undefined) store.remoteControl = saved.remoteControl;
-    if (saved.follow !== undefined) store.follow = saved.follow;
     store.window = window;
     store.keymap = keymap;
     store.prompts = prompts;

@@ -45,7 +45,7 @@ afterEach(async () => {
  * mouse on. `screen()` is the last frame drawn, a row per line, without its colors; `update()` puts
  * another state in its place.
  */
-async function launch(state: State, { columns = 200, rows = 40, follow = false, session: answers = {} as Record<string, (...args: unknown[]) => Promise<unknown>> } = {}) {
+async function launch(state: State, { columns = 200, rows = 40, session: answers = {} as Record<string, (...args: unknown[]) => Promise<unknown>> } = {}) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns, rows });
   const writes: string[] = [];
   stdout.on("data", (chunk: Buffer) => writes.push(chunk.toString()));
@@ -60,7 +60,6 @@ async function launch(state: State, { columns = 200, rows = 40, follow = false, 
       listeners.delete(listener);
     };
   };
-  store.follow = follow;
   /** What the app asked of the session, by method. */
   const asked: string[] = [];
   const session = new Proxy(
@@ -162,17 +161,6 @@ test("at 200 columns a click opens a call under its line, with nothing beside th
   expect(lines.filter((line) => line.includes("Output")).length).toBe(1);
   await click(10, at);
   expect(screen().some((line) => line.includes("‹ 2 of 3 ›"))).toBe(false);
-});
-
-test("Follow Claude docks above the box at 200 columns, not beside the transcript", async () => {
-  const state = turn([call("a"), call("b", { name: "Bash", status: "running", input: { command: "sleep 9", description: "Wait a while" } })]);
-  const { screen, row } = await launch(state, { follow: true });
-  const dock = row(/◉ Following/);
-  const line = row(/Waiting +a while/);
-  expect(line).toBeGreaterThan(0);
-  expect(dock).toBeGreaterThan(line);
-  expect(screen()[dock]).not.toMatch(/Waiting +a while/);
-  expect(screen()[line]!.trimEnd().length).toBeGreaterThan(190);
 });
 
 /** A turn whose newest call is a subagent Claude waits on, which Claude Code runs as a task. */
@@ -585,19 +573,6 @@ test("in an opened call Shift+Tab leaves the tab alone, and Ctrl+C doesn't copy 
   expect(asked).toContain("setMode");
   await press(KEYS.ctrlC);
   expect(screen().some((line) => line.includes("Copied"))).toBe(false);
-});
-
-test("Alt+L with a call opened from the transcript closes it and follows Claude again", async () => {
-  const state = turn([call("a"), call("b", { name: "Bash", status: "running", input: { command: "sleep 9", description: "Wait a while" } })]);
-  const { press, screen, row, click } = await launch(state, { follow: true });
-  expect(row(/◉ Following/)).not.toBe(-1);
-  await click(10, row(/Searched +a in src/));
-  expect(screen().some((line) => line.includes("‹ 1 of 2 ›"))).toBe(true);
-  expect(row(/◉ Following/)).toBe(-1);
-  await press("\x1bl");
-  expect(screen().some((line) => line.includes("‹ 1 of 2 ›"))).toBe(false);
-  expect(row(/◉ Following/)).not.toBe(-1);
-  expect(row(/Following Claude again/)).not.toBe(-1);
 });
 
 /** Fifteen messages, each with a call: longer than a screen of 24 rows. */
