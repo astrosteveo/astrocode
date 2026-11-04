@@ -112,3 +112,26 @@ test("a toast is cut to the room the count leaves it, so the bar stays one row",
     expect(shown[0]!.trimEnd().length).toBeLessThanOrEqual(80);
   }
 });
+
+test("a key's armed hint is cut to the room the count leaves it, so the bar stays one row at 60 columns", () => {
+  for (const armed of ["shift+↑ stops below max · /effort max to set it", "Press Ctrl+D again to exit"]) {
+    const { lines, stop } = bar(60, { needsYou: 2, armed });
+    const shown = lines();
+    stop();
+    expect(shown).toHaveLength(1);
+    expect(shown[0]).toContain("← 2 need you");
+    expect(shown[0]).toContain(armed.slice(0, 20));
+    expect(shown[0]!.trimEnd().length).toBeLessThanOrEqual(60);
+  }
+});
+
+test("a click on the count beside a cut armed hint still opens the conversations", async () => {
+  let opened = 0;
+  const { line, click, stop } = bar(60, { needsYou: 2, armed: "shift+↑ stops below max · /effort max to set it", onNeedsYou: () => (opened += 1) });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const shown = line();
+  expect(shown).toContain("← 2 need you");
+  await click(shown.indexOf("← 2 need you") + 4);
+  stop();
+  expect(opened).toBe(1);
+});
