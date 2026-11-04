@@ -5,7 +5,7 @@ import { renderToString } from "ink";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Item, State, ToolCall } from "../src/view/state";
 import { arrange } from "./arrange";
-import { callTarget, ItemView, leavesOut, LiveView, opensByDefault, stepPieces, type Piece, type StepRow } from "./entries";
+import { callTarget, ItemView, leavesOut, lineCall, LiveView, opensByDefault, stepPieces, type Piece, type StepRow } from "./entries";
 import { placeOf } from "./inspector";
 import { commandRows, fileTarget, ledgerPieces, moreTarget, opensLedger, type LedgerPiece, type TurnItem } from "./ledger";
 import { OPEN_INSET, openedRows, type Opened, type OpenedRows, type Spot } from "./opened";
@@ -199,12 +199,12 @@ export function layout({ state, width, pictureRows, start, expanded, waiting, op
       const added = call ? openUnder(entry.key, call, after, rail.through) : [];
       const start = rows.length;
       starts.set(entry.key, start);
-      // A line for several calls stands for its first, or for the one of them that's open, which a click on it closes.
-      const first = mine && callTarget(mine.calls[0]!.id);
+      // A line for several calls stands for one of them (`lineCall()`), or for the one of them that's open, which a click on it closes.
+      const standsFor = mine && callTarget(lineCall(mine).id);
       drawn.lines.forEach((text, i) => {
         // The row that sets the step apart from the entry before isn't part of what a click acts on.
         const drawnTarget = rail.spaced && i === 0 ? undefined : drawn.targets[i];
-        const target = call && drawnTarget === first ? callTarget(call.id) : drawnTarget;
+        const target = call && drawnTarget === standsFor ? callTarget(call.id) : drawnTarget;
         if (i === after) rows.push(...added);
         const line = i < after ? i : i + added.length;
         rows.push({ text, key: entry.key, line, head: target !== undefined, hot: target !== undefined, open: false, inset: GUTTER, target });

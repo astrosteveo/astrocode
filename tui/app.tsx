@@ -18,7 +18,7 @@ import { ago, canStopThinking, currentModel } from "../src/view/format";
 import { isCurrent, steps, titleWorthy } from "../src/view/steps";
 import { askedBy } from "../src/view/permissions";
 import { findRunning, runningKeyOf, runningList, type Running } from "../src/view/runs";
-import type { Item, State } from "../src/view/state";
+import type { Item, State, ToolItem } from "../src/view/state";
 import { todoList } from "../src/view/todos";
 import { plural, shortPath } from "../src/view/tools";
 import { Activity } from "./activity";
@@ -282,14 +282,24 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     }
   }, [state.mode]);
 
-  /** The tool call opened under its line, with the tab it shows and whether that's whole. */
-  const [inspect, setInspect] = useState<{ id: string; tab?: TabId; whole?: boolean } | null>(null);
+  /**
+   * The tool call opened under its line, with the tab it shows and whether that's whole. `follow`:
+   * it was the call Claude is on when it opened, so each call Claude starts opens in its place, until
+   * you move the cursor.
+   */
+  const [inspect, setInspect] = useState<{ id: string; tab?: TabId; whole?: boolean; follow?: boolean } | null>(null);
 
   useEffect(() => {
     setExpanded(new Set());
     toTranscript(false);
     setInspect(null);
   }, [store.resets]);
+
+  /** The call Claude started last, which it's on while that runs or waits for you. */
+  const newest = state.items.findLast((item): item is ToolItem => item.kind === "tool")?.call;
+  useEffect(() => {
+    if (newest) setInspect((open) => (open?.follow && open.id !== newest.id ? { id: newest.id, follow: true } : open));
+  }, [newest?.id]);
 
   // The sessions saved here, for each new or resumed conversation's start screen. The one on screen
   // isn't one of them. A redraw keeps the list it has.
@@ -627,7 +637,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
    * background opens there too, live; /tasks is the view of it that fills the screen.
    */
   const inspectCall = (id: string) => {
-    setInspect({ id });
+    setInspect({ id, follow: id === newest?.id && newest.status === "running" });
     toTranscript(true);
     return true;
   };
@@ -1793,7 +1803,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       rows={rows}
       expanded={expanded}
       waiting={waiting}
-      opened={inspected ? { id: inspected.id, tab: inspect?.tab, whole: inspect?.whole } : undefined}
+      opened={inspected ? { id: inspected.id, tab: inspect?.tab, whole: inspect?.whole, follow: inspect?.follow } : undefined}
       reveal={reveal}
       review={review}
       keys={!overlay}
@@ -1802,6 +1812,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       onFocus={() => toTranscript(true)}
       onLedger={setInLedger}
       onLeave={() => toTranscript(false)}
+      onCursor={() => setInspect((open) => open && { ...open, follow: false })}
       onToggle={toggleTool}
       onCopy={copySelection}
       onEdit={(text) => void handOver(() => readInEditor(text)).catch(report)}
