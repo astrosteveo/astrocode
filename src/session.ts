@@ -1172,6 +1172,7 @@ export class AgentSession {
         request: {
           id,
           server: request.displayName || request.serverName,
+          serverName: request.serverName,
           message: request.message,
           title: request.title,
           mode: request.mode === "url" ? "url" : "form",

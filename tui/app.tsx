@@ -18,9 +18,9 @@ import { ago, canStopThinking, currentModel } from "../src/view/format";
 import { isCurrent, steps, titleWorthy } from "../src/view/steps";
 import { askedBy } from "../src/view/permissions";
 import { findRunning, runningKeyOf, runningList, runningTaskOf, type Running } from "../src/view/runs";
-import type { Item, State, ToolItem } from "../src/view/state";
+import type { Item, State, ToolCall, ToolItem } from "../src/view/state";
 import { todoList } from "../src/view/todos";
-import { plural, shortPath } from "../src/view/tools";
+import { isToolOf, plural, shortPath } from "../src/view/tools";
 import { Activity } from "./activity";
 import { AsidePanel } from "./aside";
 import { useAttention } from "./attention";
@@ -311,11 +311,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     };
   }, [store.resets]);
 
-  // An Agent call waits for you while its subagent, or one under it, does.
+  // An Agent call waits for you while its subagent, or one under it, does, and an MCP server's call while the server's form does.
+  const formFor = (call: ToolCall) => call.status === "running" && state.elicitations.some((request) => isToolOf(call.name, request.serverName));
   const waiting = new Set([
     ...state.pending.map((request) => request.id),
     ...state.questions.map((request) => request.id),
-    ...state.items.flatMap((item) => (item.kind === "tool" && item.call.subagent?.waitingOn ? [item.call.id] : [])),
+    ...state.items.flatMap((item) => (item.kind === "tool" && (item.call.subagent?.waitingOn || formFor(item.call)) ? [item.call.id] : [])),
   ]);
 
   const question = state.questions[0];

@@ -125,7 +125,7 @@ test("a conversation waiting on you says what it asks: Claude's question, the MC
   const fresh = initialState("/p", "/home/u");
   const question = { id: "q", questions: [{ question: "Tea or coffee?", header: "Drink", multiSelect: false, options: [] }] };
   expect(mineSummary({ ...fresh, questions: [question] }, 0)).toBe("Tea or coffee?");
-  expect(mineSummary({ ...fresh, elicitations: [{ id: "e", server: "github", message: "Pick a repository", mode: "form", fields: [] }] }, 0)).toBe("Pick a repository");
+  expect(mineSummary({ ...fresh, elicitations: [{ id: "e", server: "github", serverName: "github", message: "Pick a repository", mode: "form", fields: [] }] }, 0)).toBe("Pick a repository");
   expect(mineSummary({ ...fresh, pending: [{ id: "p", toolName: "Edit", input: { file_path: "/p/src/a.ts" } }] }, 0)).toBe("Edit src/a.ts");
 });
 

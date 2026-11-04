@@ -655,7 +655,7 @@ test("with the call that waits open in the transcript, \"waiting\" is still said
 
 test("Claude's question and an MCP server's form say once, on their title row, how long Claude has waited", async () => {
   const question = { id: "q", questions: [{ question: "Which cache?", header: "Cache", multiSelect: false, options: [{ label: "LRU", description: "least recently used" }, { label: "TTL", description: "time based" }] }] };
-  const form = { id: "e", server: "hello", message: "Your name?", mode: "form" as const, fields: [{ name: "name", label: "Name", type: "string" as const, required: true }] };
+  const form = { id: "e", server: "hello", serverName: "hello", message: "Your name?", mode: "form" as const, fields: [{ name: "name", label: "Name", type: "string" as const, required: true }] };
   const asking = turn([call("a"), call("q", { name: "AskUserQuestion", input: {}, status: "running" })]);
   const cases: [Partial<State>, RegExp][] = [
     [{ questions: [question] }, /Which cache\?/],
@@ -1331,12 +1331,14 @@ test("waiting on you, the step's mark stops as a gold ◇, and only the decision
   expect(new Set(frames.map((frame) => frame.replace(/waiting \d+s/, "waiting Ns"))).size).toBe(1);
 });
 
-test("an MCP server's form stops the running step's mark too, though its call doesn't wait for an OK", async () => {
-  const pick = call("m", { name: "mcp__github__pick", input: {}, status: "running", result: undefined });
-  const form = { id: "e", server: "github", message: "Pick a repository", mode: "form" as const, fields: [] };
+test("an MCP server's form stops its call's step as a gold ◇ too, though the call doesn't wait for an OK", async () => {
+  // Claude Code names a server's tools with anything but letters, digits, `_` and `-` in its name as `_`.
+  const pick = call("m", { name: "mcp__claude_ai_GitHub__pick", input: {}, status: "running", result: undefined });
+  const form = { id: "e", server: "GitHub", serverName: "claude.ai GitHub", message: "Pick a repository", mode: "form" as const, fields: [] };
   const { writes } = await launch({ ...turn([call("a"), pick]), busy: true, elicitations: [form] }, { columns: 120, rows: 30 });
   const frames = await framesOver(writes, 1100);
   expect(frames.join("")).toContain("Pick a repository");
+  expect(stripVTControlCharacters(frames[0]!).split("\n").find((line) => line.includes("Looking around"))?.[0]).toBe("◇");
   expect(new Set(frames.map((frame) => frame.replace(/waiting \d+s/, "waiting Ns"))).size).toBe(1);
 });
 

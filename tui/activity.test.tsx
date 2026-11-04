@@ -76,7 +76,7 @@ test("a request tried again says when, why and which attempt", () => {
 test("there's no now line while Claude waits on you, or once it's done", () => {
   const asking = running({ name: "Bash", input: { command: "rm -rf build" } });
   expect(nowLine({ ...asking, pending: [{ id: "c", toolName: "Bash", input: { command: "rm -rf build" } }] })).toBe("");
-  expect(nowLine({ ...working, elicitations: [{ id: "e", server: "github", message: "Pick a repository", mode: "form", fields: [] }] })).toBe("");
+  expect(nowLine({ ...working, elicitations: [{ id: "e", server: "github", serverName: "github", message: "Pick a repository", mode: "form", fields: [] }] })).toBe("");
   expect(nowLine({ ...working, busy: false })).toBe("");
 });
 

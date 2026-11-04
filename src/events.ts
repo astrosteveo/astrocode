@@ -68,9 +68,9 @@ export type ElicitationField = {
 
 /**
  * An MCP server asking you for something: to fill in a form, or to open an address in the browser,
- * as signing in does.
+ * as signing in does. `server` is the name it shows as; `serverName` the one its tools are named by.
  */
-export type ElicitationRequest = { id: string; server: string; message: string; title?: string; mode: "form" | "url"; url?: string; fields: ElicitationField[] };
+export type ElicitationRequest = { id: string; server: string; serverName: string; message: string; title?: string; mode: "form" | "url"; url?: string; fields: ElicitationField[] };
 
 /** What you said to an MCP server's request: the form's values when you accept it. */
 export type ElicitationAnswer = { action: "accept" | "decline" | "cancel"; content?: Record<string, string | number | boolean | string[]> };

@@ -14,6 +14,11 @@ export function toolLabel(name: string) {
   return `${rest.join("__")} (${server})`;
 }
 
+/** Whether `name` is one of `server`'s tools: Claude Code names them `mcp__server__tool`, with anything in the server's name but letters, digits, `_` and `-` as `_`. */
+export function isToolOf(name: string, server: string) {
+  return name.startsWith(`mcp__${server.replace(/[^a-zA-Z0-9_-]/g, "_")}__`);
+}
+
 const EDITS = new Set(["Edit", "Write", "NotebookEdit", "MultiEdit"]);
 
 /** The file an edit tool's call changes, by the path it was given; undefined for any other tool. */
