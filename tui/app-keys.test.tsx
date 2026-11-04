@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { stripVTControlCharacters } from "node:util";
 import type { AgentSession } from "../src/session";
 import { App } from "./app";
 import { Store } from "./store";
@@ -75,4 +76,15 @@ test("Ctrl+L in scrollback lets a running ! command finish, and Claude hears wha
   const shell = store.getSnapshot().items.find((item) => item.kind === "shell");
   expect(shell?.status).toBe("done");
   expect(asked).toContain("note");
+});
+
+test("Ctrl+L redraws with an overlay open too, where the message box doesn't have the keys", async () => {
+  const { press, ink, written } = app();
+  await settle();
+  await press("/tasks", KEYS.enter);
+  expect(stripVTControlCharacters(written())).toContain("Nothing runs alongside the conversation");
+  const before = written().length;
+  await press(KEYS.ctrlL);
+  ink.unmount();
+  expect(written().slice(before)).toContain(CLEARED);
 });

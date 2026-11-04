@@ -50,7 +50,7 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | Ctrl+_ | Undo, a word at a time |
 | Ctrl+K, Ctrl+U, Ctrl+W, Alt+D, Ctrl+Y | Cut to the end of the line, to its start, the word before, the word after; put back what was cut |
 | Alt+B, Alt+F | Move a word back or forward |
-| Ctrl+L | Redraw the screen, for one left garbled, keeping what you've typed |
+| Ctrl+L | Redraw the screen, for one left garbled, keeping what you've typed. It works with a picker or a prompt open too |
 | Ctrl+G, or Ctrl+X Ctrl+E | Write the message in `$EDITOR` |
 | Ctrl+V | Attach the clipboard's image |
 | Ctrl+B, or Ctrl+X Ctrl+B | Move the command or subagent Claude is waiting on to the background |
