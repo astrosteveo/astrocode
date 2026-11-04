@@ -3,6 +3,7 @@
 // sessions saved in this folder, and eight keys. Each part shows once it's known, so nothing on it
 // is a guess.
 import { Box, Text } from "ink";
+import { basename } from "node:path";
 import { version } from "../package.json";
 import { ago, currentModel, modelLabel } from "../src/view/format";
 import type { State } from "../src/view/state";
@@ -19,13 +20,17 @@ export const RECENT = 3;
 const MEASURE = 110;
 /** A key's column: four across where they fit, else two. */
 const KEY_COLUMN = 27;
+/** The least of a long branch the where line keeps. */
+const BRANCH_LEAST = 16;
 
 /** What the start screen says, as plain text, so a drawing of it is kept until any of it changes. */
 export type Start = {
   /** Claude Code's version, once it has said. */
   engine?: string;
-  /** The folder, then its branch, the model and effort, and the mode. */
-  where: string[];
+  /** Where you are: the folder, its branch, and then the model and effort, and the mode. */
+  folder: string;
+  branch?: string;
+  setup: string[];
   /** What Claude Code loaded, such as `8 plugins`. */
   loaded: string[];
   recent: { title: string; when: string }[];
@@ -43,9 +48,9 @@ export function startOf(state: State, branch: string | undefined, keymap: Keymap
   };
   return {
     engine: loaded?.version,
-    where: [
-      shortPath(state.cwd, "", state.home),
-      ...(branch ? [branch] : []),
+    folder: shortPath(state.cwd, "", state.home),
+    branch,
+    setup: [
       ...(model ? [effort ? `${model} ${effort}` : model] : []),
       // Claude Code says its mode as it starts, before what it loaded; until then the mode is a guess.
       ...(loaded ? [MODE_CHIPS[state.mode].label] : []),
@@ -81,9 +86,7 @@ export function StartScreen({ start, width }: { start: Start; width: number }) {
   // Two columns in from each side, and no wider than the measure.
   const edge = Math.min(width - 2, MEASURE + 2);
   const room = edge - 2;
-  const [path = "", ...rest] = start.where;
-  const after = rest.join(" · ");
-  const where = [fit(path, room - (after ? cellWidth(after) + 3 : 0), true), ...rest].join(" · ");
+  const where = whereLine(start, room);
   const across = room - 2 >= 4 * KEY_COLUMN ? 4 : room - 2 >= 2 * KEY_COLUMN ? 2 : 1;
   const keyRows = Array.from({ length: Math.ceil(start.keys.length / across) }, (_, i) => start.keys.slice(i * across, (i + 1) * across));
   return (
@@ -138,4 +141,15 @@ export function StartScreen({ start, width }: { start: Start; width: number }) {
       </Box>
     </Box>
   );
+}
+
+/**
+ * Where you are, in `room` columns. The model and mode stay whole; a long branch gives way first,
+ * down to its start, and then the folder, down to its own name. Past that, the line is cut at its end.
+ */
+function whereLine({ folder, branch, setup }: Start, room: number) {
+  const left = room - (setup.length ? cellWidth(setup.join(" · ")) + 3 : 0);
+  const name = Math.max(2, Math.min(cellWidth(folder), cellWidth(basename(folder)) + 2));
+  const cut = branch ? fit(branch, Math.max(left - name - 3, Math.min(cellWidth(branch), BRANCH_LEAST)), false) : "";
+  return [fit(folder, Math.max(left - (cut ? cellWidth(cut) + 3 : 0), name), true), ...(cut ? [cut] : []), ...setup].join(" · ");
 }
