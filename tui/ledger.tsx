@@ -186,8 +186,11 @@ function diffPieces(turn: string, file: FileChange, diff: FileDiff | undefined, 
   if (diff === undefined || diff === "reading") return say("Reading the diff…");
   if (diff === "gone" || !diff.length) return say("Its diff wasn't kept.");
   const runs = runsOf(diff);
-  // One gutter for every run, so their numbers line up.
-  const digits = String(Math.max(...diff.map((line) => Math.max(line.old ?? 0, line.new ?? 0)))).length;
+  // One gutter for every run, so their numbers line up. A loop, not a spread: a diff can have more
+  // lines than a call can take arguments.
+  let last = 0;
+  for (const line of diff) last = Math.max(last, line.old ?? 0, line.new ?? 0);
+  const digits = String(last).length;
   const view = (key: string, shown: Run[]) => ({ key: `${key}:${file.path}`, target, node: at(<Runs runs={shown} width={width} digits={digits} path={file.path} />) });
   const hidden = whole ? 0 : diff.length - HEAD - TAIL;
   // A fold of one line would take as much room as the line.
