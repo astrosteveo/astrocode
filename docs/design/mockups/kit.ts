@@ -11,8 +11,6 @@ import { status as reading, wrap, type DiffRow } from "./scenario";
 
 /** Text never runs wider than this, however wide the terminal: past it, lines get hard to read. */
 export const MEASURE = 110;
-/** From this width an opened line stands beside the transcript instead of under its line. */
-export const WIDE = 160;
 /** Under this width results that don't fit move under their line, and the status bar sheds readings. */
 export const NARROW = 100;
 
@@ -68,9 +66,6 @@ export class Ledger {
   /** Columns prose wraps at. */
   readonly text: number;
   readonly narrow: boolean;
-  readonly wide: boolean;
-  /** Where something opened beside the transcript starts, on a wide screen. */
-  readonly beside: number;
 
   constructor(
     readonly W: number,
@@ -78,10 +73,8 @@ export class Ledger {
   ) {
     this.f = new Frame(W, H, P.page, P.text);
     this.narrow = W < NARROW;
-    this.wide = W >= WIDE;
     this.edge = Math.min(W - 2, MEASURE + 2);
     this.text = this.edge - 2;
-    this.beside = this.edge + 2;
   }
 
   /** Your message. */
