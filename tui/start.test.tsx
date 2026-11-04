@@ -9,6 +9,7 @@ import { version } from "../package.json";
 import type { AgentSession } from "../src/session";
 import { initialState, type State } from "../src/view/state";
 import { App } from "./app";
+import { Background, Fleet } from "./fleet";
 import { cellWidth } from "./markdown";
 import { DEFAULT_KEYMAP, loadKeymap, type Keymap } from "./keys";
 import { scratchConfig } from "./scratch-config";
@@ -188,12 +189,25 @@ function launch(store: Store, knownId?: string) {
   // A stand-in Claude Code session: whatever's asked of it does nothing.
   const known: Record<string, unknown> = { knownId, id: knownId, watchMods: () => () => {}, then: undefined };
   const session = new Proxy(known, { get: (target, name) => (typeof name === "string" && name in target ? target[name] : () => Promise.resolve(undefined)) });
-  const app = render(<App store={store} session={session as unknown as AgentSession} fullscreen={false} onToggleFullscreen={() => {}} onAgents={() => {}} />, {
-    stdin: stdin as unknown as NodeJS.ReadStream,
-    stdout: stdout as unknown as NodeJS.WriteStream,
-    exitOnCtrlC: false,
-    patchConsole: false,
-  });
+  // No conversations besides this one, and no background sessions: never the real `claude agents`.
+  const app = render(
+    <App
+      store={store}
+      session={session as unknown as AgentSession}
+      fullscreen={false}
+      onToggleFullscreen={() => {}}
+      onAgents={() => {}}
+      fleet={new Fleet()}
+      backgroundSessions={new Background(async () => [])}
+      agentsHint={Promise.resolve(false)}
+    />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  );
   return { app, written: () => stripVTControlCharacters(drawn) };
 }
 
