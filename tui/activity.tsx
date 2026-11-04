@@ -23,7 +23,8 @@ const ORBIT = ["⣾", "⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽"];
  */
 const FALL = ["⠉", "⠒", "⠤", "⣀"];
 
-export function Activity({ state, width }: { state: State; width: number }) {
+/** `stop`: the key that stops Claude where your keys are, Esc in the box. */
+export function Activity({ state, width, stop = "esc" }: { state: State; width: number; stop?: string }) {
   const waiting = state.pending.length > 0 || state.questions.length > 0 || state.elicitations.length > 0;
   const active = state.busy || waiting;
   const { frame, time } = useAnimation({ interval: 90, isActive: active });
@@ -31,7 +32,8 @@ export function Activity({ state, width }: { state: State; width: number }) {
   const live = state.live?.blocks.slice(state.live.finalized).reduce((sum, block) => sum + (block?.text.length ?? 0), 0) ?? 0;
   const tokens = state.turnTokens + Math.round(live / 4);
   const stats = `   ${duration(time)}${tokens > 0 ? `   ${compact(tokens)} tokens` : ""}`;
-  const label = fit(describe(state), width - GUTTER - cellWidth(stats) - (waiting ? 0 : cellWidth("esc to stop") + 2), false);
+  const hint = `${stop} to stop`;
+  const label = fit(describe(state), width - GUTTER - cellWidth(stats) - (waiting ? 0 : cellWidth(hint) + 2), false);
   return (
     <Box flexDirection="column">
       {waiting ? <Text color={PALETTE.gold}>│</Text> : <Text color={PALETTE.teal}>{FALL[Math.floor(frame / 2) % FALL.length]}</Text>}
@@ -41,7 +43,7 @@ export function Activity({ state, width }: { state: State; width: number }) {
           {waiting ? <Text color={PALETTE.gold}>{label}</Text> : <Sweep text={label} frame={frame} />}
           <Text color={PALETTE.haze}>{stats}</Text>
         </Text>
-        {waiting ? null : <Text color={PALETTE.dust}>esc to stop</Text>}
+        {waiting ? null : <Text color={PALETTE.dust}>{hint}</Text>}
       </Box>
     </Box>
   );
