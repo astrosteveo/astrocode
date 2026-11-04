@@ -6,6 +6,8 @@ import { DEFAULT_KEYMAP } from "./keys";
 import { Prompt } from "./prompt";
 
 const UP = "\x1b[A";
+const DOWN = "\x1b[B";
+const LEFT = "\x1b[D";
 const CTRL_R = "\x12";
 
 /** A paste of 300 lines, as claude's history keeps them. */
@@ -114,4 +116,24 @@ test("Ctrl+R keeps the place it found in view on a line wider than the box", asy
   expect(rows[2]).toContain("…aaa");
   expect(rows[2]).toContain("needle");
   expect(rows[2]).toMatch(/b…$/);
+});
+
+test("right after ↑ or ↓ brings a long message back, the next goes on to another message, not to its lines", async () => {
+  const { press, frame, app } = box(["older", LONG, "newest"], [], 60);
+  await Bun.sleep(60);
+  await press(UP);
+  await press(UP);
+  expect(frame().join("\n")).toContain("log line 299 with some content");
+  await press(UP);
+  expect(frame()).toContain(" ❯ older");
+  await press(DOWN);
+  expect(frame().join("\n")).toContain("log line 0 with some content");
+  await press(DOWN);
+  expect(frame()).toContain(" ❯ newest");
+  // Moved in, ↑ moves between its lines again.
+  await press(UP);
+  await press(LEFT);
+  await press(UP);
+  expect(frame()).toContain(" ❯ log line 0 with some content");
+  app.unmount();
 });
