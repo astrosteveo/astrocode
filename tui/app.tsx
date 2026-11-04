@@ -1717,6 +1717,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           fullscreen={fullscreen}
           busy={state.busy}
           hidden={Boolean(decision)}
+          suggestion={state.nextPrompt}
           width={width}
           cwd={state.cwd}
           history={sent.history}
