@@ -3,7 +3,11 @@ import type { PermissionRequest } from "../events";
 import { askFor, permissionNote, rowText, type Where } from "./permissions";
 
 // Each request is what Claude Code 2.1.301 sent astrocode's canUseTool for the tool, in a project
-// at /tmp/ac. Each prompt's words are `claude` 2.1.318's, read from its screen.
+// at /tmp/ac, with "don't ask again" cut to the narrowest kind of change, as the session cuts it.
+// Each prompt's words are `claude` 2.1.318's: read from its screen, and for rows its screen didn't
+// show, from its code. A row can still differ from claude's for the same call: for `touch
+// marker.txt` Claude Code suggests a rule, a folder and a mode together, and claude offers the
+// folder where astrocode offers the rule.
 const CWD = "/tmp/ac";
 const where: Where = { cwd: CWD, home: "/home/u", mode: "auto", modes: { bypass: true, auto: true } };
 
