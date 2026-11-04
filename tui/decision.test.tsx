@@ -18,8 +18,8 @@ afterEach(() => {
 });
 
 /** The prompt for `request` on a fake terminal: the last frame, keys to press, and what it decided. */
-async function ask(request: PermissionRequest, { mode = "auto" as const, rows = 40 } = {}) {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 100, rows });
+async function ask(request: PermissionRequest, { mode = "auto" as const, rows = 40, width = 100 } = {}) {
+  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: width, rows });
   let drawn = "";
   stdout.on("data", (chunk: Buffer) => {
     drawn += chunk.toString();
@@ -27,7 +27,7 @@ async function ask(request: PermissionRequest, { mode = "auto" as const, rows = 
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
   const decided: Decision[] = [];
   const app = render(
-    <DecisionPrompt request={request} cwd="/tmp/ac" home="/home/u" width={100} rows={rows} pictureRows={10} mode={mode} modes={{ bypass: true, auto: true }} onDecide={(one) => decided.push(one)} />,
+    <DecisionPrompt request={request} cwd="/tmp/ac" home="/home/u" width={width} rows={rows} pictureRows={10} mode={mode} modes={{ bypass: true, auto: true }} onDecide={(one) => decided.push(one)} />,
     { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, exitOnCtrlC: false, patchConsole: false, debug: true },
   );
   quit = () => app.unmount();
@@ -161,4 +161,15 @@ test("an MCP server's tool is asked about by its name and its server", async () 
   expect(screen()).toContain("Tool use");
   expect(screen()).toContain("hello — Greet Tool: (MCP)");
   expect(screen()).toContain("Do you want to proceed?");
+});
+
+test("a row whose label wraps keeps two spaces after its number, and goes on under its own label", async () => {
+  const plan: PermissionRequest = { id: "p", toolName: "ExitPlanMode", input: { plan: "1. Create hello.txt.", planFilePath: "/home/u/.claude/plans/hello.md" } };
+  const { screen } = await ask(plan, { width: 80 });
+  const lines = screen().split("\n");
+  const first = lines.findIndex((line) => line.includes("Yes, and switch to BYPASS"));
+  expect(lines[first]).toMatch(/› 1 {2}Yes, and switch to BYPASS/);
+  const label = lines[first]!.indexOf("Yes");
+  expect(lines[first + 1]!.indexOf("session")).toBe(label);
+  expect(lines[first + 2]!.indexOf("Yes, manually")).toBe(label);
 });

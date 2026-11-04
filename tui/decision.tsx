@@ -227,7 +227,10 @@ function Choice({ row, index, selected, comment }: { row: Row; index: number; se
 function Numbered({ index, selected, children }: { index: number; selected: boolean; children: ReactNode }) {
   return (
     <Box>
-      <Text bold={selected} color={selected ? PALETTE.star : undefined}>{`${index + 1}  `}</Text>
+      {/* A long label would squeeze the number's spaces away. */}
+      <Box flexShrink={0}>
+        <Text bold={selected} color={selected ? PALETTE.star : undefined}>{`${index + 1}  `}</Text>
+      </Box>
       <Text>{children}</Text>
     </Box>
   );
