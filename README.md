@@ -45,7 +45,7 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | Ctrl+Enter, or Ctrl+X Ctrl+S | Send now: the messages you queued while Claude works go straight away, with this one behind them, and with an empty box too. What Claude runs that can move to the background moves there and Claude reads them in this turn; otherwise Claude stops and takes them next. Ctrl+Enter needs a terminal with the kitty keyboard protocol |
 | Ctrl+X Enter | While Claude works, send this to wait for the end of the turn, rather than joining it between tool calls as Enter does |
 | ↑ ↓ | Earlier messages in this folder, the ones you sent in `claude` too, or move between lines. Right after a message comes back, they go on to the next one, however long it is |
-| ← in an empty box | The agents view: Claude Code's background sessions. Esc comes back |
+| ← in an empty box | The agents view: astrocode's other conversations and Claude Code's background sessions. Esc comes back. Until you've opened it once, the empty box says `← for conversations` while Claude Code has a background session |
 | Ctrl+R | Search what you've sent, here and in `claude`, in every folder: type to find, Ctrl+R for older matches, Enter keeps it, Esc cancels |
 | Ctrl+_ | Undo, a word at a time |
 | Ctrl+K, Ctrl+U, Ctrl+W, Alt+D, Ctrl+Y | Cut to the end of the line, to its start, the word before, the word after; put back what was cut |
@@ -94,9 +94,9 @@ The Agent SDK can't install or remove plugins, so each change runs Claude Code's
 
 ## Agents
 
-The agents view works as Claude Code's agent view (`claude agents`) does, with astrocode's own conversations in it. It lists the conversations astrocode runs and Claude Code's background sessions, the ones `claude agents` lists and `claude --bg` starts, across all your projects. ← in an empty message box opens it, and so does `astrocode agents`. Each project is a group, with the folder you're in first, and astrocode's conversations first in each. Each row has a state (Working, Needs input, Done, Failed, Stopped, or Idle for a conversation with nothing said in it yet), what Claude is doing or what it got done, its pull requests, and when it last changed. The conversation you opened the view from has its name in bold.
+The agents view works as Claude Code's agent view (`claude agents`) does, with astrocode's own conversations in it. It lists the conversations astrocode runs and Claude Code's background sessions, the ones `claude agents` lists and `claude --bg` starts, across all your projects. ← in an empty message box opens it, and so does `astrocode agents`. Each project is a group, with the folder you're in first, and astrocode's conversations first in each. Each row has the Ledger's mark for its state, then its name, what Claude is doing or what it got done, its pull requests, and when it last changed: `◐` working, `◇` in gold waiting on you, `✓` done, `✕` failed, `■` stopped, and `○` idle, for a conversation with nothing said in it yet or a background session only waiting for a prompt. The top line says where a new conversation starts, with its model, effort and permission mode, and the line under it counts the rows, as in `1 needs you · 2 working · 3 done · 1 failed`. The conversation you opened the view from has its name in bold and says `(this one)`.
 
-astrocode's conversations carry on while you're in the view or in another conversation, as background sessions do in Claude Code: start as many as you like, and open whichever needs you.
+astrocode's conversations carry on while you're in the view or in another conversation, as background sessions do in Claude Code: start as many as you like, and open whichever needs you. While you're in one, `← 1 needs you` in gold in the status bar says another waits on you, for a permission or an answer; ← in an empty box, or a click on it in full screen, opens the view.
 
 | Key | What it does |
 | :-- | :-- |
@@ -140,7 +140,7 @@ astrocode's look takes its colors from the Hubble palette, the gold and teal of 
 - **Background work.** A subagent, Monitor or workflow that runs in the background says so on its line, a notice says when it ends, and when Claude picks up where it left off by itself, as on a Monitor's event, a line says why. Esc stops Claude's turn but not the work in the background; `/tasks` stops one thing, Ctrl+X Ctrl+K everything.
 - **Subagents.** While a subagent runs, its line names its kind and counts its tool calls, and the line under it shows its latest call, in gold while that call waits for your OK. A subagent it starts goes under it, indented, with its own count and latest call. A subagent Claude waits on counts as running in the status bar and is listed in `/tasks`, and in full screen a click on its line opens it: what it's doing, its last tool, and its transcript as it goes, word for word as Claude Code sends it (read from disk after a resume). Once it's done, a click opens its report under its line.
 - **Where your keys go.** Always to one place: the message box, the transcript (full screen), a picker or panel, or a prompt that asks you something, which takes them from the others until you answer. The box, a picker or a prompt that has your keys has a gold hairline along its top edge; the transcript has a gold `›` on the line its cursor is on, and the box's top edge lists its keys, so nothing moves as it takes them. While it has your keys its cursor stays in view: scrolling away brings the cursor along.
-- **The status bar.** The permission mode as a solid chip, then the model and the effort you set (or `ultracode`), `↯ fast` in fast mode, how full the context is, your plan's 5-hour and 7-day usage (with reset times once they get high), the git branch and changed files, and your plan. While a request is being tried again, or the conversation compacted, the line above the box says so.
+- **The status bar.** The permission mode as a solid chip, and while other conversations of astrocode's wait on you, how many in gold, as in `← 1 needs you` (see [Agents](#agents)); then the model and the effort you set (or `ultracode`), `↯ fast` in fast mode, how full the context is, your plan's 5-hour and 7-day usage (with reset times once they get high), the git branch and changed files, and your plan. While a request is being tried again, or the conversation compacted, the line above the box says so.
 - **Scrollback.** Finished output goes into your terminal's own scrollback, like `claude`. A step goes there once Claude has moved on from it, closed, with its lines; Ctrl+O inspects any of its calls, and full screen can open any step.
 
 ## Full screen
@@ -162,6 +162,7 @@ astrocode's look takes its colors from the Hubble palette, the gold and teal of 
 | Click a picture | Enlarges it, as `/pictures` does; ← and → flip to the pictures before and after it. A click on the enlarged picture, or on `esc close` under it, puts it back |
 | Click an option | Chooses it, in permission prompts, Claude's questions, pickers, `/plugins`, and the `/` and `@` menus |
 | Click the mode, the model or the effort | Changes the permission mode, or opens the model or effort picker |
+| Click `← 1 needs you` in the status bar | Opens the agents view, as ← in an empty box does |
 | Click in the message box | Puts the cursor there |
 | Drag the scrollbar | Scrolls |
 | Hold Shift | Uses the terminal's own selection instead |
