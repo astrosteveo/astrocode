@@ -300,3 +300,23 @@ test("once the turn is over, only the last step to fail keeps the line that fail
   expect(at(lines, "Received: 4")).toBe(-1);
   expect(at(lines, "Expected: 3")).toBe(at(lines, "Running the suite again") + 2);
 });
+
+test("in a turn Claude started on its own, the row between its thinking and the step it led to is blank, as the rows around it are", () => {
+  const items: Item[] = [
+    { kind: "notice", key: "n", text: "Background command finished: sleep 5", tone: "info" },
+    { kind: "thinking", key: "k", text: "The command finished. Its output says why." },
+    { kind: "text", key: "t", text: "Checking the output.", at: 0 },
+    { kind: "tool", key: "o", call: call("o", { status: "running" }) },
+  ];
+  const lines = plain(layout(input({ ...initialState("/p", "/home/u"), items, busy: true, tools: { o: 3 } }, 118)));
+  const thought = at(lines, "∴ The command finished.");
+  expect(at(lines, "Checking the output")).toBe(thought + 2);
+  expect(lines[thought + 1]!.trim()).toBe("");
+  expect(lines[thought - 1]!.trim()).toBe("");
+  // In a turn you started, the rail runs down that row, as down the rows around it.
+  const yours = plain(layout(input(fixing(false), 118)));
+  const led = at(yours, "∴ I should read");
+  expect(yours[led + 1]!.trim()).toBe("│");
+  expect(yours[led - 1]!.trim()).toBe("│");
+  expect(at(yours, "Reading retry and its tests")).toBe(led + 2);
+});

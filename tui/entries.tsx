@@ -278,13 +278,14 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
         {
           key: lead.key,
           target: thoughtTarget(lead),
+          // With the row under it that sets the step apart, which the rail runs down where it runs on.
           node: (
             <Railed node="∴" color={PALETTE.dust} rail={rail}>
               <Thought text={lead.text} open={lead.open} width={inner} />
+              <Text> </Text>
             </Railed>
           ),
         },
-        { key: "gap", node: <Text color={PALETTE.dust}>│</Text> },
       ]
     : [];
   pieces.push({
