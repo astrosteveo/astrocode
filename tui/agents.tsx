@@ -80,6 +80,11 @@ const LOOK: Record<AgentState | "idle", { glyph: string; color: string; label: s
   idle: { glyph: "○", color: PALETTE.dust, label: "Idle" },
 };
 
+/** The state a background session's row shows: idle while it only waits for a prompt, which isn't waiting on you. */
+function agentState(agent: Agent): AgentState | "idle" {
+  return agent.state === "blocked" && !waitsOnYou(agent) ? "idle" : agent.state;
+}
+
 /** One line of the list: a project's heading, one of astrocode's conversations, a background session, or the gap between projects. */
 type Line = { kind: "folder"; folder: string } | { kind: "mine"; key: string; folder: string } | { kind: "agent"; agent: Agent } | { kind: "gap" };
 
@@ -331,8 +336,7 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, onShow, o
   const rowOf = (line: Extract<Line, { kind: "mine" | "agent" }>) => {
     if (line.kind === "agent") {
       const { agent } = line;
-      const state: AgentState | "idle" = agent.state === "blocked" && !waitsOnYou(agent) ? "idle" : agent.state;
-      return { key: agent.id, name: agent.name, state, said: summary(agent), prs: prLabel(agent), age: ago(agent.updatedAt) };
+      return { key: agent.id, name: agent.name, state: agentState(agent), said: summary(agent), prs: prLabel(agent), age: ago(agent.updatedAt) };
     }
     const one = fleet.get(line.key);
     const state = one?.store.getSnapshot();
@@ -497,7 +501,7 @@ function peekOf(line: Line, mine: { name: string; state: State; shells: number; 
   }
   if (line.kind !== "agent") return rows;
   const agent = line.agent;
-  add("Session", `${agent.name} · ${agent.id} · ${STATE_LABELS[agent.state]}${agent.waitingFor ? `, waiting on a ${agent.waitingFor}` : ""}`);
+  add("Session", `${agent.name} · ${agent.id} · ${LOOK[agentState(agent)].label}${agent.waitingFor ? `, waiting on a ${agent.waitingFor}` : ""}`);
   add("Asked", agent.intent);
   add("Now", agent.state === "done" ? undefined : agent.detail);
   add("Result", agent.result);
