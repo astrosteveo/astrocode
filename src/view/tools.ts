@@ -184,6 +184,8 @@ export function subagentReport(call: ToolCall) {
     .replace(/^agentId: \S+ \(use SendMessage[^\n]*\)\s*$/m, "")
     .trim();
   if (/^This agent's report was delivered to you as a message/.test(text)) return "It handed its report back to Claude as a message of its own.";
+  // A subagent in the background answers its call at once, with only that it started.
+  if (/^Async agent launched successfully/.test(text)) return "It worked in the background, and its report went to Claude as a message of its own.";
   // Claude Code frames a report it hands back, with a note to Claude, and indents its lines.
   const framed = /^\[Subagent hand-back\][\s\S]*?The report follows:\n/.exec(text);
   return framed ? text.slice(framed[0].length).replace(/^ {2}/gm, "") : text;
