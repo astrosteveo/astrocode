@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { lendTerminal } from "./editor";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { lendTerminal, readInEditor } from "./editor";
 
 // The tests' stdin isn't a terminal, and what the program draws needn't reach the test's output.
 const saved = { setRawMode: process.stdin.setRawMode, write: process.stdout.write };
@@ -29,4 +32,20 @@ test(
 
 test("leaves a program that doesn't turn into another to finish", async () => {
   expect(await lendTerminal(["/bin/sh", "-c", "sleep 0.3; exit 3"], undefined, () => false)).toBe(3);
+});
+
+test("shows text in the editor from a file of its own, gone once the editor quits", async () => {
+  const kept = mkdtempSync(join(tmpdir(), "astrocode-editor-"));
+  const visual = process.env.VISUAL;
+  // An editor that keeps a copy of what it was given, and says where that was.
+  process.env.VISUAL = `sh -c 'cp "$1" ${kept}/seen; echo "$1" > ${kept}/path' sh`;
+  try {
+    await readInEditor("line 1\nline 2");
+    expect(readFileSync(join(kept, "seen"), "utf8")).toBe("line 1\nline 2");
+    expect(existsSync(dirname(readFileSync(join(kept, "path"), "utf8").trim()))).toBe(false);
+  } finally {
+    if (visual === undefined) delete process.env.VISUAL;
+    else process.env.VISUAL = visual;
+    rmSync(kept, { recursive: true, force: true });
+  }
 });

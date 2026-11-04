@@ -1,8 +1,8 @@
 // Selecting text in full screen's transcript, which is lines of styled text. A selection runs from
 // one cell to another like a terminal's, but only over content: it leaves out the rail and its
 // gutter, a panel's padding and edges, the hairline before a quote, and pictures, so copying code
-// brings only the code. What's highlighted is what's copied. It also finds a row's links, and
-// lights up the words of what the pointer is over.
+// brings only the code. What's highlighted is what's copied. It also finds a row's links, lights
+// up the words of what the pointer is over, and draws the row the cursor is on.
 import { cellsOf, cellWidth } from "./markdown";
 import { BODY, PALETTE, rgb, TINT } from "./theme";
 
@@ -333,6 +333,43 @@ const margins = cached(1000, (key) => {
   if (HAIRLINE.test(body)) return { from: inset + 2, edge: false, end };
   return { from: inset, edge: false, end };
 });
+
+/** Whether a row has something past `inset` cells of rail for the cursor to stop on: not a blank row, a panel's edge or a picture's row. */
+export function hasContent(line: string, inset: number) {
+  const content = margin(line, inset);
+  return content !== null && !content.edge && content.end > content.from;
+}
+
+/**
+ * The row the transcript's cursor is on: a gold `›` at cell `at`, in the gutter before the row's
+ * content, and the row raised from there to `width`, behind whatever has no background of its own,
+ * so a panel's row keeps its own.
+ */
+export function cursorOn(line: string, at: number, width: number) {
+  const raise = `\x1b[48;2;${RAISED}m`;
+  let out = "";
+  let col = 0;
+  let fg: string | null = null;
+  let background: string | null = null;
+  for (const part of line.split(CODE)) {
+    if (CODE.test(part)) {
+      out += part;
+      if (LINK.test(part)) continue;
+      fg = foregroundAfter(part, fg).fg;
+      background = backgroundAfter(part, background);
+      // A code that leaves the terminal's own background, as one ending a panel's color does, would drop the raise.
+      if (col > at && background === null) out += raise;
+      continue;
+    }
+    for (const { segment } of graphemes.segment(part)) {
+      const cells = cellsOf(segment);
+      if (col === at) out += `${raise}\x1b[${GOLD}m›\x1b[${fg ?? "39"}m${background === null ? "" : `\x1b[48;2;${background}m`}${" ".repeat(Math.max(0, cells - 1))}`;
+      else out += segment;
+      col += cells;
+    }
+  }
+  return `${out}${col < width ? `${raise}${" ".repeat(width - col)}` : ""}\x1b[49m`;
+}
 
 /**
  * The cells of a row that a selection from `start` to `end` covers, or null for none. `end` is
