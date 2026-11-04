@@ -24,7 +24,7 @@ const KEYS = {
 };
 
 /** The message box on a fake terminal, with what it asked the app to do. */
-function box(options: { busy?: boolean; history?: string[]; commands?: CommandInfo[]; suggestion?: string } = {}) {
+function box(options: { busy?: boolean; history?: string[]; commands?: CommandInfo[]; suggestion?: string; active?: boolean; hidden?: boolean } = {}) {
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 80, rows: 24 });
   let screen = "";
@@ -39,10 +39,11 @@ function box(options: { busy?: boolean; history?: string[]; commands?: CommandIn
   const call = (name: string) => () => void calls.push(name);
   const app = render(
     <Prompt
-      active
+      active={options.active ?? true}
       fullscreen={false}
       busy={options.busy ?? false}
       suggestion={options.suggestion}
+      hidden={options.hidden}
       width={80}
       cwd={process.cwd()}
       history={history}
@@ -280,6 +281,21 @@ test("while Claude works the box says so, and offers no suggestion", async () =>
   await press(KEYS.tab, KEYS.right, KEYS.enter);
   app.unmount();
   expect(sent).toEqual([]);
+});
+
+test("while a decision has the box's place, the box offers no suggestion", async () => {
+  const { press, frame, sent, app } = box({ hidden: true, suggestion: SUGGESTED });
+  expect(frame().join("\n")).not.toContain(SUGGESTED);
+  await press(KEYS.tab, KEYS.right, KEYS.enter);
+  app.unmount();
+  expect(sent).toEqual([]);
+});
+
+test("without your keys the box shows the suggestion but not tab to use, as Tab isn't the box's then", async () => {
+  const { frame, app } = box({ active: false, suggestion: SUGGESTED });
+  app.unmount();
+  expect(frame().join("\n")).toContain(SUGGESTED);
+  expect(frame().join("\n")).not.toContain("tab to use");
 });
 
 test("a long suggestion keeps to the box's one row, with tab to use beside it", async () => {
