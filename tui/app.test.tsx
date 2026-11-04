@@ -1026,6 +1026,22 @@ test("? in a permission prompt's comment, or in a plan's row of what to change, 
   expect(sheetFirst(screen())).toBe("In a permission prompt");
 });
 
+test("? in a permission prompt lists the keys that prompt takes: an edit's Shift+Tab and Tab, a plan's Ctrl+G", async () => {
+  const { press, screen, update } = await launch(THREE);
+  const edit = { id: "e", toolName: "Edit", input: { file_path: "/p/a.ts", old_string: "a", new_string: "b" }, alwaysAllow: [{ type: "setMode" as const, mode: "acceptEdits" as const, destination: "session" as const }] };
+  await update({ ...THREE, pending: [edit] });
+  await press("?");
+  expect(sheetFirst(screen())).toBe("In a permission prompt");
+  expect(screen().join("\n")).toMatch(/shift\+tab +yes, for this session/);
+  expect(screen().join("\n")).toMatch(/ tab +a comment on No/);
+  expect(screen().join("\n")).not.toContain("ctrl+g");
+  await press(KEYS.esc);
+  await update({ ...THREE, pending: [{ id: "p", toolName: "ExitPlanMode", input: { plan: "# Plan\n\nRename the cache.", planFilePath: "/home/u/.claude/plans/p.md" } }] });
+  await press("?");
+  expect(screen().join("\n")).toMatch(/ctrl\+g +the plan in your editor/);
+  expect(screen().join("\n")).not.toContain("a comment on No");
+});
+
 test("the key sheet over a permission prompt closes with it, when it's answered elsewhere or another takes its place", async () => {
   const { press, screen, update, row, boxKeys } = await launch(THREE);
   await update({ ...THREE, pending: [{ id: "c", toolName: "Bash", input: { command: "rm -rf build" } }] });

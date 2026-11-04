@@ -19,6 +19,7 @@ import { Diff, diffLines } from "./diff";
 import { editorName } from "./editor";
 import { Markdown, Panel } from "./markdown-view";
 import { hit, useHover, useMouse } from "./mouse";
+import type { Prompted } from "./sheet";
 import { PALETTE } from "./theme";
 
 /** Keys pressed this soon after the prompt appears were meant for something else, so Enter, digits and clicks wait. */
@@ -30,7 +31,7 @@ const GRACE_MS = 500;
  * that asks, as `askedBy()` names it. `mode` and `modes`: the mode you're in and those a row may
  * switch to. `onEdit`: opens a file in your editor, done once you've closed it. `active`: false
  * while the key sheet covers it, which keeps its choice for when it's back. `onKeys`: `?` off a row
- * you type in, for the key sheet.
+ * you type in, for the key sheet, with the keys this prompt takes.
  */
 type Props = {
   request: PermissionRequest;
@@ -45,7 +46,7 @@ type Props = {
   active?: boolean;
   onDecide: (decision: Decision) => void;
   onEdit: (path: string) => Promise<void>;
-  onKeys?: () => void;
+  onKeys?: (prompt: Prompted) => void;
 };
 
 /**
@@ -128,7 +129,8 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
     }
     if (typing && (key.backspace || key.delete)) return type((text) => text.slice(0, -1));
     // On a row you pick it lists the keys; in a comment it's typed.
-    if (!typing && input === "?" && !key.ctrl && !key.meta && onKeys) return onKeys();
+    if (!typing && input === "?" && !key.ctrl && !key.meta && onKeys)
+      return onKeys({ amend: ask.rows.some((one) => one.amend !== undefined), shiftTab: ask.rows.some((one) => one.key === "shift+tab"), plan: file !== undefined });
     if (early()) return;
     if (key.tab && key.shift) {
       const index = ask.rows.findIndex((one) => one.key === "shift+tab");
