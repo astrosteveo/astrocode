@@ -9,7 +9,7 @@ import type { AgentLine } from "../src/view/agents";
 import type { ToolCall } from "../src/view/state";
 import { plural } from "../src/view/tools";
 import { callTarget } from "./entries";
-import { bodyFor, firstTab, LABELS, spentOn, statusOf, tabsOf, titleOf, type Place, type TabId } from "./inspector";
+import { bodyFor, LABELS, spentOn, statusOf, tabsOf, titleOf, type Place, type TabId } from "./inspector";
 import { cellWidth } from "./markdown";
 import { fit } from "./markdown-view";
 import { GUTTER, Railed } from "./rail";
@@ -87,7 +87,7 @@ function panelRows(node: string, through: boolean, width: number, children: Reac
 /** The opened call's rows. Must run outside React's render, since renderToString renders with the same reconciler. */
 export function openedRows({ call, opened, place, waiting, log, width, through, cwd, home }: Input): OpenedRows {
   const tabs = tabsOf(call, log);
-  const tab = opened.tab && tabs.includes(opened.tab) ? opened.tab : firstTab(call, log, false, waiting);
+  const tab = opened.tab && tabs.includes(opened.tab) ? opened.tab : tabs[0]!;
   const inner = width - OPEN_INSET - 2;
   const position = `‹ ${place.index} of ${place.count} ›`;
   const kept = drawn.get(call);

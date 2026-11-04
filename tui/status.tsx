@@ -9,8 +9,8 @@
 // Remote Control is on, teal once connected and rose if it failed. In full
 // screen, clicking the chip changes the mode, clicking the model switches it, clicking the effort
 // sets it, clicking "thinking off" turns it back on, clicking the cache turns keep-warm on or off,
-// clicking `⇄ remote` opens Remote Control's link and QR code, clicking `← N needs you` opens the agents view, as ← in an empty box does, clicking `◉ following` turns Follow
-// Claude off (or on again, once you've looked back at a call), and clicking the running count opens what's running: Claude Code's background tasks and your
+// clicking `⇄ remote` opens Remote Control's link and QR code, clicking `← N needs you` opens the agents view, as ← in an empty box does,
+// and clicking the running count opens what's running: Claude Code's background tasks and your
 // `!` commands. A mod's toast takes the readings' place for a moment, as the app's own do, and
 // the lines mods pin show above the bar, one to a mod.
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
@@ -73,9 +73,6 @@ type Props = {
   /** How many other conversations wait on you: astrocode's and Claude Code's background sessions. */
   needsYou?: number;
   onNeedsYou?: () => void;
-  /** Follow Claude: on, held on a call you're looking at, or off when undefined. */
-  follow?: "on" | "paused";
-  onFollow?: () => void;
   onMode?: () => void;
   onModel?: () => void;
   onEffort?: () => void;
@@ -86,7 +83,7 @@ type Props = {
   onRemote?: () => void;
 };
 
-export function StatusBar({ state, mode, git, width, armed, running, toast, modToast, keepWarm, usageMode, needsYou, onNeedsYou, follow, onFollow, onMode, onModel, onEffort, onThinking, onFast, onTasks, onCache, onRemote }: Props) {
+export function StatusBar({ state, mode, git, width, armed, running, toast, modToast, keepWarm, usageMode, needsYou, onNeedsYou, onMode, onModel, onEffort, onThinking, onFast, onTasks, onCache, onRemote }: Props) {
   const bar = useRef<DOMElement>(null);
   const now = useNow(15_000, state.cache !== undefined);
   const chip = MODE_CHIPS[mode];
@@ -115,10 +112,6 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, modT
         </Text>
       ),
     });
-  }
-  if (follow) {
-    const text = follow === "on" ? "◉ following" : "◉ following paused";
-    segments.push({ text, node: <Text color={follow === "on" ? PALETTE.teal : PALETTE.haze}>{text}</Text>, onClick: onFollow });
   }
   if (state.cache) {
     const left = cacheLeft(state.cache, now);

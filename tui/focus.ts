@@ -40,5 +40,4 @@ export const ANYWHERE: ReadonlySet<Action> = new Set<Action>([
   "chat:thinkingToggle",
   "chat:fastMode",
   "task:background",
-  "chat:followClaude",
 ]);
