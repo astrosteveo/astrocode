@@ -31,7 +31,7 @@ export type ConfigValues = {
   agentSummaries: boolean;
   /** Every session starts with Remote Control on. */
   remoteControl: boolean;
-  /** A panel follows the tool call Claude is making. */
+  /** A dock above the message box follows the tool call Claude is making. */
   follow: boolean;
 };
 
@@ -156,7 +156,7 @@ export function ConfigMenu({ models, initial, path, ultracodeAvailable, width, o
       value: values.follow ? "on" : "off",
       changed: values.follow !== initial.follow,
       note: values.follow
-        ? "A panel shows each tool call as Claude makes it: beside the transcript on a wide full screen, above the message box otherwise"
+        ? "A dock above the message box shows each tool call as Claude makes it"
         : "Tool calls show only in the transcript",
       step: () => update({ follow: !values.follow }),
     },
