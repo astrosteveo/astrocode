@@ -97,6 +97,30 @@ test("a click on ← N needs you opens the conversations only when ← would, so
   }
 });
 
+test("a click on ← N needs you opens the conversations while the transcript has your keys too, once the box is empty", async () => {
+  const { other, here, opened, clickOn, type, frame, stop } = conversation();
+  try {
+    other.store.emit({ kind: "permission", request: { id: "p1", toolName: "Bash", input: { command: "rm -rf dist" } } });
+    here.store.emit({ kind: "notice", tone: "info", text: "Something to put the cursor on." });
+    await settle();
+    await type("a draft");
+    await type("\x0f");
+    expect(frame().join("\n")).toContain("esc back to the box");
+    await clickOn("← 1 needs you");
+    expect(opened.agents).toBe(0);
+    expect(frame().join("\n")).toContain("a draft");
+    // Back in the box to empty it, then to the transcript again: now the click goes, as Enter on it would.
+    await type("\x1b");
+    await type("\x15");
+    await type("\x0f");
+    expect(frame().join("\n")).toContain("esc back to the box");
+    await clickOn("← 1 needs you");
+    expect(opened.agents).toBe(1);
+  } finally {
+    stop();
+  }
+});
+
 test("the status bar's count follows the other conversations as they start and stop waiting on you", async () => {
   const { other, statusBar, stop } = conversation();
   try {

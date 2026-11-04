@@ -96,7 +96,7 @@ The Agent SDK can't install or remove plugins, so each change runs Claude Code's
 
 The agents view, headed Conversations, works as Claude Code's agent view (`claude agents`) does, with astrocode's own conversations in it. It lists the conversations astrocode runs and Claude Code's background sessions, the ones `claude agents` lists and `claude --bg` starts, across all your projects. ← in an empty message box opens it, and so does `astrocode agents`. Each project is a group, with the folder you're in first, and astrocode's conversations first in each. Each row has the Ledger's mark for its state, then its name, what Claude is doing or what it got done (what it asks you after a gold `asks:`, what runs in teal, what failed in rose), its pull requests, and when it last changed: `◐` working, `◇` in gold waiting on you, `✓` done, `✕` failed, `■` stopped, and `○` idle, for a conversation with nothing said in it yet or a background session only waiting for a prompt. The top line says where a new conversation starts, with its model, effort and permission mode, and the line under it counts the rows, as in `1 needs you · 2 working · 3 done · 1 failed`. The conversation you opened the view from has its name in bold and says `(this one)`, Esc's hint names it, and its status bar stays under the view.
 
-astrocode's conversations carry on while you're in the view or in another conversation, as background sessions do in Claude Code: start as many as you like, and open whichever needs you. While you're in one, `← 1 needs you` in gold in the status bar says another waits on you, for a permission or an answer: one of astrocode's, or a background session, which it reads every 10 seconds. ← in an empty box, or a click on it in full screen while the box is empty, opens the view.
+astrocode's conversations carry on while you're in the view or in another conversation, as background sessions do in Claude Code: start as many as you like, and open whichever needs you. While you're in one, `← 1 needs you` in gold in the status bar says another waits on you, for a permission or an answer: one of astrocode's, or a background session, which it reads every 10 seconds. ← in an empty box, or a click on it in full screen while the box is empty, opens the view, the click from the transcript too.
 
 | Key | What it does |
 | :-- | :-- |
@@ -162,7 +162,7 @@ astrocode's look takes its colors from the Hubble palette, the gold and teal of 
 | Click a picture | Enlarges it, as `/pictures` does; ← and → flip to the pictures before and after it. A click on the enlarged picture, or on `esc close` under it, puts it back |
 | Click an option | Chooses it, in permission prompts, Claude's questions, pickers, `/plugins`, and the `/` and `@` menus |
 | Click the mode, the model or the effort | Changes the permission mode, or opens the model or effort picker |
-| Click `← 1 needs you` in the status bar | Opens the agents view, as ← does, while the message box is empty, so nothing you've typed is lost |
+| Click `← 1 needs you` in the status bar | Opens the agents view whenever the message box is empty, also while the transcript has your keys. With something typed in the box it waits, so nothing you've typed is lost |
 | Click in the message box | Puts the cursor there |
 | Drag the scrollbar | Scrolls |
 | Hold Shift | Uses the terminal's own selection instead |

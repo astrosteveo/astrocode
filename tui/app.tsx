@@ -1691,6 +1691,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           keepWarm={keepWarm}
           usageMode={usageMode}
           needsYou={othersWaiting}
+          // As a click moves your keys where it lands, it leaves the transcript too; never a decision or an overlay.
           onNeedsYou={(boxKeys || focus === "transcript") && boxEmpty ? onAgents : undefined}
           follow={follow ? (inspected ? "paused" : "on") : undefined}
           onFollow={toggleFollow}
