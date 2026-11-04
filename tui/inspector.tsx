@@ -2,7 +2,7 @@
 // result as Claude got it, whole, with what the header says of the call and how it went. An opened
 // call draws them under its own line (`opened.tsx`).
 import { renderToString } from "ink";
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import wrapAnsi from "wrap-ansi";
 import { activityRows, readLines } from "../src/view/activity";
 import type { AgentLine } from "../src/view/agents";
@@ -156,30 +156,6 @@ export function bodyFor(call: ToolCall, tab: TabId, width: number, log?: AgentLi
   const known = all.get(key) ?? bodyOf(call, tab, width);
   all.set(key, known);
   return known;
-}
-
-/**
- * The tab's lines, drawn just after React commits, since Ink can't render to a string in the middle
- * of rendering. Undefined until then.
- */
-export function useBody(call: ToolCall, tab: TabId, width: number, log?: AgentLine[], output?: TaskRead) {
-  const key = `${tab}|${width}`;
-  const known = bodies.get(call)?.get(key);
-  const [, redraw] = useState(0);
-  const live = tab === "transcript" || (tab === "output" && output !== undefined);
-  useEffect(() => {
-    if (known || live) return;
-    let alive = true;
-    queueMicrotask(() => {
-      if (!alive) return;
-      bodyFor(call, tab, width);
-      redraw((n) => n + 1);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [call, key, known]);
-  return live ? bodyFor(call, tab, width, log, output) : known;
 }
 
 /** A subagent's transcript: its brief in gold, its words, and its tool calls in teal. */
