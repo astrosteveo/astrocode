@@ -321,6 +321,27 @@ test("opening the running call's line opens each call Claude starts after it und
   expect(opened()).toBe(1);
 });
 
+test("following Claude goes on past Tab and a click on a tab, and stops at a click on another line", async () => {
+  const { press, update, click, screen, row } = await launch({ ...turn([call("a"), running("b", "Build the app")]), busy: true });
+  const opened = () => screen().find((line) => /‹ \d of \d ›/.test(line))?.match(/‹ \d of \d ›/)?.[0];
+  const done = (id: string, description: string) => running(id, description, { status: "done", result: "ok" });
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  await press(KEYS.tab);
+  await update({ ...turn([call("a"), done("b", "Build the app"), running("c", "Lint the code")]), busy: true });
+  expect(opened()).toBe("‹ 3 of 3 ›");
+  const tabs = row(/‹ 3 of 3 ›/) + 1;
+  expect(screen()[tabs]).toMatch(/Output.+Command/);
+  await click(screen()[tabs]!.indexOf("Command") + 1, tabs);
+  expect(screen()[row(/‹ 3 of 3 ›/) + 1]).toContain("▐Command▌");
+  await update({ ...turn([call("a"), done("b", "Build the app"), done("c", "Lint the code"), running("d", "Test the code")]), busy: true });
+  expect(opened()).toBe("‹ 4 of 4 ›");
+  // Claude's sentence: the cursor goes there, and what's open stays open, but follows no more.
+  await click(10, row(/Looking around/));
+  await update({ ...turn([call("a"), done("b", "Build the app"), done("c", "Lint the code"), done("d", "Test the code"), running("e", "Ship it")]), busy: true });
+  expect(opened()).toBe("‹ 4 of 5 ›");
+});
+
 test("following Claude, a command that waits for your OK opens on the command, and on its output once it runs", async () => {
   const { press, update, screen, row } = await launch({ ...turn([call("a"), running("b", "Build the app")]), busy: true });
   await press(KEYS.ctrlO);
