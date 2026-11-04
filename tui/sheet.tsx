@@ -136,12 +136,20 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean): Sect
       ["alt+shift+↑ ↓", "tool calls"],
     ],
   };
-  // Full screen's; in scrollback the terminal has the mouse.
+  // Full screen's; in scrollback the terminal has the mouse. A click on ← N needs you or on the box
+  // doesn't take your keys from a decision.
   const mouse: Section = {
     title: "Mouse",
     rows: [
       ["click a line", "open, close"],
-      ["click ← N needs you", "conversations"],
+      ["click an option", "choose it"],
+      ["click a link", "open it"],
+      ["click a picture", "enlarge it"],
+      ["click copy, ▶ run", "a code block"],
+      ["click mode, model, effort", "change it"],
+      ["click ◌ N running", "what's running"],
+      ...(place === "decision" ? [] : [["click ← N needs you", "conversations"] as Row]),
+      ...(place === "transcript" || place === "opened" ? [["click the box", "your keys back"] as Row] : []),
       ["wheel", "scroll"],
       ["drag", "copy"],
       ["double click", "copy a word"],

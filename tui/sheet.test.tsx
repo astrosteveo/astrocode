@@ -156,3 +156,16 @@ test("lists every key Claude Code binds to an action, as Ctrl+X Ctrl+S sends now
   expect(text).toMatch(/ctrl\+_ +undo/);
   expect(text).not.toContain("ctrl+-");
 });
+
+/** Every row on a place's sheet, as `key  does`. */
+const listed = (place: Place, fullscreen = true) => sheetOf(place, DEFAULT_KEYMAP, fullscreen).flatMap((section) => section.rows.map(([key, does]) => `${key}  ${does}`));
+
+test("the mouse rows name every click target full screen has, where a click there does something", () => {
+  for (const row of ["click an option  choose it", "click mode, model, effort  change it", "click ◌ N running  what's running", "click copy, ▶ run  a code block", "click a picture  enlarge it", "click a link  open it"]) {
+    expect(listed("box")).toContain(row);
+    expect(listed("transcript")).toContain(row);
+  }
+  // A click on the box gives it your keys back from the transcript; in the box they're there already.
+  expect(listed("transcript")).toContain("click the box  your keys back");
+  expect(listed("box")).not.toContain("click the box  your keys back");
+});
