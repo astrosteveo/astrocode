@@ -56,15 +56,16 @@ afterEach(async () => {
 
 /**
  * astrocode in scrollback on a fake terminal, over `state`, as a real terminal gets it: each frame
- * drawn over the one before rather than written whole, and the mouse there for the viewer to turn
- * on. `out()` is everything written, escape codes and all.
+ * drawn over the one before rather than written whole, the mouse there for the viewer to turn on,
+ * and Follow Claude on or off. `out()` is everything written, escape codes and all.
  */
-async function scrollback(state: State, { columns = 120, rows = 30 } = {}) {
+async function scrollback(state: State, { columns = 120, rows = 30, follow = false } = {}) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns, rows });
   const writes: string[] = [];
   stdout.on("data", (chunk: Buffer) => writes.push(chunk.toString()));
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
   const store = new Store("/p", "/home/u");
+  store.follow = follow;
   let current = state;
   const listeners = new Set<() => void>();
   store.getSnapshot = () => current;
@@ -275,4 +276,16 @@ test("/ in the viewer finds as claude's does: Enter closes the bar on the match,
   expect(cursor()).toBe(row(/Searched +c in src/));
   await press("n");
   expect(cursor()).toBe(row(/Searched +a in src/));
+});
+
+test("leaving the viewer with a call open closes the call, so Follow Claude goes on in the scrollback", async () => {
+  const { out, press } = await scrollback(finished(), { follow: true });
+  await press(KEYS.ctrlO);
+  await press(KEYS.up);
+  await press(KEYS.up);
+  await press(KEYS.enter);
+  await press("q");
+  const after = stripVTControlCharacters(out().slice(out().lastIndexOf(LEAVE)));
+  expect(after).toContain("◉ Following");
+  expect(after).not.toContain("following paused");
 });
