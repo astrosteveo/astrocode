@@ -51,7 +51,22 @@ async function launch(state: State, { columns = 200, rows = 40, follow = false }
     };
   };
   store.follow = follow;
-  const session = new Proxy({}, { get: (_, name) => (name === "watchMods" ? () => () => {} : name === "knownId" ? undefined : () => Promise.resolve(null)) }) as unknown as AgentSession;
+  /** What the app asked of the session, by method. */
+  const asked: string[] = [];
+  const session = new Proxy(
+    {},
+    {
+      get: (_, name) =>
+        name === "watchMods"
+          ? () => () => {}
+          : name === "knownId"
+            ? undefined
+            : () => {
+                asked.push(String(name));
+                return Promise.resolve(null);
+              },
+    },
+  ) as unknown as AgentSession;
   const mouse = new Mouse(stdin as unknown as NodeJS.ReadStream, stdout as unknown as NodeJS.WriteStream);
   mouse.start();
   const app = render(
@@ -100,10 +115,10 @@ async function launch(state: State, { columns = 200, rows = 40, follow = false }
     const box = lines.findIndex((line) => line.startsWith(" ❯"));
     return /^▁+$/.test(lines[box - 1] ?? "");
   };
-  return { screen, row, press, click, update, cursor, boxKeys };
+  return { screen, row, press, click, update, cursor, boxKeys, asked };
 }
 
-const KEYS = { ctrlO: "\x0f", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", enter: "\r", esc: "\x1b", tab: "\t" };
+const KEYS = { ctrlO: "\x0f", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", ctrlC: "\x03" };
 
 test("at 200 columns a click opens a call under its line, with nothing beside the column, and another closes it", async () => {
   const { screen, row, click } = await launch(THREE);
@@ -275,4 +290,36 @@ test("the cursor stays in sight when the reply it's on finishes streaming", asyn
   await update({ ...THREE, items: [...THREE.items, { kind: "text", key: "r", text }] });
   expect(boxKeys()).toBe(false);
   expect(cursor()).not.toBe(-1);
+});
+
+test("keys that work anywhere still work while the transcript has your keys", async () => {
+  const reply: State = { ...THREE, busy: true, items: [...THREE.items, { kind: "text", key: "r", text: "All three searches came back empty." }] };
+  const { press, click, row, screen, boxKeys, asked } = await launch(reply);
+  // A click on Claude's reply, to read it, gives the transcript your keys; Ctrl+C there still stops Claude.
+  const y = row(/All three searches/);
+  await click(screen()[y]!.indexOf("three") + 1, y);
+  expect(boxKeys()).toBe(false);
+  await press(KEYS.ctrlC);
+  expect(asked).toContain("interrupt");
+  // Shift+Tab is the next permission mode, as in the box.
+  await press(KEYS.ctrlO);
+  await press(KEYS.ctrlO);
+  expect(boxKeys()).toBe(false);
+  await press(KEYS.shiftTab);
+  expect(asked).toContain("setMode");
+  // And the transcript keeps your keys through them.
+  expect(boxKeys()).toBe(false);
+});
+
+test("in an opened call Shift+Tab leaves the tab alone, and Ctrl+C doesn't copy it", async () => {
+  const { press, row, screen, asked } = await launch(THREE);
+  await press(KEYS.ctrlO);
+  await press(KEYS.up);
+  await press(KEYS.enter);
+  expect(screen()[row(/Ran +the tests/) + 2]).toContain("▐Output▌");
+  await press(KEYS.shiftTab);
+  expect(screen()[row(/Ran +the tests/) + 2]).toContain("▐Output▌");
+  expect(asked).toContain("setMode");
+  await press(KEYS.ctrlC);
+  expect(screen().some((line) => line.includes("Copied"))).toBe(false);
 });
