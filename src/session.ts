@@ -126,6 +126,9 @@ export type Sending = { later?: boolean; now?: boolean; ignoreUltracode?: boolea
 
 type Waiting<T> = { run: Run; value: T; resolve: (result: PermissionResult) => void };
 
+/** The mode a session starts in unless you picked another: Claude Code's own default. */
+export const DEFAULT_MODE: PermissionMode = "auto";
+
 /**
  * One Claude Code session, driven through the Agent SDK in streaming-input mode.
  *
@@ -195,7 +198,7 @@ export class AgentSession {
     this.model = options.model;
     this.effort = options.effort;
     this.thinking = options.thinking;
-    this.mode = options.mode ?? "auto";
+    this.mode = options.mode ?? DEFAULT_MODE;
     this.resumeFrom = options.resume;
     this.continueLast = options.continue ?? false;
     this.agentSummaries = options.agentSummaries ?? false;
