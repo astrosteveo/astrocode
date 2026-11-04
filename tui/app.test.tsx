@@ -287,6 +287,21 @@ test("a decision stands in the box's place, right under the line that asks, and 
   expect(row(/❯ half a thought/)).not.toBe(-1);
 });
 
+test("a decision opening brings the end back into view, so the line that asks sits right above it", async () => {
+  const command = { command: "rm -rf build", description: "Clean the build" };
+  const asking = turn([call("a"), call("b", { name: "Bash", input: command, status: "running" })]);
+  const earlier: Item[] = Array.from({ length: 20 }, (_, i) => ({ kind: "prompt", key: `old${i}`, text: `an earlier message, number ${i}` }));
+  const long = { ...asking, busy: true, items: [...earlier, ...asking.items], tools: { a: 22, b: 23 } };
+  const { row, press, update } = await launch(long, { columns: 100, rows: 24 });
+  await press(KEYS.ctrlO);
+  await press("\x1b[H");
+  // The call's own line, not the line over the box that names it while it runs.
+  const asks = /^│\s+Clean\s+the build/;
+  expect(row(asks)).toBe(-1);
+  await update({ ...long, pending: [{ id: "b", toolName: "Bash", input: command, description: command.description }] });
+  expect(row(/^▁+$/)).toBe(row(asks) + 1);
+});
+
 test("at 80×24 a long diff or plan is cut short, so the line that asks stays in view above the decision", async () => {
   const long = Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n");
   const edit = { file_path: "/p/src/cache.ts", old_string: "a", new_string: long };
