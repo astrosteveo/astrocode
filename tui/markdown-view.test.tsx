@@ -27,3 +27,9 @@ test("lines up table columns with code in them", () => {
   const table = ["| Key | Does |", "| --- | --- |", "| `a` | one |", "| b | two |"].join("\n");
   expect(drawn(table, 40)).toEqual(["Key   Does", "───   ────", "a     one", "b     two"]);
 });
+
+test("an Important callout in Claude's words isn't gold, which marks only you", () => {
+  const callout = colored("> [!IMPORTANT]\n> Back up first.", 40);
+  expect(stripVTControlCharacters(callout)).toContain("Important");
+  expect(callout).not.toContain(`38;2;${rgb(PALETTE.gold).join(";")}m`);
+});

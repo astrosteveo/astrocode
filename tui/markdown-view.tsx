@@ -33,7 +33,8 @@ import { PALETTE } from "./theme";
 const CALLOUTS: Record<Callout, { color: string; title: string }> = {
   note: { color: PALETTE.sky, title: "Note" },
   tip: { color: PALETTE.teal, title: "Tip" },
-  important: { color: PALETTE.gold, title: "Important" },
+  // Bright, not gold, which marks only you.
+  important: { color: PALETTE.star, title: "Important" },
   warning: { color: PALETTE.ember, title: "Warning" },
   caution: { color: PALETTE.rose, title: "Caution" },
 };

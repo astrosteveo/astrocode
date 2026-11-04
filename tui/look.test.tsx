@@ -188,3 +188,15 @@ test("while Claude waits on you, gold is the step and the line that ask, and the
   await settle(600);
   expect(goldIn(drawn())).toEqual(["●", "●", "Run the tests", "▁", expect.stringMatching(/^waiting \d+s$/), "›"]);
 });
+
+test("scrolled away from the end, gold still marks only you: not the scrollbar, nor the pill that says what's below", async () => {
+  const items: Item[] = Array.from({ length: 20 }, (_, i): Item[] => [
+    { kind: "prompt", key: `p${i}`, text: `question ${i}` },
+    { kind: "text", key: `r${i}`, text: `answer ${i}` },
+  ]).flat();
+  const { frame, drawn, press } = await launch({ ...initialState("/p", "/home/u"), items });
+  await press("\x1b[5~");
+  // Scrolled: the pill says what's below.
+  expect(frame().some((line) => /↓ \d+ more lines/.test(line))).toBe(true);
+  expect(goldIn(drawn()).filter((run) => run !== "●")).toEqual(["▁", "❯ █"]);
+});
