@@ -149,8 +149,8 @@ export type RemoteControl = { status: "connecting" | "connected" | "failed"; url
 export type Loaded = { version?: string; claudeMd?: number; plugins?: number; mcpServers?: number; skills?: number };
 
 export type SessionEvent =
-  /** Claude Code started: the account, and the models and slash commands it offers. */
-  | { kind: "ready"; plan?: string; models: ModelChoice[]; commands: CommandInfo[] }
+  /** Claude Code started: the models and slash commands it offers. */
+  | { kind: "ready"; models: ModelChoice[]; commands: CommandInfo[] }
   /** The slash commands changed, after plugins were reloaded. */
   | { kind: "commands"; commands: CommandInfo[] }
   /** What Claude Code loaded, once it has said. */

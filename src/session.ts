@@ -2,7 +2,6 @@ import {
   getSessionMessages,
   getSubagentMessages,
   query,
-  type AccountInfo,
   type CanUseTool,
   type EffortLevel,
   type ElicitationRequest as McpElicitation,
@@ -1044,7 +1043,7 @@ export class AgentSession {
     void run.query.applyFlagSettings({ workflowKeywordTriggerEnabled: null }).catch(() => {});
   }
 
-  /** The account, models and slash commands Claude Code reports when it starts. */
+  /** The models and slash commands Claude Code reports when it starts. */
   private async announce(run: Run) {
     const asked = this.mode;
     try {
@@ -1052,7 +1051,6 @@ export class AgentSession {
       if (run.closing) return;
       this.options.emit({
         kind: "ready",
-        plan: planOf(init.account),
         models: init.models.map((model) => ({
           value: model.value,
           name: model.displayName,
@@ -1208,13 +1206,6 @@ export class AgentSession {
  */
 function remoteOf(run: Run) {
   return run.query as Query & { enableRemoteControl?: (enabled: boolean) => Promise<unknown> };
-}
-
-/** "Claude Max", "API key", or the cloud provider in use. */
-function planOf(account: AccountInfo) {
-  if (account.apiProvider && account.apiProvider !== "firstParty") return account.apiProvider;
-  if (account.apiKeySource && account.apiKeySource !== "none") return "API key";
-  return account.subscriptionType;
 }
 
 type Content = SDKUserMessage["message"]["content"];

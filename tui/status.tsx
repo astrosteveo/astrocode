@@ -3,8 +3,8 @@
 // outshout everything else, then `← N needs you` in gold while another conversation, astrocode's or a
 // Claude Code background session, waits on you, which the readings make room for; on the right, readings: how full the context is, the model, what runs
 // in the background, your plan's usage windows once they're half used (or always, or never, as
-// /config says), the git branch and the
-// plan, as many as fit, most important first. After the context, how long the prompt cache stays
+// /config says) and the git branch, as many as fit, most important first. The key that changes the
+// mode isn't written here: `?` lists it. After the context, how long the prompt cache stays
 // warm, `cache 54m`, with ↻ while astrocode keeps it warm, or `cache cold`; then `⇄ remote` while
 // Remote Control is on, teal once connected and rose if it failed. In full
 // screen, clicking the chip changes the mode, clicking the model switches it, clicking the effort
@@ -92,8 +92,7 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, modT
   // The chip's caps are half blocks, so it reads as a solid lozenge. An armed hint is cut, as a toast
   // is, to the room the count leaves it, so the bar stays one row.
   const left = armed === null ? `▐${chip.label}▌` : fit(armed, width - 2 - beside, false);
-  const hint = armed ? "" : "  shift+tab";
-  const room = width - 2 - cellWidth(left) - cellWidth(hint) - beside - 2;
+  const room = width - 2 - cellWidth(left) - beside - 2;
 
   // In order of importance: the bar keeps what fits from the start of this list.
   const segments: Segment[] = [];
@@ -160,7 +159,6 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, modT
     const text = `⎇ ${git.branch}${git.changes ? ` ±${git.changes}` : ""}`;
     segments.push({ text, node: <Text color={PALETTE.haze}>{text}</Text> });
   }
-  if (state.plan) segments.push({ text: state.plan, node: <Text color={PALETTE.dust}>{state.plan}</Text> });
 
   const said = toast ? fit(`✓ ${toast}`, room, false) : "";
   const flash = toast ? { text: said, node: <Text color={PALETTE.teal}>{said}</Text> } : modToast ? modFlash(modToast, room) : null;
@@ -177,7 +175,7 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, modT
   const targetAt = (x: number): "mode" | "needs" | number | null => {
     // The chip starts after the bar's padding; the readings end before it, at the right.
     if (!armed && x >= 1 && x < 1 + cellWidth(left)) return onMode ? "mode" : null;
-    const needsAt = 1 + cellWidth(left) + cellWidth(hint) + 2;
+    const needsAt = 1 + cellWidth(left) + 2;
     if (needs && x >= needsAt && x < needsAt + cellWidth(needs)) return onNeedsYou ? "needs" : null;
     let start = width - 1 - used;
     for (const [i, segment] of shown.entries()) {
@@ -210,21 +208,18 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, modT
         {armed ? (
           <Text color={PALETTE.ember}>{left}</Text>
         ) : (
-          <Text>
-            <Text backgroundColor={hover("mode")}>
-              {mode === "bypassPermissions" ? (
-                <Text color={chip.color} bold>{` ${chip.label} `}</Text>
-              ) : (
-                <>
-                  <Text color={chip.color}>▐</Text>
-                  <Text backgroundColor={chip.color} color={PALETTE.ink} bold>
-                    {chip.label}
-                  </Text>
-                  <Text color={chip.color}>▌</Text>
-                </>
-              )}
-            </Text>
-            <Text color={PALETTE.dust}>{hint}</Text>
+          <Text backgroundColor={hover("mode")}>
+            {mode === "bypassPermissions" ? (
+              <Text color={chip.color} bold>{` ${chip.label} `}</Text>
+            ) : (
+              <>
+                <Text color={chip.color}>▐</Text>
+                <Text backgroundColor={chip.color} color={PALETTE.ink} bold>
+                  {chip.label}
+                </Text>
+                <Text color={chip.color}>▌</Text>
+              </>
+            )}
           </Text>
         )}
         {needs ? (

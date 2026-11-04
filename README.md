@@ -142,7 +142,7 @@ astrocode's look takes its colors from the Hubble palette, the gold and teal of 
 - **Background work.** A command, subagent, Monitor or workflow that runs in the background says so on its line, a notice says when it ends, and when Claude picks up where it left off by itself, as on a Monitor's event, a line says why. Its line opens a command's output as it prints and a subagent's calls under it, and a Monitor's or workflow's view in `/tasks`. Esc stops Claude's turn but not the work in the background; `/tasks`, or `x` on its line in the transcript, stops one thing, Ctrl+X Ctrl+K everything.
 - **Subagents.** While a subagent runs, its line names its kind and counts its tool calls, and the line under it shows its latest call, in gold while that call waits for your OK. A subagent it starts goes under it, indented, with its own count and latest call. A subagent Claude waits on counts as running in the status bar and is listed in `/tasks`. A click on its line, or Enter on it, opens it under the line: Calls, what it has said and done, word for word as Claude Code sends it, streaming in as it works; Prompt, what Claude asked of it; and once it's done, Report. `/tasks` shows it with the screen to itself.
 - **Where your keys go.** Always to one place: the message box, the transcript (in scrollback, its viewer), a picker or panel, or a prompt that asks you something, which takes them from the others until you answer. The box, a picker or a prompt that has your keys has a gold hairline along its top edge; the transcript has a gold `›` on the line its cursor is on, and the box's top edge lists its keys, so nothing moves as it takes them. While it has your keys its cursor stays in view: scrolling away brings the cursor along.
-- **The status bar.** The permission mode as a solid chip, and while other conversations wait on you, how many in gold, as in `← 1 needs you` (see [Agents](#agents)); then the model and the effort you set (or `ultracode`), `↯ fast` in fast mode, how full the context is, your plan's 5-hour and 7-day usage (with reset times once they get high), the git branch and changed files, and your plan. While a request is being tried again, or the conversation compacted, the line above the box says so.
+- **The status bar.** The permission mode as a solid chip, and while other conversations wait on you, how many in gold right after it, as in `← 1 needs you` (see [Agents](#agents)); then the model and the effort you set (or `ultracode`), `↯ fast` in fast mode, how full the context is, your plan's 5-hour and 7-day usage (with reset times once they get high), and the git branch and changed files. `?` lists the key that changes the mode, Shift+Tab unless you've bound another. While a request is being tried again, or the conversation compacted, the line above the box says so.
 - **Scrollback.** Finished output goes into your terminal's own scrollback, like `claude`. A step goes there once Claude has moved on from it, closed, with its lines. Ctrl+O opens the transcript viewer, as in `claude`: the whole conversation full screen, with full screen's cursor, keys and mouse (see [Full screen](#full-screen)), so any step, call or turn's ledger opens in place. It's on the terminal's alternate screen, so Esc, `q` or Ctrl+O goes back to your scrollback as it was; what Claude finished meanwhile is written there then.
 
 ## Full screen
@@ -190,14 +190,14 @@ astrocode is designed for a dark theme with true color, such as kitty. Its color
 
 ## Signing in
 
-astrocode uses whatever Claude Code is signed in with; the status bar shows the account, for example "Claude Max". Keep `ANTHROPIC_API_KEY` unset. If it's set, Claude Code uses the key, and that usage is billed to the key instead of your subscription.
+astrocode uses whatever Claude Code is signed in with. Keep `ANTHROPIC_API_KEY` unset. If it's set, Claude Code uses the key, and that usage is billed to the key instead of your subscription.
 
 Keep it for your own use. Anthropic's [terms for Claude Code](https://code.claude.com/docs/en/legal-and-compliance) don't allow offering subscription sign-in in an app other people use.
 
 ## How it fits together
 
 - `src/cli.ts` is the `astrocode` command.
-- `src/session.ts` runs one Claude Code session through the Agent SDK in streaming-input mode. It turns permission checks and Claude's questions into prompts, and reports the account, the models, the commands and context usage.
+- `src/session.ts` runs one Claude Code session through the Agent SDK in streaming-input mode. It turns permission checks and Claude's questions into prompts, and reports the models, the commands and context usage.
 - `src/events.ts` defines what the session tells the interface.
 - `src/history.ts` lists saved sessions and loads a saved conversation.
 - `src/prompt-history.ts` reads and adds to Claude Code's prompt history, for ↑ and Ctrl+R in the message box, under Claude Code's lock on it. It leaves out messages `src/secrets.ts`, Claude Code's own test for secrets, finds one in.

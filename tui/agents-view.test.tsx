@@ -291,12 +291,12 @@ test("the status bar stays under the view, the one you came from's, saying how m
   await settle(500);
   app.unmount();
   const lines = (screen().split("Conversations").at(-1) ?? "").split("\n").filter((line) => line.trim());
-  expect(lines.at(-1)).toMatch(/^ ▐accept edits▌ {2}shift\+tab {2}← 1 needs you/);
+  expect(lines.at(-1)).toMatch(/^ ▐accept edits▌ {2}← 1 needs you/);
   // Without a conversation to come back to, as under `astrocode agents`, there's no bar.
   const alone = view();
   await settle(500);
   alone.app.unmount();
-  expect(alone.screen()).not.toContain("shift+tab");
+  expect(alone.screen()).not.toMatch(/^ ▐[a-z' ]+▌/m);
 });
 
 test("the header stays on one line, the folder cut from its start to fit", async () => {
