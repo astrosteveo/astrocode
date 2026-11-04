@@ -314,7 +314,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     setInspect(null);
   }, [store.resets]);
 
-  // The sessions saved here, for each new screen's start screen. The one on screen isn't one of them.
+  // The sessions saved here, for each new or resumed conversation's start screen. The one on screen
+  // isn't one of them. A redraw keeps the list it has.
   useEffect(() => {
     let alive = true;
     void savedSessions(state.cwd, RECENT + 1)
@@ -325,7 +326,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     return () => {
       alive = false;
     };
-  }, [store.epoch]);
+  }, [store.resets]);
 
   // An Agent call waits for you while its subagent, or one under it, does.
   const waiting = new Set([
