@@ -87,3 +87,44 @@ test("a click on ← N needs you opens the conversations only when ← would, so
     stop();
   }
 });
+
+test("the status bar's count follows the other conversations as they start and stop waiting on you", async () => {
+  const { other, statusBar, stop } = conversation();
+  try {
+    await settle();
+    expect(statusBar()).not.toContain("need");
+    other.store.emit({ kind: "permission", request: { id: "p1", toolName: "Bash", input: { command: "rm -rf dist" } } });
+    await settle();
+    expect(statusBar()).toContain("← 1 needs you");
+    other.store.emit({ kind: "question", request: { id: "q1", questions: [] } });
+    other.store.emit({ kind: "resolved", id: "p1", outcome: "allow" });
+    await settle();
+    expect(statusBar()).toContain("← 1 needs you");
+    other.store.emit({ kind: "resolved", id: "q1", outcome: "allow" });
+    await settle();
+    expect(statusBar()).not.toContain("need");
+  } finally {
+    stop();
+  }
+});
+
+test("the empty, idle box says ← for conversations until they've been opened, and gives way while Claude works or waits on you", async () => {
+  const unseen = conversation({ hint: true });
+  const seen = conversation({ hint: false });
+  try {
+    await settle();
+    const box = (frame: string[]) => frame.find((line) => line.includes("❯")) ?? "";
+    expect(box(unseen.frame())).toContain("← for conversations");
+    expect(box(seen.frame())).not.toContain("←");
+    unseen.here.store.emit({ kind: "prompt", text: "run ls" });
+    await settle();
+    expect(box(unseen.frame())).toContain("Claude is working");
+    expect(unseen.frame().join("\n")).not.toContain("← for conversations");
+    unseen.here.store.emit({ kind: "permission", request: { id: "p1", toolName: "Bash", input: { command: "ls" } } });
+    await settle();
+    expect(box(unseen.frame())).toContain("waiting for your OK");
+  } finally {
+    unseen.stop();
+    seen.stop();
+  }
+});
