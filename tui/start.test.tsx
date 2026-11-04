@@ -11,6 +11,7 @@ import { initialState, type State } from "../src/view/state";
 import { App } from "./app";
 import { cellWidth } from "./markdown";
 import { DEFAULT_KEYMAP, loadKeymap, type Keymap } from "./keys";
+import { scratchConfig } from "./scratch-config";
 import { StartScreen, startOf, startReady } from "./start";
 import { Store } from "./store";
 
@@ -148,14 +149,16 @@ test("a new screen waits for the sessions here again, and keeps what Claude Code
   expect(store.getSnapshot().recent).toBeUndefined();
 });
 
-// A Claude Code config folder of its own, with two sessions saved in a project.
+// A Claude Code config folder of its own, with two sessions saved in a project, and a scratch folder
+// for astrocode's settings, so nothing the app saves lands in yours.
 const root = mkdtempSync(join(tmpdir(), "astrocode-start-"));
 const project = join(root, "retrykit");
 const RESUMED = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
-const configDir = process.env.CLAUDE_CONFIG_DIR;
+const config = scratchConfig();
 
 beforeAll(() => {
+  config.start();
   process.env.CLAUDE_CONFIG_DIR = root;
   mkdirSync(project);
   const saved = join(root, "projects", project.replace(/[^a-zA-Z0-9]/g, "-"));
@@ -169,9 +172,8 @@ beforeAll(() => {
   }
 });
 
-afterAll(() => {
-  if (configDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
-  else process.env.CLAUDE_CONFIG_DIR = configDir;
+afterAll(async () => {
+  await config.stop();
   rmSync(root, { recursive: true, force: true });
 });
 
