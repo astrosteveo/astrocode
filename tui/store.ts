@@ -1,4 +1,5 @@
 import type { ImageAttachment } from "../src/events";
+import { PromptHistory } from "../src/prompt-history";
 import type { Aside } from "../src/session";
 import type { NotifyMode, TodoMode, UsageMode } from "../src/settings";
 import type { Stash } from "../src/stash";
@@ -17,8 +18,8 @@ export class Store {
   epoch = 0;
   /** Counts resets, a new or resumed session, which what the conversation before it started mustn't reach. */
   resets = 0;
-  /** What you've sent, oldest first, for ↑ in the message box. Kept through /clear, like a shell's history. */
-  readonly sent: string[] = [];
+  /** What you've sent, here and in `claude`, for ↑ and Ctrl+R in the message box. main.tsx gives every conversation the same one; it's kept through /clear. */
+  prompts = new PromptHistory();
   /** Images attached in the message box, by the number its `[Image #n]` shows. */
   readonly images = new Map<number, ImageAttachment>();
   /** A message put aside with Ctrl+S, until Ctrl+S brings it back. Kept through /clear, switching layouts and, on disk, quitting. */

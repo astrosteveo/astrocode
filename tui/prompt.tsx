@@ -39,7 +39,10 @@ type Props = {
   width: number;
   /** The project, whose files `@` offers. */
   cwd: string;
+  /** What ↑ goes back through, oldest first: what you've sent in this folder, in `claude` too. */
   history: string[];
+  /** What Ctrl+R searches, oldest first: what you've sent in every folder, as in `claude`. */
+  everywhere: string[];
   commands: CommandInfo[];
   /**
    * `now`: Ctrl+Enter or Ctrl+X Ctrl+S, which sends what's queued straight away, with this behind it.
@@ -242,7 +245,7 @@ export function Prompt(props: Props) {
   /** Ctrl+R's matches, newest first and each once, and the one it's on. */
   const found = (query: string) => {
     const wanted = query.toLowerCase();
-    return [...new Set([...history].reverse())].filter((text) => text.toLowerCase().includes(wanted));
+    return [...new Set([...props.everywhere].reverse())].filter((text) => text.toLowerCase().includes(wanted));
   };
   const endSearch = (keep: boolean) => {
     const open = search.current;

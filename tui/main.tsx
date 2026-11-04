@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { checkFolder, moveToBackground, stopAgent, type SessionSettings } from "../src/agents";
 import { loadHistory, savedSessions, sessionTitle } from "../src/history";
+import { PromptHistory } from "../src/prompt-history";
 import { AgentSession } from "../src/session";
 import { showServer, visualInstructions } from "../src/show";
 import { loadSettings, saved as settingsSaved } from "../src/settings";
@@ -60,8 +61,10 @@ export async function startTerminal(options: TerminalOptions) {
   window.start();
   markPrompts(process.stdout);
   // Claude Code's keybindings.json, so keys you've changed in `claude` change here too. What it
-  // says is wrong with the file waits for the first conversation to show it.
-  const { keymap, problems } = await loadKeymap();
+  // says is wrong with the file waits for the first conversation to show it. Its prompt history,
+  // so ↑ goes back through what you sent there too.
+  const prompts = new PromptHistory();
+  const [{ keymap, problems }] = await Promise.all([loadKeymap(), prompts.load()]);
   let unsaid = problems;
   const fleet = new Fleet<Held>();
   /** The conversation on screen, or the one the agents view was opened from. */
@@ -91,6 +94,7 @@ export async function startTerminal(options: TerminalOptions) {
     if (saved.follow !== undefined) store.follow = saved.follow;
     store.window = window;
     store.keymap = keymap;
+    store.prompts = prompts;
     // Claude Code's own stderr would scribble over the screen; failures still arrive as notices.
     const session = new AgentSession({
       cwd,
@@ -250,7 +254,7 @@ export async function startTerminal(options: TerminalOptions) {
         onStart={async (task, cwd) => {
           checkFolder(cwd);
           const conversation = await open(cwd);
-          conversation.store.sent.push(task);
+          void prompts.add(task, cwd);
           conversation.session.send(task);
           return conversation.key;
         }}
@@ -304,7 +308,7 @@ export async function startTerminal(options: TerminalOptions) {
   const last = fleet.getSnapshot().at(0);
   for (const one of fleet.getSnapshot()) one.session.close();
   window.stop();
-  await Promise.all([settingsSaved(), stashSaved(), canvas.close()]);
+  await Promise.all([settingsSaved(), stashSaved(), prompts.written(), canvas.close()]);
   if (farewell) console.log(`\n${farewell}`);
   if (last?.session.id) console.log(`\nResume this conversation with: astrocode --resume ${last.session.id}`);
   process.exit(0);

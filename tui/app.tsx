@@ -821,7 +821,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
 
   const submit = (text: string, how: { now?: boolean; later?: boolean; ignoreUltracode?: boolean } = {}) => {
     const { now = false } = how;
-    store.sent.push(text);
+    void store.prompts.add(text, state.cwd, session.knownId);
     if (text.startsWith("!")) return runCommand(text.slice(1).trim());
     if (text.startsWith("#")) return openMemory(text.slice(1).trim());
     const [command = "", ...rest] = text.trim().split(/\s+/);
@@ -1613,7 +1613,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           waitingOn={question || elicitation ? "question" : request ? "permission" : undefined}
           width={width}
           cwd={state.cwd}
-          history={store.sent}
+          history={store.prompts.recall(state.cwd, session.knownId)}
+          everywhere={store.prompts.everything()}
           commands={[...commands, ...state.commands.filter((command) => !commands.some((own) => own.name === command.name))]}
           onSubmit={submit}
           onSendQueuedNow={sendQueuedNow}
