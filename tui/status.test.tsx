@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { render } from "ink";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
+import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { initialState, type State } from "../src/view/state";
 import { Mouse, MouseContext } from "./mouse";
 import { StatusBar } from "./status";
@@ -17,7 +18,7 @@ const state: State = {
 };
 
 /** The bar on a fake terminal `columns` wide, with a mouse that `click` presses at a cell of it. */
-function bar(columns: number, props: { needsYou?: number; armed?: string | null; onNeedsYou?: () => void; onMode?: () => void }) {
+function bar(columns: number, props: { needsYou?: number; armed?: string | null; mode?: PermissionMode; toast?: string; onNeedsYou?: () => void; onMode?: () => void }) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns, rows: 10 });
   let drawn = "";
   stdout.on("data", (chunk: Buffer) => {
@@ -32,11 +33,12 @@ function bar(columns: number, props: { needsYou?: number; armed?: string | null;
     <MouseContext value={mouse}>
       <StatusBar
         state={state}
-        mode="default"
+        mode={props.mode ?? "default"}
         git={{ branch: "feat/cache-clock", changes: 3 }}
         width={columns}
         armed={props.armed ?? null}
         running={0}
+        toast={props.toast ?? null}
         keepWarm={false}
         usageMode="on"
         needsYou={props.needsYou}
@@ -46,14 +48,15 @@ function bar(columns: number, props: { needsYou?: number; armed?: string | null;
     </MouseContext>,
     { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, exitOnCtrlC: false, patchConsole: false },
   );
-  const line = () => stripVTControlCharacters(drawn).split("\n").filter((one) => one.trim()).at(-1) ?? "";
+  const lines = () => stripVTControlCharacters(drawn).split("\n").filter((one) => one.trim());
+  const line = () => lines().at(-1) ?? "";
   const click = async (x: number) => {
     reports.push(`\x1b[<0;${x + 1};1M`);
     // The mouse takes its reports out of stdin's reads and hands them on a microtask later.
     input.read();
     await new Promise((resolve) => setTimeout(resolve, 20));
   };
-  return { line, click, stop: () => (app.unmount(), mouse.stop()) };
+  return { line, lines, click, stop: () => (app.unmount(), mouse.stop()) };
 }
 
 test("says in the status bar, after the mode, how many other conversations wait on you, at every width", () => {
@@ -96,4 +99,16 @@ test("a click on the count opens the conversations, and a click on the mode stil
   await click(shown.indexOf("ask first"));
   stop();
   expect(cycled).toBe(1);
+});
+
+test("a toast is cut to the room the count leaves it, so the bar stays one row", () => {
+  for (const mode of ["default", "bypassPermissions"] as const) {
+    const { lines, stop } = bar(80, { needsYou: 1, mode, toast: "Copied Claude's last reply, 12 lines" });
+    const shown = lines();
+    stop();
+    expect(shown).toHaveLength(1);
+    expect(shown[0]).toContain("← 1 needs you");
+    expect(shown[0]).toContain("✓ Copied Claude's last");
+    expect(shown[0]!.trimEnd().length).toBeLessThanOrEqual(80);
+  }
 });

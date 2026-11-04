@@ -167,7 +167,8 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, modT
   }
   if (state.plan) segments.push({ text: state.plan, node: <Text color={PALETTE.dust}>{state.plan}</Text> });
 
-  const flash = toast ? { text: `✓ ${toast}`, node: <Text color={PALETTE.teal}>{`✓ ${toast}`}</Text> } : modToast ? modFlash(modToast, room) : null;
+  const said = toast ? fit(`✓ ${toast}`, room, false) : "";
+  const flash = toast ? { text: said, node: <Text color={PALETTE.teal}>{said}</Text> } : modToast ? modFlash(modToast, room) : null;
   const shown: Segment[] = flash ? [flash] : [];
   let used = flash ? cellWidth(flash.text) : 0;
   for (const segment of flash ? [] : segments) {
