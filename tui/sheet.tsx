@@ -122,18 +122,23 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean): Sect
     rows: [
       ["↑ ↓, tab", "choose"],
       ["enter", "confirm"],
-      ["1–3", "answer at once"],
+      ["1, 2, …", "answer at once"],
       ["esc, ctrl+c", "deny"],
     ],
   };
-  // Full screen's, from the box: the view moves, with no cursor. In scrollback the terminal scrolls.
+  // Full screen's, from the box or a decision: the view moves, with no cursor. In scrollback the
+  // terminal scrolls. In a decision Alt+↑ and Alt+↓ move its choice too.
   const scrolling: Section = {
     title: "Scrolling",
     rows: [
       ["pgup, pgdn", "a page"],
       ["ctrl+home, ctrl+end", "top, end"],
-      ["alt+↑ ↓", "your messages"],
-      ["alt+shift+↑ ↓", "tool calls"],
+      ...(place === "decision"
+        ? []
+        : ([
+            ["alt+↑ ↓", "your messages"],
+            ["alt+shift+↑ ↓", "tool calls"],
+          ] as Row[])),
     ],
   };
   // Full screen's; in scrollback the terminal has the mouse. A click on ← N needs you or on the box
@@ -180,7 +185,7 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean): Sect
     case "opened":
       return fullscreen ? [opened, transcript, mouse, anywhere] : [opened, redraw];
     case "decision":
-      return [decision, redraw];
+      return [decision, ...(fullscreen ? [scrolling, mouse] : []), redraw];
   }
 }
 
