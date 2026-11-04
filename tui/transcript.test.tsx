@@ -289,3 +289,14 @@ test("a folded step that shows all it has doesn't offer to open", () => {
   expect(lines[title]).not.toContain("▸");
   expect(shut.rows[title]!.target).toBeUndefined();
 });
+
+test("once the turn is over, only the last step to fail keeps the line that failed, and the one before opens to it", () => {
+  const shut = layout(input(ended([["Running the suite to see the failure.", suite("b1", BUN_FAILED)], ["Fixing the loop bound.", call("g")], ["Running the suite again.", suite("b2", BUN_FAILED.replace("Received: 4", "Received: 2"))]]), 118));
+  const lines = plain(shut);
+  const first = at(lines, "Running the suite to see the failure");
+  expect(lines[first]!.startsWith(`${STEP_NODES.failed.node} `)).toBe(true);
+  expect(lines[first + 1]).toContain("Fixing the loop bound");
+  expect(lines[first]).toContain("▸");
+  expect(at(lines, "Received: 4")).toBe(-1);
+  expect(at(lines, "Expected: 3")).toBe(at(lines, "Running the suite again") + 2);
+});

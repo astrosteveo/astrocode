@@ -177,8 +177,10 @@ export type StepRow = {
   /** Claude's whole sentence, when there's more of it than the title, shown once the step opens. */
   more?: string;
   status: keyof typeof STEP_NODES;
-  /** Its turn is over: closed, it's its sentence alone, but for the line that failed. */
+  /** Its turn is over: closed, it's its sentence alone, but for the line that failed in `lastFailed`. */
   folded: boolean;
+  /** It's the last step of its turn that failed, which keeps the line that failed once folded. */
+  lastFailed?: boolean;
   span?: number;
   flow: Flow[];
 };
@@ -220,10 +222,10 @@ export function opens(step: StepRow) {
   return Boolean(step.more) || under.some((one) => one.kind !== "row") || under.length > closedRows(step).length;
 }
 
-/** The lines a closed step shows: once folded, only the one that failed, if the step did; else its first two and its last three. */
+/** The lines a closed step shows: once folded, only the one that failed, if it's `lastFailed`; else its first two and its last three. */
 function closedRows(step: StepRow) {
   const rows = step.flow.filter((one) => one.kind === "row");
-  if (step.folded) return step.status === "failed" ? rows.slice(-1) : [];
+  if (step.folded) return step.lastFailed ? rows.slice(-1) : [];
   return rows.length > MOST_ROWS ? [...rows.slice(0, 2), ...rows.slice(-3)] : rows;
 }
 

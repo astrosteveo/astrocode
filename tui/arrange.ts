@@ -95,5 +95,14 @@ export function arrange(state: State, waiting: ReadonlySet<string>, toggled: Rea
     if (item.kind === "thinking" && i < before) continue;
     entries.push({ kind: "item", item, rail: item.kind === "prompt" ? placed[i]! : tight(false), index: i });
   }
+  // Of a finished turn's steps that failed, the last keeps its failure in view, as what still stands.
+  let failed = false;
+  for (const entry of entries.toReversed()) {
+    if (entry.kind === "item" && entry.item.kind === "turn") failed = false;
+    else if (entry.kind === "step" && entry.row.folded && entry.row.status === "failed" && !failed) {
+      entry.row.lastFailed = true;
+      failed = true;
+    }
+  }
   return entries;
 }
