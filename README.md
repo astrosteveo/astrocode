@@ -44,9 +44,9 @@ Sessions are saved where Claude Code saves its own, so `claude --resume <id>` op
 | Ctrl+S | Put the message aside. It stays stashed, whatever you send meanwhile and even after you quit, until Ctrl+S brings it back; with a message in the box, the two trade places |
 | Ctrl+Enter, or Ctrl+X Ctrl+S | Send now: the messages you queued while Claude works go straight away, with this one behind them, and with an empty box too. What Claude runs that can move to the background moves there and Claude reads them in this turn; otherwise Claude stops and takes them next. Ctrl+Enter needs a terminal with the kitty keyboard protocol |
 | Ctrl+X Enter | While Claude works, send this to wait for the end of the turn, rather than joining it between tool calls as Enter does |
-| ↑ ↓ | Earlier messages, or move between lines |
+| ↑ ↓ | Earlier messages in this folder, the ones you sent in `claude` too, or move between lines |
 | ← in an empty box | The agents view: Claude Code's background sessions. Esc comes back |
-| Ctrl+R | Search what you've sent: type to find, Ctrl+R for older matches, Enter keeps it, Esc cancels |
+| Ctrl+R | Search what you've sent, here and in `claude`, in every folder: type to find, Ctrl+R for older matches, Enter keeps it, Esc cancels |
 | Ctrl+_ | Undo, a word at a time |
 | Ctrl+K, Ctrl+U, Ctrl+W, Alt+D, Ctrl+Y | Cut to the end of the line, to its start, the word before, the word after; put back what was cut |
 | Alt+B, Alt+F | Move a word back or forward |
@@ -171,7 +171,7 @@ Full screen uses the terminal's alternate screen, so the conversation isn't in y
 
 ## Settings
 
-`/config`, and the model, effort, thinking, mode and layout you pick anywhere else, are kept for next time in `~/.config/astrocode/settings.json` (under `$XDG_CONFIG_HOME` if it's set), not in Claude Code's settings, so `claude` keeps its own. Plan mode, max effort, ultracode and fast mode are for one session only, as in Claude Code. A stashed message is kept per project in `~/.local/state/astrocode/stash/` (under `$XDG_STATE_HOME` if it's set), with its images.
+`/config`, and the model, effort, thinking, mode and layout you pick anywhere else, are kept for next time in `~/.config/astrocode/settings.json` (under `$XDG_CONFIG_HOME` if it's set), not in Claude Code's settings, so `claude` keeps its own. Plan mode, max effort, ultracode and fast mode are for one session only, as in Claude Code. A stashed message is kept per project in `~/.local/state/astrocode/stash/` (under `$XDG_STATE_HOME` if it's set), with its images. What you send goes into Claude Code's prompt history, `~/.claude/history.jsonl` (under `$CLAUDE_CONFIG_DIR` if it's set), in its format, so ↑ and Ctrl+R go through the same messages in `claude` and in astrocode; astrocode keeps no history of its own. `CLAUDE_CODE_SKIP_PROMPT_HISTORY=1` keeps what you send out of the file, as it does for `claude`.
 
 | Variable | Default | What it does |
 | :-- | :-- | :-- |
@@ -195,6 +195,7 @@ Keep it for your own use. Anthropic's [terms for Claude Code](https://code.claud
 - `src/session.ts` runs one Claude Code session through the Agent SDK in streaming-input mode. It turns permission checks and Claude's questions into prompts, and reports the account, the models, the commands and context usage.
 - `src/events.ts` defines what the session tells the interface.
 - `src/history.ts` lists saved sessions and loads a saved conversation.
+- `src/prompt-history.ts` reads and adds to Claude Code's prompt history, for ↑ and Ctrl+R in the message box.
 - `src/plugins.ts` lists and changes plugins and marketplaces through `claude plugin`, with the Claude Code binary the SDK ships.
 - `src/agents.ts` lists Claude Code's background sessions and stops, deletes and hands conversations to them, through the `claude` on your `PATH`. `tui/agents.tsx` is the agents view, `tui/fleet.ts` holds the conversations astrocode runs at once, and `tui/main.tsx` switches between the view and a conversation.
 - `src/canvas.ts` draws diagrams, charts, SVG and HTML as pictures, with a headless Chromium that reaches neither the network nor the disk.
