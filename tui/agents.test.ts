@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import type { Agent } from "../src/agents";
 import { initialState } from "../src/view/state";
-import { chosenLine, listLines, mineState, mineSummary, moveTo, startFolder } from "./agents";
+import { chosenLine, listLines, mineState, mineSummary, moveTo, saying, startFolder } from "./agents";
+import { PALETTE } from "./theme";
 
 const agent = (id: string, folder: string, createdAt = 0): Agent => ({
   id,
@@ -78,7 +79,7 @@ test("a conversation's row says what Claude is doing, or once it's done, how its
   expect(mineSummary(failed, 0)).toBe("overloaded");
   expect(mineState({ ...done, items: [...asked.items, turn("stopped")] }, 0)).toBe("stopped");
   expect(mineState({ ...done, pending: [{ id: "p" } as (typeof done.pending)[number]] }, 0)).toBe("blocked");
-  expect(mineSummary({ ...done, pending: [{ id: "p" } as (typeof done.pending)[number]] }, 0)).toBe("Waiting for your OK");
+  expect(mineSummary({ ...done, pending: [{ id: "p", toolName: "Bash", input: { command: "rm -rf dist" } }] }, 0)).toBe("Run $ rm -rf dist");
 });
 
 test("a new session starts in the selected row's project", () => {
@@ -118,4 +119,35 @@ test("the chosen row is drawn as chosen, or while a task is typed, its project's
   expect(chosenLine(lines, "a2", true)).toBe(at("# /p/a"));
   expect(chosenLine(lines, "b1", true)).toBe(at("# /p/b"));
   expect(chosenLine([], undefined, true)).toBe(-1);
+});
+
+test("a conversation waiting on you says what it asks: Claude's question, the MCP server's form, or the call it wants to make", () => {
+  const fresh = initialState("/p", "/home/u");
+  const question = { id: "q", questions: [{ question: "Tea or coffee?", header: "Drink", multiSelect: false, options: [] }] };
+  expect(mineSummary({ ...fresh, questions: [question] }, 0)).toBe("Tea or coffee?");
+  expect(mineSummary({ ...fresh, elicitations: [{ id: "e", server: "github", message: "Pick a repository", mode: "form", fields: [] }] }, 0)).toBe("Pick a repository");
+  expect(mineSummary({ ...fresh, pending: [{ id: "p", toolName: "Edit", input: { file_path: "/p/src/a.ts" } }] }, 0)).toBe("Edit src/a.ts");
+});
+
+test("a row's words take the Ledger's colors: a gold asks: before what waits on you, and what runs or failed up to the first ·", () => {
+  const { gold, haze, teal, rose } = PALETTE;
+  expect(saying("blocked", "Tea or coffee?", 22)).toEqual([
+    { text: "asks:", color: gold },
+    { text: " Tea or coffee?  ", color: haze },
+  ]);
+  expect(saying("working", "Running Bash · bun test", 23)).toEqual([
+    { text: "Running Bash", color: teal },
+    { text: " · bun test", color: haze },
+  ]);
+  expect(saying("working", "Thinking", 10)).toEqual([
+    { text: "Thinking", color: teal },
+    { text: "  ", color: haze },
+  ]);
+  expect(saying("failed", "tools/live.sh exit 2 · zone 3 missing", 24)).toEqual([
+    { text: "tools/live.sh exit 2", color: rose },
+    { text: " · …", color: haze },
+  ]);
+  expect(saying("done", "replied with a table", 20)).toEqual([{ text: "replied with a table", color: haze }]);
+  // Nothing asked yet says nothing, not a bare `asks:`.
+  expect(saying("blocked", "", 4)).toEqual([{ text: "    ", color: haze }]);
 });

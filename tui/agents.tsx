@@ -10,6 +10,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { attaches, groupAgents, leftForAgentView, listAgents, prLabel, projectOf, removeAgent, STATE_LABELS, stopAgent, summary, waitsOnYou, type Agent, type AgentState, type SessionSettings } from "../src/agents";
 import { installedBinary } from "../src/claude";
 import { DEFAULT_MODE, topLevelEnv } from "../src/session";
+import { activityRows } from "../src/view/activity";
 import { ago, modelLabel } from "../src/view/format";
 import type { State } from "../src/view/state";
 import { shortPath } from "../src/view/tools";
@@ -40,14 +41,46 @@ export function mineState(state: State, shells: number): AgentState | "idle" {
   return turn.outcome === "finished" ? "done" : turn.outcome;
 }
 
-/** What its row says: what Claude is doing, what went wrong, or once it's done, the start of Claude's last reply. */
+/** What its row says: what it asks you, what Claude is doing, what went wrong, or once it's done, the start of Claude's last reply. */
 export function mineSummary(state: State, shells: number) {
+  const live = liveState(state, shells);
+  if (live === "blocked") return asking(state);
   // "Working" says only what the row's state already does.
-  if (liveState(state, shells) !== "idle") return describe(state).replace(/^Working$/, "");
+  if (live !== "idle") return describe(state).replace(/^Working$/, "");
   const turn = state.items.findLast((item) => item.kind === "turn");
   if (turn?.kind === "turn" && turn.outcome !== "finished" && turn.detail) return turn.detail;
   const reply = state.items.findLast((item) => item.kind === "text" && !item.command);
   return reply?.kind === "text" ? plainLine(reply.text) : "";
+}
+
+/** What a conversation waiting on you asks: Claude's question, an MCP server's form, or the call waiting for your OK, as its activity line says it. */
+function asking(state: State) {
+  const question = state.questions[0]?.questions[0]?.question;
+  if (question) return question;
+  const form = state.elicitations[0];
+  if (form) return form.title ?? form.message;
+  const request = state.pending[0];
+  if (!request) return "";
+  const call = { id: request.id, name: request.toolName, input: request.input, status: "running" as const, subagentCalls: 0 };
+  const [row] = activityRows([call], new Set([call.id]), state.cwd, state.home);
+  return row ? `${row.verb} ${row.target.map((part) => part.text).join("")}`.trim() : "";
+}
+
+/**
+ * What a row says, cut and padded to `cells`, in the Ledger's colors: a gold `asks:` before what
+ * waits on you, and what's running or what failed in teal or rose up to the first ` · `. The rest is haze.
+ */
+export function saying(state: AgentState | "idle", said: string, cells: number) {
+  const asks = state === "blocked" && said ? "asks: " : "";
+  const text = fit(asks + said, cells, false);
+  const at = text.indexOf(" · ");
+  const lead = asks ? Math.min(asks.trimEnd().length, text.length) : state === "working" || state === "failed" ? (at < 0 ? text.length : at) : 0;
+  const color = asks ? PALETTE.gold : state === "failed" ? PALETTE.rose : PALETTE.teal;
+  const head = text.slice(0, lead);
+  return [
+    { text: head, color },
+    { text: pad(text.slice(lead), cells - cellWidth(head)), color: PALETTE.haze },
+  ].filter((part) => part.text);
 }
 
 /** The first line of Markdown with something in it, without the marks that would only be noise on a row. */
@@ -441,7 +474,11 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, onShow, o
                 </Text>
                 <Text color={PALETTE.dust}>{pad(own, nameCells - cellWidth(name))}</Text>
                 {"  "}
-                <Text color={PALETTE.haze}>{pad(fit(row.said, middle, false), middle)}</Text>
+                {saying(row.state, row.said, middle).map((part, at) => (
+                  <Text key={at} color={part.color}>
+                    {part.text}
+                  </Text>
+                ))}
                 <Text color={PALETTE.sky}>{prCells ? `  ${row.prs.padStart(prCells)}` : ""}</Text>
                 <Text color={PALETTE.dust}>{ageCells ? `  ${row.age.padStart(ageCells)}` : ""}</Text>
               </Text>

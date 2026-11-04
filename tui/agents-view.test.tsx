@@ -247,7 +247,7 @@ test("draws each conversation with the Ledger's mark for its state, under counts
     expect(last).toContain("new ones start in ~/here · Opus 5.5 xhigh · ask first");
     expect(last).toContain("2 need you · 2 working · 1 failed");
     expect(row("first")).toMatch(/◐ first {2}\(this one\)/);
-    expect(row("second")).toContain("◇ second");
+    expect(row("second")).toMatch(/◇ second +asks: Run \$ rm -rf dist/);
     expect(row("asking")).toContain("◇ asking");
     expect(row("handed")).toContain("○ handed");
     expect(row("busy")).toContain("◐ busy");
