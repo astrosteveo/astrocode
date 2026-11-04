@@ -1069,10 +1069,36 @@ export class AgentSession {
           if (!run.closing) this.options.emit({ kind: "notice", tone: "error", text: `Remote Control couldn't start: ${messageOf(error)}` });
         });
       }
-      await Promise.all([this.reportContext(run), this.reportUltracode(run)]);
+      await Promise.all([this.reportContext(run), this.reportUltracode(run), this.reportLoaded(run, init.claude_code_version)]);
     } catch {
       // A failed start is reported by pump().
     }
+  }
+
+  /**
+   * What this Claude Code loaded, for the start screen: CLAUDE.md files that exist, plugins turned
+   * on, MCP servers not turned off, other than astrocode's own, and skills not turned off. What it
+   * can't say is left out.
+   */
+  private async reportLoaded(run: Run, version: string | undefined) {
+    const query = run.query as unknown as Record<string, unknown>;
+    const ask = async (name: string) => {
+      const method = query[name];
+      return typeof method === "function" ? (method as () => Promise<unknown>).call(run.query).catch(() => undefined) : undefined;
+    };
+    const [memory, settings, servers, skills] = await Promise.all([ask("getMemoryDialog"), ask("getSettings"), ask("mcpServerStatus"), ask("getSkillsDialog")]);
+    if (run.closing) return;
+    const plugins = field(field(settings, "effective"), "enabledPlugins");
+    this.options.emit({
+      kind: "loaded",
+      loaded: {
+        version,
+        claudeMd: memory === undefined ? undefined : memoryDialog(memory).files.filter((file) => file.exists).length,
+        plugins: typeof plugins === "object" && plugins !== null ? Object.values(plugins).filter((on) => on === true).length : undefined,
+        mcpServers: Array.isArray(servers) ? servers.filter((server) => field(server, "source") !== "sdk" && field(server, "status") !== "disabled").length : undefined,
+        skills: skills === undefined ? undefined : skillsDialog(skills).filter((skill) => skill.state !== "off").length,
+      },
+    });
   }
 
   /**

@@ -11,7 +11,7 @@ import type {
   SDKPartialAssistantMessage,
   SDKResultMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { CommandInfo, ElicitationRequest, FileChange, ImageAttachment, Ledger, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, RemoteControl, SessionEvent } from "../events";
+import type { CommandInfo, ElicitationRequest, FileChange, ImageAttachment, Ledger, Loaded, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, RemoteControl, SessionEvent } from "../events";
 import { AGENT_LINES, agentLines, type AgentLine } from "./agents";
 import { compact, duration } from "./format";
 import { workOf } from "./ledger";
@@ -230,6 +230,8 @@ export type State = {
   plan?: string;
   models: ModelChoice[];
   commands: CommandInfo[];
+  /** What Claude Code loaded, once it has said. */
+  loaded?: Loaded;
   mode: PermissionMode;
   context?: { percentage: number; tokens: number; max: number };
   limits: { fiveHour?: UsageWindow; sevenDay?: UsageWindow };
@@ -328,6 +330,8 @@ export function reduce(state: State, event: ViewEvent): State {
       return { ...state, plan: event.plan, models: event.models, commands: event.commands, tasks: [], taskInfo: {}, agentLogs: {}, modStatus: {}, modToast: undefined };
     case "commands":
       return { ...state, commands: event.commands };
+    case "loaded":
+      return { ...state, loaded: event.loaded };
     case "prompt":
       // Claude Code echoes a message sent over Remote Control as it starts on it, so it never waits here.
       if (event.remote) return { ...add(state, { kind: "prompt", text: event.text, uuid: event.uuid, images: event.images, at: event.at, remote: true, starts: event.starts }), busy: true };
