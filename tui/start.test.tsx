@@ -33,9 +33,9 @@ const fresh = (more: Partial<State> = {}): State => ({
   ...more,
 });
 
-/** The start screen as plain lines, `width` columns wide. */
-const draw = (state: State, width = 120, keymap: Keymap = DEFAULT_KEYMAP, branch = "feat/cache-clock") =>
-  stripVTControlCharacters(renderToString(<StartScreen start={startOf(state, branch, keymap, NOW)} width={width} />, { columns: width })).split("\n");
+/** The start screen as plain lines, `width` columns wide, in scrollback unless `fullscreen`. */
+const draw = (state: State, width = 120, keymap: Keymap = DEFAULT_KEYMAP, branch = "feat/cache-clock", fullscreen = false) =>
+  stripVTControlCharacters(renderToString(<StartScreen start={startOf(state, branch, keymap, fullscreen, NOW)} width={width} />, { columns: width })).split("\n");
 
 const lineWith = (lines: string[], text: string) => lines.find((line) => line.includes(text));
 
@@ -120,6 +120,13 @@ test("keeps the folder's name when the rest of where you are fills the line, and
 
   // With room enough, all of it.
   expect(where(120, "main")).toBe("  ~/Projects/work/clients/retrykit · main · Opus 5.5 xhigh · auto");
+});
+
+test("names Ctrl+O by what it does: the transcript in full screen, and tool output in scrollback", () => {
+  const keys = (fullscreen: boolean) => draw(fresh(), 120, DEFAULT_KEYMAP, "main", fullscreen).join("\n");
+  expect(keys(true)).toContain("ctrl+o transcript");
+  expect(keys(true)).not.toContain("tool output");
+  expect(keys(false)).toContain("ctrl+o tool output");
 });
 
 test("names keys as you've bound them, and your keybindings as loaded", () => {
@@ -241,6 +248,8 @@ test("in scrollback, the start screen is written once, when all it says is known
   expect(lines[first]).toContain("Claude Code 2.1.318 underneath");
   expect(lines[first + 1]).toEndWith(" · auto");
   expect(lines[first + 2]).toContain("From Claude Code: 3 skills");
+  // In scrollback Ctrl+O opens the tool output picker.
+  expect(text).toContain("ctrl+o tool output");
   expect(text).toContain("Give retries a deadline");
   expect(text.indexOf("Something to say.")).toBeGreaterThan(text.indexOf(`astrocode  ${version}`));
 });
@@ -277,7 +286,7 @@ test("names your keybindings only when keybindings.json was taken", async () => 
   const file = join(root, "keybindings.json");
   const loaded = async (text: string) => {
     writeFileSync(file, text);
-    return startOf(fresh(), undefined, (await loadKeymap()).keymap).loaded;
+    return startOf(fresh(), undefined, (await loadKeymap()).keymap, false).loaded;
   };
   try {
     // A file that's turned down is said to be, and none of it is used.

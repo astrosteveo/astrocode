@@ -169,6 +169,12 @@ test("Follow Claude docks above the box at 200 columns, not beside the transcrip
   expect(screen()[line]!.trimEnd().length).toBeGreaterThan(190);
 });
 
+test("full screen opens on the start screen, which names Ctrl+O by the transcript it gives your keys to", async () => {
+  const { screen } = await launch(initialState("/p", "/home/u"));
+  expect(screen().join("\n")).toContain("ctrl+o transcript");
+  expect(screen().join("\n")).not.toContain("tool output");
+});
+
 test("Ctrl+O gives the transcript your keys, with its cursor on the last line in view, and Esc gives them back", async () => {
   const { press, cursor, boxKeys, row } = await launch(THREE);
   expect(boxKeys()).toBe(true);
