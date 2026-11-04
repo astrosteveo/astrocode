@@ -219,3 +219,15 @@ test("a diff made of edits, the second above the first, keeps each in a run of i
   expect(lines[far + 2]).toMatch(/^ {4} 10 {4}before 10/);
   expect(lines[far + 3]).toMatch(/^ {4} 11  - near old/);
 });
+
+test("a file renamed with no line changed says so, rather than that its diff wasn't kept", async () => {
+  const file: FileChange = { path: "/p/kept.txt", added: 0, removed: 0, from: "/p/old.txt" };
+  const state = ended([file]);
+  const turn = state.items.at(-1) as TurnItem;
+  // What git prints for a rename alone: its headers, and no hunk.
+  const git = { changes: async () => null, patch: async () => "diff --git a/old.txt b/kept.txt\nsimilarity index 100%\nrename from old.txt\nrename to kept.txt\n" };
+  const review = { ...NO_REVIEW, diffs: new Map([[diffKey("turn", "end", "/p/kept.txt"), await turnDiff(git, turn, file, [])]]) };
+  const lines = plain(draw(state, 118, { open: [fileTarget("end", "/p/kept.txt")], review }));
+  expect(lines).toContainEqual(expect.stringContaining("No lines changed."));
+  expect(lines.some((line) => line.includes("wasn't kept"))).toBe(false);
+});
