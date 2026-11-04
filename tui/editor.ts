@@ -1,5 +1,6 @@
-// Your own editor, $VISUAL or $EDITOR, while Ink lends it the terminal: Ctrl+G for the message, and
-// /memory for a CLAUDE.md or a saved memory. `claude attach` borrows the terminal the same way.
+// Your own editor, $VISUAL or $EDITOR, while Ink lends it the terminal: Ctrl+G for the message,
+// /memory for a CLAUDE.md or a saved memory, and `e` for an opened call's tab. `claude attach`
+// borrows the terminal the same way.
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -14,6 +15,18 @@ export async function editText(text: string): Promise<string> {
     if (code !== 0) throw new Error(`${editor} exited with ${code ?? "a signal"}, so the message is as it was.`);
     // Editors end the file with a newline the message doesn't need.
     return (await readFile(file, "utf8")).replace(/\n+$/, "");
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+}
+
+/** Text to read in the editor, such as an opened call's tab, from a file that's gone once the editor quits. */
+export async function readInEditor(text: string) {
+  const folder = await mkdtemp(join(tmpdir(), "astrocode-"));
+  try {
+    const file = join(folder, "astrocode.txt");
+    await writeFile(file, text);
+    await editFile(file);
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

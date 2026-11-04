@@ -32,10 +32,11 @@ import { ConfigMenu, type ConfigValues } from "./config";
 import { DecisionPrompt } from "./decision";
 import { ElicitationPrompt } from "./elicitation";
 import { EFFORT_NOTES, effortsOf, ULTRACODE_NOTE } from "./effort";
-import { editFile, editText } from "./editor";
+import { editFile, editText, readInEditor } from "./editor";
 import { FindBar, type Find } from "./find";
+import { focusOf } from "./focus";
 import { HooksPanel } from "./hooks";
-import { ItemView, LiveView, opensByDefault, StepView, targetCall } from "./entries";
+import { ItemView, LiveView, StepView, targetCall } from "./entries";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
 import { keyFor, keyLabel } from "./keys";
@@ -63,7 +64,7 @@ import { QueuedMessages } from "./queued";
 import { RemotePanel } from "./remote";
 import { GUTTER } from "./rail";
 import { SandboxPanel } from "./sandbox";
-import { Screen } from "./screen";
+import { Screen, TranscriptHint } from "./screen";
 import { arrange, type Entry } from "./arrange";
 import { SessionPreview } from "./session-preview";
 import { SkillsPanel } from "./skills";
@@ -146,8 +147,8 @@ const HELP = [
   "Ctrl+V attaches the clipboard's image; a pasted or dropped image file attaches too. Ctrl+G or Ctrl+X Ctrl+E edits the message in $EDITOR.",
   "Ctrl+B moves a command or subagent Claude is waiting on to the background. /tasks lists what runs there and your ! commands: open one to watch it (a subagent shows its transcript, a workflow its phases), and x stops it. Esc stops Claude's turn but not what runs in the background; Ctrl+X Ctrl+K twice stops it all. Ctrl+T shows or hides the to-dos.",
   "Ctrl+Enter or Ctrl+X Ctrl+S sends what you've queued now, with what's typed behind it: Claude reads it in this turn, with what it runs moved to the background, or else stops and takes it next; Ctrl+X Enter sends it to wait for the end of Claude's turn. Ctrl+Z suspends astrocode until the shell's fg.",
-  "Ctrl+O picks a tool call to inspect: its exact command or input, its whole output and what Claude got back, in tabs. In the inspector ← and → move between calls, Tab between tabs, c copies, Esc closes. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
-  "Alt+L follows Claude: a dock above the message box shows each tool call as Claude makes it. Looking back at a call holds it there; Esc or Alt+L follows Claude again.",
+  "Ctrl+O picks a tool call to inspect: its exact command or input, its whole output and what Claude got back, in tabs. In the inspector ← and → move between calls, Tab between tabs, c copies, Esc closes. In full screen Ctrl+O moves your keys to the transcript instead. Ctrl+C clears the box, stops Claude, or exits when pressed twice.",
+  "Alt+L follows Claude: a dock above the message box shows each tool call as Claude makes it. Opening a call yourself pauses it; closing the call, or Alt+L, follows Claude again.",
   "← in an empty box opens the agents view, as `claude agents` does: astrocode's conversations, which carry on while you're away from them, and Claude Code's background sessions. Type a task there and press Enter to start another conversation alongside this one, Ctrl+Enter to start it and open it; Enter on a row opens one, Esc comes back here.",
   "/clear starts over, /resume picks up a saved session, /model switches models, /effort sets how hard Claude thinks, /exit quits.",
   "/plugins installs, turns on or off, and removes plugins. @ followed by a path attaches a file or folder.",
@@ -161,6 +162,7 @@ const HELP = [
 
 const FULLSCREEN_HELP = [
   "Full screen: the wheel, PgUp and PgDn scroll; Ctrl+Home and Ctrl+End go to the top and the end.",
+  "Ctrl+O, or a click on a line, moves your keys to the transcript: ↑ and ↓ move its cursor, and Enter opens or closes the line it's on, a call under its own line. In an opened call ← and → open the call before or after, Tab its next tab, c copies the tab and e opens it in $EDITOR. Esc closes what's open, then gives your keys back to the box, as Ctrl+O and q do.",
   "Ctrl+F finds text in the conversation: Enter or ↑ goes to the match before, ↓ to the one after. Alt+↑ and Alt+↓ jump between your messages, Alt+Shift+↑ and Alt+Shift+↓ between tool calls and commands.",
   "Drag to copy, double-click to copy a word, triple-click to copy a line.",
   "Click a line of a step to open that call under it, at any width, and again to close it; a step's name to open it with Claude's thinking and every line, a command of yours to open it (a running one shows its live output), an option to choose it, the mode, the model or the effort to change it.",
@@ -194,9 +196,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const wanted = useRef<PermissionMode | null>(null);
   const turns = state.items.filter((item) => item.kind === "turn").length;
   const git = useGit(state.cwd, turns);
-  // Full screen's own: entries a click opened or closed, away from how they start, one to scroll to, and what was copied.
+  // Full screen's own: entries a click opened or closed, away from how they start, whether the
+  // transcript has your keys, and what was copied.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
-  const [reveal, setReveal] = useState<{ key: string } | null>(null);
+  const [transcriptKeys, setTranscriptKeys] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   /** What Ctrl+F finds, kept when its bar closes so it opens again on the same words, and how many matches there are. */
   const [find, setFind] = useState<Find>({ query: "", back: 0 });
@@ -286,7 +289,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
 
   useEffect(() => {
     setExpanded(new Set());
-    setReveal(null);
+    setTranscriptKeys(false);
     setInspect(null);
   }, [store.epoch]);
 
@@ -554,26 +557,22 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       });
   };
 
-  /**
-   * A tool call opens in the inspector, in either layout. A command of yours opens under its card
-   * in full screen and scrolls there; scrollback prints its output at the end.
-   */
+  /** Picked in scrollback's output browser: a tool call opens in the inspector, and a command of yours prints its output at the end. */
   const showOutput = (id: string) => {
     if (state.tools[id] !== undefined) return inspectCall(id);
-    const item = state.items.find((one) => one.kind === "shell" && one.id === id);
-    if (!fullscreen || !item) return store.emit({ kind: "output", id });
-    setExpanded((open) => {
-      const next = new Set(open);
-      if (opensByDefault(item)) next.delete(item.key);
-      else next.add(item.key);
-      return next;
-    });
-    setReveal({ key: item.key });
+    store.emit({ kind: "output", id });
   };
 
   /**
-   * Opens a call: under its line in full screen, in the inspector with the keys in scrollback. One
-   * still running in a task opens that task's view instead.
+   * Ctrl+O and /output: in full screen your keys go to the transcript, whose cursor opens any line
+   * in place; scrollback has the output browser until it has a transcript viewer of its own.
+   */
+  const openTranscript = () => (fullscreen ? setTranscriptKeys(true) : setOverlay({ kind: "output" }));
+
+  /**
+   * Opens a call: under its line in full screen, with your keys in the transcript, and in the
+   * inspector with the keys in scrollback. One still running in a task opens that task's view
+   * instead.
    */
   const inspectCall = (id: string) => {
     const index = state.tools[id];
@@ -584,6 +583,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       return false;
     }
     setInspect({ id, focus: true });
+    if (fullscreen) setTranscriptKeys(true);
     return true;
   };
 
@@ -830,7 +830,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         if (!isEffort(argument)) return store.emit({ kind: "notice", tone: "error", text: `Effort is one of ${EFFORTS.join(", ")}, or ultracode.` });
         return pickEffort(argument);
       case "/output":
-        return setOverlay({ kind: "output" });
+        return openTranscript();
       case "/pictures":
         return openPictures();
       case "/play":
@@ -1075,7 +1075,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       description: "Set how hard Claude thinks, or turn on ultracode",
       argumentHint: state.ultracodeAvailable ? "[low|medium|high|xhigh|max|ultracode]" : "[low|medium|high|xhigh|max]",
     },
-    { name: "output", description: "Inspect a tool call: its exact command or input, its whole output, what Claude got back (Ctrl+O)", argumentHint: "" },
+    {
+      name: "output",
+      description: fullscreen
+        ? "Move through the transcript and open any line in place: a tool call's command or input, its whole output, what Claude got back (Ctrl+O)"
+        : "Inspect a tool call: its exact command or input, its whole output, what Claude got back (Ctrl+O)",
+      argumentHint: "",
+    },
     { name: "play", description: "Run a command from one of Claude's shell code blocks, as with !", argumentHint: "" },
     { name: "pictures", description: "The conversation's pictures as large as they go, to flip through or open", argumentHint: "" },
     { name: "rewind", description: "Go back to an earlier message, its files, or both (Esc Esc)", argumentHint: "" },
@@ -1491,10 +1497,17 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const inspectedAt = inspect ? state.tools[inspect.id] : undefined;
   const inspectedItem = inspectedAt === undefined ? undefined : state.items[inspectedAt];
   const inspected = inspectedItem?.kind === "tool" ? inspectedItem.call : undefined;
-  const inspectorKeys = Boolean(!fullscreen && inspected && inspect?.focus && !question && !elicitation && !request && !overlay);
-  // A click on the message box gives it back the keys, and the inspector stays open.
+  // Your keys are in one place: a decision, else an overlay (scrollback's inspector among them), else
+  // the transcript once it's been given them, else the box.
+  const focus = focusOf({
+    decision: Boolean(question || elicitation || request),
+    overlay: Boolean(overlay) || Boolean(!fullscreen && inspected && inspect?.focus),
+    transcript: fullscreen && transcriptKeys,
+  });
+  const inspectorKeys = focus === "overlay" && !overlay;
+  // A click on the message box, or under it, gives it back your keys from the transcript.
   useMouse((event) => {
-    if (event.type === "press" && event.button === "left" && inspectorKeys && hit(panelBox.current, event)) setInspect((open) => open && { ...open, focus: false });
+    if (event.type === "press" && event.button === "left" && !event.handled && focus === "transcript" && hit(panelBox.current, event)) setTranscriptKeys(false);
   });
   // Follow Claude: the call Claude is on, a moment behind a burst of them, while you aren't looking
   // at one yourself, which holds it until the inspector closes.
@@ -1561,6 +1574,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const pinned = showTodos && todos ? <PinnedTodos todos={todos} rows={Math.max(3, Math.min(8, rows - 20))} /> : null;
   const panel = (
     <Box ref={panelBox} flexDirection="column">
+      {focus === "transcript" ? <TranscriptHint opened={Boolean(inspected)} /> : null}
       <Activity state={state} width={width} />
       {/* The message box's own top edge sets it apart; what sits above it needs a row. */}
       <Box marginTop={above || pinned || state.queue.length ? 1 : 0} flexDirection="column">
@@ -1568,7 +1582,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         {above ?? <ModBand session={session} width={width} rows={rows} working={state.busy} />}
         <QueuedMessages queue={state.queue} width={width} />
         <Prompt
-          active={!question && !elicitation && !request && !overlay && !inspectorKeys}
+          active={focus === "box"}
           fullscreen={fullscreen}
           busy={state.busy}
           waitingOn={question || elicitation ? "question" : request ? "permission" : undefined}
@@ -1582,7 +1596,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onCycleMode={cycleMode}
           onCtrlC={onCtrlC}
           onExit={exit}
-          onOpenOutput={() => setOverlay({ kind: "output" })}
+          onOpenOutput={openTranscript}
           prefill={prefill}
           onEditQueued={editQueued}
           onAttach={(image) => store.attach(image)}
@@ -1661,10 +1675,14 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         expanded={expanded}
         waiting={waiting}
         opened={inspected ? { id: inspected.id, tab: inspect?.tab, whole: inspect?.whole } : undefined}
-        reveal={reveal}
-        keys={!overlay && !inspectorKeys}
+        keys={!overlay}
+        focused={focus === "transcript"}
+        keymap={store.keymap}
+        onFocus={() => setTranscriptKeys(true)}
+        onLeave={() => setTranscriptKeys(false)}
         onToggle={toggleTool}
         onCopy={copySelection}
+        onEdit={(text) => void handOver(() => readInEditor(text)).catch(report)}
         onOpen={openAddress}
         onPicture={openPictures}
         find={overlay?.kind === "find" ? find : null}

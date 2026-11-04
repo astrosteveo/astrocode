@@ -32,7 +32,8 @@ afterEach(() => {
 
 /**
  * astrocode in full screen on a fake terminal, over `state`, with a session that does nothing and the
- * mouse on. `screen()` is the last frame drawn, a row per line, without its colors.
+ * mouse on. `screen()` is the last frame drawn, a row per line, without its colors; `update()` puts
+ * another state in its place.
  */
 async function launch(state: State, { columns = 200, rows = 40, follow = false } = {}) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns, rows });
@@ -40,7 +41,15 @@ async function launch(state: State, { columns = 200, rows = 40, follow = false }
   stdout.on("data", (chunk: Buffer) => writes.push(chunk.toString()));
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
   const store = new Store("/p", "/home/u");
-  store.getSnapshot = () => state;
+  let current = state;
+  const listeners = new Set<() => void>();
+  store.getSnapshot = () => current;
+  store.subscribe = (listener) => {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  };
   store.follow = follow;
   const session = new Proxy({}, { get: (_, name) => (name === "watchMods" ? () => () => {} : name === "knownId" ? undefined : () => Promise.resolve(null)) }) as unknown as AgentSession;
   const mouse = new Mouse(stdin as unknown as NodeJS.ReadStream, stdout as unknown as NodeJS.WriteStream);
@@ -71,8 +80,30 @@ async function launch(state: State, { columns = 200, rows = 40, follow = false }
     stdin.write(`\x1b[<0;${x + 1};${y + 1}m`);
     await settle();
   };
-  return { screen, row, press, click };
+  const update = async (next: State) => {
+    current = next;
+    for (const listener of listeners) listener();
+    await settle();
+  };
+  /**
+   * The transcript's row the cursor's gold `›` is on, in the gutter or beside an opened call's
+   * panel, or -1. The transcript ends at the first edge across the screen, a decision's or the box's.
+   */
+  const cursor = () => {
+    const lines = screen();
+    const end = lines.findIndex((line) => /^[▁▄]{20}/.test(line));
+    return lines.slice(0, end).findIndex((line) => [...line][1] === "›" || [...line][3] === "›");
+  };
+  /** Whether the message box has your keys: its top edge is the hairline, not the panel's own edge. */
+  const boxKeys = () => {
+    const lines = screen();
+    const box = lines.findIndex((line) => line.startsWith(" ❯"));
+    return /^▁+$/.test(lines[box - 1] ?? "");
+  };
+  return { screen, row, press, click, update, cursor, boxKeys };
 }
+
+const KEYS = { ctrlO: "\x0f", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", enter: "\r", esc: "\x1b", tab: "\t" };
 
 test("at 200 columns a click opens a call under its line, with nothing beside the column, and another closes it", async () => {
   const { screen, row, click } = await launch(THREE);
@@ -98,4 +129,150 @@ test("Follow Claude docks above the box at 200 columns, not beside the transcrip
   expect(dock).toBeGreaterThan(line);
   expect(screen()[dock]).not.toMatch(/Waiting +a while/);
   expect(screen()[line]!.trimEnd().length).toBeGreaterThan(190);
+});
+
+test("Ctrl+O gives the transcript your keys, with its cursor on the last line in view, and Esc gives them back", async () => {
+  const { press, cursor, boxKeys, row } = await launch(THREE);
+  expect(boxKeys()).toBe(true);
+  expect(cursor()).toBe(-1);
+  await press(KEYS.ctrlO);
+  expect(boxKeys()).toBe(false);
+  expect(cursor()).toBe(row(/Searched +c in src/));
+  expect(row(/esc back to the box/)).toBeGreaterThan(cursor());
+  await press(KEYS.esc);
+  expect(boxKeys()).toBe(true);
+  expect(cursor()).toBe(-1);
+  // Ctrl+O again goes there and back.
+  await press(KEYS.ctrlO);
+  expect(cursor()).not.toBe(-1);
+  await press(KEYS.ctrlO);
+  expect(boxKeys()).toBe(true);
+});
+
+test("↑ and ↓ move the cursor over lines, and Enter opens a call under its line and closes it", async () => {
+  const { press, cursor, row, screen } = await launch(THREE);
+  await press(KEYS.ctrlO);
+  await press(KEYS.up);
+  const at = row(/Ran +the tests/);
+  expect(cursor()).toBe(at);
+  await press(KEYS.up);
+  expect(cursor()).toBe(row(/Searched +a in src/));
+  // Blank rows are passed over: the step's title is next.
+  await press(KEYS.up);
+  expect(cursor()).toBe(row(/Looking around/));
+  await press(KEYS.down);
+  await press(KEYS.down);
+  await press(KEYS.enter);
+  // A conversation shorter than the screen sits on the box, so what opens pushes its lines up.
+  const open = row(/Ran +the tests/);
+  expect(screen()[open + 1]).toContain("‹ 2 of 3 ›");
+  expect(cursor()).toBe(open);
+  // The cursor moves into what opened, as into any lines; Enter there closes it, back on its line.
+  await press(KEYS.down);
+  expect(cursor()).toBe(open + 1);
+  await press(KEYS.enter);
+  expect(screen().some((line) => line.includes("‹ 2 of 3 ›"))).toBe(false);
+  expect(cursor()).toBe(row(/Ran +the tests/));
+});
+
+test("in an opened call ← and → open the call before or after, Tab its next tab, and Esc closes it before leaving", async () => {
+  const { press, cursor, row, screen, boxKeys } = await launch(THREE);
+  await press(KEYS.ctrlO);
+  await press(KEYS.up);
+  await press(KEYS.enter);
+  await press(KEYS.right);
+  expect(screen().some((line) => line.includes("‹ 2 of 3 ›"))).toBe(false);
+  expect(screen()[row(/Searched +c in src/) + 1]).toContain("‹ 3 of 3 ›");
+  expect(cursor()).toBe(row(/Searched +c in src/));
+  await press(KEYS.left);
+  expect(screen()[row(/Ran +the tests/) + 1]).toContain("‹ 2 of 3 ›");
+  expect(screen()[row(/Ran +the tests/) + 2]).toContain("▐Output▌");
+  await press(KEYS.tab);
+  expect(screen()[row(/Ran +the tests/) + 2]).toContain("▐Command▌");
+  expect(screen()[row(/Ran +the tests/) + 3]).toContain("$ bun test");
+  await press(KEYS.esc);
+  expect(screen().some((line) => line.includes("‹ 2 of 3 ›"))).toBe(false);
+  expect(cursor()).toBe(row(/Ran +the tests/));
+  expect(boxKeys()).toBe(false);
+  await press(KEYS.esc);
+  expect(boxKeys()).toBe(true);
+});
+
+test("a click on a line puts the cursor there with your keys, and a click on the box takes them back", async () => {
+  const { click, cursor, row, screen, boxKeys } = await launch(THREE);
+  await click(30, row(/Looking around/));
+  expect(cursor()).toBe(row(/Looking around/));
+  expect(boxKeys()).toBe(false);
+  // A click on a call's line is Enter there.
+  await click(10, row(/Searched +a in src/));
+  const at = row(/Searched +a in src/);
+  expect(cursor()).toBe(at);
+  expect(screen()[at + 1]).toContain("‹ 1 of 3 ›");
+  await click(4, row(/^ ❯/));
+  expect(boxKeys()).toBe(true);
+  expect(cursor()).toBe(-1);
+});
+
+test("exactly one place has your keys: a decision takes them from the transcript, and gives them back once answered", async () => {
+  const { press, cursor, boxKeys, update, row } = await launch(THREE);
+  await press(KEYS.ctrlO);
+  expect([boxKeys(), cursor() !== -1]).toEqual([false, true]);
+  await update({ ...THREE, pending: [{ id: "c", toolName: "Bash", input: { command: "rm -rf build" } }] });
+  expect(row(/rm -rf build/)).not.toBe(-1);
+  expect([boxKeys(), cursor() !== -1]).toEqual([false, false]);
+  await update(THREE);
+  expect([boxKeys(), cursor() !== -1]).toEqual([false, true]);
+  await press(KEYS.esc);
+  expect([boxKeys(), cursor() !== -1]).toEqual([true, false]);
+});
+
+test("the view follows the cursor past the screen's edge", async () => {
+  const items: Item[] = Array.from({ length: 15 }, (_, i): Item[] => [
+    { kind: "prompt", key: `p${i}`, text: `message ${i}` },
+    { kind: "tool", key: `c${i}`, call: call(`c${i}`) },
+  ]).flat();
+  const state: State = { ...initialState("/p", "/home/u"), items, tools: Object.fromEntries(items.flatMap((item, i) => (item.kind === "tool" ? [[item.call.id, i]] : []))) };
+  const { press, cursor, row } = await launch(state, { rows: 24 });
+  expect(row(/message 0\b/)).toBe(-1);
+  await press(KEYS.ctrlO);
+  expect(cursor()).toBe(row(/Searched +c14 in src/));
+  // Past the first line it stays there.
+  await press(KEYS.up.repeat(60));
+  expect(cursor()).not.toBe(-1);
+  expect(cursor()).toBe(row(/message 0\b/));
+  expect(row(/c14/)).toBe(-1);
+  await press(KEYS.down.repeat(60));
+  expect(cursor()).toBe(row(/Searched +c14 in src/));
+});
+
+test("Enter on ⋯ shows the whole tab and keeps the cursor in view, even at the end of the conversation", async () => {
+  const result = Array.from({ length: 60 }, (_, i) => `match ${i + 1}`).join("\n");
+  const { press, cursor, row } = await launch(turn([call("a", { result })]), { rows: 30 });
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  expect(row(/⋯ 40 lines/)).not.toBe(-1);
+  await press(KEYS.down.repeat(15));
+  expect(cursor()).toBe(row(/⋯ 40 lines/));
+  await press(KEYS.enter);
+  expect(row(/⋯/)).toBe(-1);
+  expect(cursor()).not.toBe(-1);
+  expect(cursor()).toBe(row(/ 13 +match 13\b/));
+});
+
+test("Ctrl+O with no line to put the cursor on leaves your keys in the box", async () => {
+  const { press, boxKeys, cursor } = await launch(initialState("/p", "/home/u"));
+  await press(KEYS.ctrlO);
+  expect(boxKeys()).toBe(true);
+  expect(cursor()).toBe(-1);
+});
+
+test("the cursor stays in sight when the reply it's on finishes streaming", async () => {
+  const text = "All three searches came back empty.";
+  const streaming: State = { ...THREE, busy: true, live: { messageId: "m", blocks: [{ kind: "text", text }], finalized: 0 } };
+  const { press, cursor, update, row, boxKeys } = await launch(streaming);
+  await press(KEYS.ctrlO);
+  expect(cursor()).toBe(row(/All three searches/));
+  await update({ ...THREE, items: [...THREE.items, { kind: "text", key: "r", text }] });
+  expect(boxKeys()).toBe(false);
+  expect(cursor()).not.toBe(-1);
 });

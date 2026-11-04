@@ -1,20 +1,25 @@
 // Full screen: the conversation in a viewport that scrolls, with the message box and status bar
 // pinned under it. The wheel, PgUp and PgDn scroll, and the viewport follows the end until you
-// scroll up. Dragging selects text and copies it; clicking a step's line opens its call under the
-// line, at every width, clicking a command opens it, clicking a link opens that, and clicking a
-// picture enlarges it. Ctrl+F finds text in it, and Alt+↑ and Alt+↓ jump between your messages,
-// with Shift between tool calls and commands.
-import { Box, Text, useBoxMetrics, useInput, useStdout, type DOMElement } from "ink";
+// scroll up. Ctrl+O, or a click on a line, gives the transcript your keys: a gold `›` marks the line
+// the cursor is on, ↑ and ↓ move it, and Enter does what a click on the line does. A step's line
+// opens its call under the line, at every width, a command opens, and what's open closes. Esc, q
+// or Ctrl+O gives your keys back to the box. Dragging selects text and copies it, a click on a
+// link opens it, and on a picture enlarges it. Ctrl+F finds text in it, and Alt+↑ and Alt+↓ jump
+// between your messages, with Shift between tool calls and commands.
+import { Box, Text, useBoxMetrics, useInput, useStdout, type DOMElement, type Key } from "ink";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ImageAttachment } from "../src/events";
 import type { State } from "../src/view/state";
 import { plural } from "../src/view/tools";
+import { callTarget } from "./entries";
 import { hit, MULTI_CLICK_MS, relative, useHover, useMouse } from "./mouse";
 import type { Find } from "./find";
-import { cellsOn, findIn, highlight, isTextAt, linkAt, lit, litLink, markMatches, selectedText, wordAt, type Cell } from "./selection";
+import { Keys } from "./inspector";
+import { strokeOf, type Keymap } from "./keys";
+import { cellsOn, cursorOn, findIn, hasContent, highlight, isTextAt, linkAt, lit, litLink, markMatches, selectedText, wordAt, type Cell } from "./selection";
 import { PALETTE } from "./theme";
 import { Welcome, WELCOME_HEIGHT, WELCOME_WIDTH } from "./mirror";
-import type { Opened } from "./opened";
+import { moveTarget, tabTarget, WHOLE, type Opened } from "./opened";
 import { imageAt, pictureRows, usePictureRows } from "./pictures";
 import { useTranscript, type Row, type Transcript } from "./transcript";
 
@@ -52,16 +57,24 @@ type Props = {
   waiting: ReadonlySet<string>;
   /** The call opened under its line, which is scrolled into view as it opens. */
   opened?: Opened;
-  /** A tool call to scroll to, from the output browser. */
-  reveal: { key: string } | null;
   /** Whether PgUp and PgDn scroll; a picker open below uses them for its list. */
   keys: boolean;
+  /** The transcript has your keys: its cursor shows, and moves with ↑ and ↓. */
+  focused: boolean;
+  /** What keys do, for the one that toggles the transcript (Ctrl+O). */
+  keymap: Keymap;
+  /** A click on a line, which gives the transcript your keys. */
+  onFocus: () => void;
+  /** Esc, q, Ctrl+C or Ctrl+O, which give your keys back to the box. */
+  onLeave: () => void;
   /**
    * A click on an entry, or on what a line of it stands for, such as a step's line for a call. True
    * when it opened or closed in place, false when it opened something else.
    */
   onToggle: (key: string) => boolean;
   onCopy: (text: string) => void;
+  /** `e` in an opened call: its tab in $EDITOR. */
+  onEdit: (text: string) => void;
   /** A click on a link. */
   onOpen: (url: string) => void;
   /** A click on a picture. */
@@ -74,7 +87,7 @@ type Props = {
   children: ReactNode;
 };
 
-export function Screen({ state, epoch, branch, columns, rows: height, expanded, waiting, opened, reveal, keys, onToggle, onCopy, onOpen, onPicture, find: search, onMatches, children }: Props) {
+export function Screen({ state, epoch, branch, columns, rows: height, expanded, waiting, opened, keys, focused, keymap, onFocus, onLeave, onToggle, onCopy, onEdit, onOpen, onPicture, find: search, onMatches, children }: Props) {
   // A column for the scrollbar and one to keep it off the text.
   const width = Math.max(10, columns - 2);
   const viewport = useRef<DOMElement>(null);
@@ -83,6 +96,8 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   const view = Math.max(1, metrics.hasMeasured ? metrics.height : height - 6);
   const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), branch, expanded, waiting, opened });
   const [anchor, setAnchor] = useState<Anchor | null>(null);
+  /** The row the cursor is on, kept while your keys are elsewhere. */
+  const [cursor, setCursor] = useState<Anchor | null>(null);
   const [selection, setSelectionState] = useState<Selection | null>(null);
   /** The selection as of the last event, which may be newer than the last render. */
   const selected = useRef<Selection | null>(null);
@@ -132,10 +147,11 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   const scrollable = total > view;
   const thumb = scrollable ? Math.max(1, Math.round((view * view) / total)) : 0;
   const thumbTop = scrollable && maxTop > 0 ? Math.round(((view - thumb) * top) / maxTop) : 0;
+  const at = cursor ? cursorAt(transcript, cursor) : null;
 
   /** What handlers see: this render's numbers, moved along by events that haven't rendered yet. */
-  const now = useRef({ transcript, top, maxTop, view, thumb, pad, following: anchor === null });
-  now.current = { transcript, top, maxTop, view, thumb, pad, following: anchor === null };
+  const now = useRef({ transcript, top, maxTop, view, thumb, pad, following: anchor === null, at });
+  now.current = { transcript, top, maxTop, view, thumb, pad, following: anchor === null, at };
 
   const setSelection = (next: Selection | null) => {
     selected.current = next;
@@ -158,6 +174,65 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     const shown = view - pad;
     if (index < top) scrollTo(index);
     else if (end >= top + shown) scrollTo(Math.min(index, end - shown + 1));
+  };
+
+  /** The cursor onto the row at `index`. */
+  const place = (index: number) => {
+    const row = now.current.transcript.rows[index];
+    if (!row) return;
+    now.current = { ...now.current, at: index };
+    setCursor({ key: row.key, line: row.line });
+  };
+
+  /** The last line in view the cursor can be on, or the transcript's last when none is. */
+  const lastShown = () => {
+    const { transcript, top, view, pad } = now.current;
+    const { rows } = transcript;
+    for (let i = Math.min(rows.length, top + view - pad) - 1; i >= top; i--) if (isStop(rows[i])) return i;
+    return rows.findLastIndex(isStop);
+  };
+
+  /** ↑ or ↓: the cursor to the line before or after, with the view following it. */
+  const moveCursor = (by: -1 | 1) => {
+    const { transcript, at } = now.current;
+    let index = (at ?? lastShown()) + by;
+    while (transcript.rows[index] && !isStop(transcript.rows[index])) index += by;
+    if (!transcript.rows[index]) return;
+    place(index);
+    show(index);
+  };
+
+  /**
+   * Enter: what a click on the cursor's line does. The line stays where it is on screen, even in a
+   * view that follows the end, so what opens under it can't push the cursor out of view; what closes
+   * leaves the cursor on its first line, in the same place.
+   */
+  const enter = () => {
+    const { transcript, at, top, pad, view } = now.current;
+    const row = at === null ? undefined : transcript.rows[at];
+    if (at === null || !row?.hot) return;
+    const head = closes(row) ? headOf(transcript, at) : undefined;
+    if (!onToggle(row.target ?? row.key)) return;
+    const held = head ?? row;
+    if (head) setCursor({ key: head.key, line: head.line });
+    setAnchor({ key: held.key, line: held.line, y: Math.max(0, Math.min(at - top + pad, view - 4)) });
+  };
+
+  /** The transcript's own keys, while it has yours. True for one of them. */
+  const transcriptKey = (input: string, key: Key) => {
+    const open = now.current.transcript.opened;
+    if ((key.upArrow || key.downArrow) && !key.meta && !key.shift) moveCursor(key.upArrow ? -1 : 1);
+    else if (key.return) enter();
+    // Esc backs out one level: what's open closes first.
+    else if (key.escape && open) onToggle(callTarget(open.id));
+    else if (key.escape || input === "q" || (key.ctrl && input === "c") || keymap.get(strokeOf(input, key) ?? "") === "app:toggleTranscript") onLeave();
+    else if (!open) return false;
+    else if (key.leftArrow || key.rightArrow) onToggle(moveTarget(key.leftArrow ? -1 : 1));
+    else if (key.tab) onToggle(tabTarget(open.tabs[(open.tabs.indexOf(open.tab) + (key.shift ? -1 : 1) + open.tabs.length) % open.tabs.length]!));
+    else if (input === "c" || input === "e") {
+      if (open.copy) (input === "c" ? onCopy : onEdit)(open.copy);
+    } else return false;
+    return true;
   };
 
   /** The transcript's cell under a viewport cell, kept inside the viewport. */
@@ -321,11 +396,16 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
           if (url) return later(() => onOpen(url));
           const image = imageAt(row.text, point.col);
           if (image) return onPicture(image);
+          // A click puts the cursor on its line, with your keys, and does there what Enter does.
+          if (isStop(row)) {
+            place(index);
+            onFocus();
+          }
           if (!row.hot) return;
           const spot = spotAt(row, point.col);
           if (spot) return onToggle(spot);
           const y = index - top + pad;
-          if (!row.open || row.head) {
+          if (!closes(row)) {
             if (onToggle(row.target ?? row.key) && !following) setAnchor({ key: row.key, line: row.line, y });
             return;
           }
@@ -349,9 +429,10 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     { fallback: true },
   );
 
-  useInput((_, key) => {
+  useInput((input, key) => {
     if (key.eventType === "release") return;
     if (selected.current && !drag.current) setSelection(null);
+    if (focused && transcriptKey(input, key)) return;
     if (!keys) return;
     const page = Math.max(1, now.current.view - 2);
     if (key.meta && (key.upArrow || key.downArrow)) return jump(key.upArrow ? -1 : 1, key.shift);
@@ -384,25 +465,44 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     setSelection(null);
   }, [epoch, sent]);
 
+  // Your keys coming to the transcript put the cursor on the last line in view, unless it's in view already.
   useEffect(() => {
-    if (reveal) setAnchor({ key: reveal.key, line: 0 });
-  }, [reveal]);
+    if (!focused) return;
+    const { at, top, view, pad } = now.current;
+    if (at !== null && at >= top && at < top + view - pad) return;
+    const index = lastShown();
+    if (index !== -1) place(index);
+  }, [focused]);
 
-  // A call that opens, as from ← and →, is scrolled into view with as much of what opened under it
-  // as fits, once it's drawn.
+  // While the transcript has your keys it shows a cursor: a line that's gone, as a streamed reply's
+  // is once it's written for good, leaves it on the last line in view, and with no line at all to be
+  // on, your keys go back to the box.
+  useEffect(() => {
+    if (!focused || now.current.at !== null) return;
+    const index = lastShown();
+    if (index === -1) onLeave();
+    else place(index);
+  }, [focused, transcript]);
+
+  // Once a call that opens or closes is drawn so, as from ← and → or Esc, the cursor goes to its
+  // line, which is scrolled into view with as much of what opened under it as fits.
   const keep = opened?.id;
   const keeping = useRef<string | undefined>(undefined);
+  const kept = useRef<string | undefined>(undefined);
   useEffect(() => {
-    keeping.current = keep;
+    keeping.current = keep ?? kept.current;
+    kept.current = keep;
   }, [keep]);
   useEffect(() => {
     const id = keeping.current;
-    if (id === undefined || transcript.opened?.id !== id) return;
+    if (id === undefined || transcript.opened?.id !== keep) return;
     const at = state.tools[id];
     const item = at === undefined ? undefined : state.items[at];
     const index = item ? transcript.starts.get(item.key) : undefined;
     keeping.current = undefined;
-    if (index !== undefined) show(index, openedEnd(transcript, index));
+    if (index === undefined) return;
+    if (focused) place(index);
+    show(index, keep === undefined ? index : openedEnd(transcript, index));
   }, [keep, transcript]);
 
   // The match search is on stays in view, a third of the way down when it has to move.
@@ -448,8 +548,11 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
       if (url) return { key: `${row.key}${LINK_KEY}${url}`, shape: "pointer" };
       // A picture doesn't light up, which would change which image it shows.
       if (imageAt(row.text, x)) return { key: "", shape: "zoom-in" };
-      // What's open is for reading and selecting, so only its first row is what a click acts on.
-      if (row.hot && (!row.open || row.head)) return { key: row.target ?? row.key, shape: "pointer" };
+      const spot = spotAt(row, x);
+      if (spot) return { key: spot, shape: "pointer" };
+      // What's open is for reading and selecting, so only its first row is what a click acts on, and
+      // an opened call's `⋯ N lines`.
+      if (row.hot && !closes(row)) return { key: row.target ?? row.key, shape: "pointer" };
       return null;
     },
     !welcome,
@@ -477,9 +580,11 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
                       ? markMatches(row.text, found.ranges, found.current)
                       : drag.current
                       ? row.text || " "
+                      : focused && top + i === at
+                        ? cursorOn(row.text, row.inset - 1, width)
                       : linkUrl && row.key === linkEntry
                         ? litLink(row.text, linkUrl)
-                        : row.hot && row.head && hovered === (row.target ?? row.key)
+                        : row.hot && (row.head || row.target === WHOLE) && hovered === (row.target ?? row.key)
                           ? lit(row.text, row.inset)
                           : row.text || " "}
                 </Text>
@@ -515,6 +620,35 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   );
 }
 
+/** The keys of the transcript, while it has yours, on the line over the box. */
+export function TranscriptHint({ opened }: { opened: boolean }) {
+  return (
+    <Text wrap="truncate-end">
+      <Keys
+        pairs={
+          opened
+            ? [["↑↓", "move"], ["←→", "calls"], ["tab", "views"], ["c", "copy"], ["e", "$EDITOR"], ["enter", "open or close"], ["esc", "close"]]
+            : [["↑↓", "move"], ["enter", "open or close"], ["esc", "back to the box"]]
+        }
+      />
+    </Text>
+  );
+}
+
+/** A line the cursor stops on: one with something past the rail. */
+function isStop(row: Row | undefined) {
+  return row !== undefined && row.inset > 0 && hasContent(row.text, row.inset);
+}
+
+/** Where the cursor is: its row, or the last of its entry's rows when the entry has fewer now, as when what was open closed. */
+function cursorAt(transcript: Transcript, cursor: Anchor) {
+  const start = transcript.starts.get(cursor.key);
+  if (start === undefined) return null;
+  let index = Math.min(start + cursor.line, transcript.rows.length - 1);
+  while (index > start && transcript.rows[index]?.key !== cursor.key) index--;
+  return index;
+}
+
 function samePoint(a: Point, b: Point) {
   return a.key === b.key && a.line === b.line && a.col === b.col;
 }
@@ -538,6 +672,11 @@ function openedEnd(transcript: Transcript, index: number) {
     else if (end > index) break;
   }
   return end;
+}
+
+/** Whether Enter or a click on a row closes what it's in: any row of what's open but its first, and an opened call's `⋯ N lines`, which opens more. */
+function closes(row: Row) {
+  return row.open && !row.head && row.target !== WHOLE;
 }
 
 /** What a click at `col` on a row acts on in a way of its own, such as an opened call's tab. */
