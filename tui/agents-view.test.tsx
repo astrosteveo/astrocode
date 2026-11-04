@@ -215,7 +215,8 @@ test("having opened the view is remembered, so the box stops mentioning ← next
   }
 });
 
-test("draws each conversation with the Ledger's mark for its state, under counts of each, and never the state's word", async () => {
+/** Background sessions in every state, for as long as `run` takes. */
+async function inEveryState(run: () => Promise<void>) {
   const kept = await Bun.file(listed).text();
   writeFileSync(
     listed,
@@ -229,6 +230,14 @@ test("draws each conversation with the Ledger's mark for its state, under counts
     ]),
   );
   try {
+    await run();
+  } finally {
+    writeFileSync(listed, kept);
+  }
+}
+
+test("draws each conversation with the Ledger's mark for its state, under counts of each, and never the state's word", () =>
+  inEveryState(async () => {
     const { fleet, app, screen } = view({ here: "astrocode-1", mine: ["first", "second"], settings: { model: "claude-opus-5-5", effort: "xhigh", mode: "default" } });
     fleet.get("astrocode-2")?.store.emit({ kind: "permission", request: { id: "p", toolName: "Bash", input: { command: "rm -rf dist" } } });
     await settle(500);
@@ -245,7 +254,16 @@ test("draws each conversation with the Ledger's mark for its state, under counts
     expect(row("broke")).toContain("✕ broke");
     expect(row("halted")).toContain("■ halted");
     for (const word of ["Working", "Needs input", "Done", "Failed", "Stopped", "Idle"]) expect(last).not.toContain(word);
-  } finally {
-    writeFileSync(listed, kept);
-  }
-});
+  }));
+
+test("Space on a background session only waiting for a prompt calls it idle, not waiting on you", () =>
+  inEveryState(async () => {
+    const { press, app, screen } = view();
+    await settle(500);
+    press("\x1b[B");
+    await settle();
+    press(" ");
+    await settle();
+    app.unmount();
+    expect(screen().split("Conversations").at(-1)).toContain("handed · 5a1b2c3d · Idle");
+  }));
