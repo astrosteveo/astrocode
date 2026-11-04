@@ -8,7 +8,7 @@
 // Clean filters, such as Git LFS's, don't run: files are hashed as they are on disk.
 // A file over 10 MB isn't read: a stub of its size and mtime stands in for it, so a turn that writes
 // one still counts it. One you track is read when it's the size the index holds it at, as git
-// status would, to tell whether it was only touched. Files under ~/.claude don't count, unless the repository is in it.
+// status would, to tell whether it was only touched. Files under ~/.claude don't count, unless you work in it.
 import { rmSync } from "node:fs";
 import { copyFile, lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -44,7 +44,7 @@ type Repo = {
   index: string;
   folder: string;
   env: Record<string, string | undefined>;
-  /** ~/.claude, relative to the top, when it's inside the repository. */
+  /** ~/.claude, relative to the top, when it's inside the repository and you don't work in it. */
   claude?: string;
 };
 
@@ -141,13 +141,13 @@ export class Snapshots {
     await sweep();
     const folder = await mkdtemp(join(tmpdir(), `astrocode-ledger-${process.pid}-`));
     folders.add(folder);
-    const claude = relative(top, join(this.home, ".claude"));
+    const claude = join(this.home, ".claude");
     return {
       top,
       index,
       folder,
       env: { ...process.env, ...(await unfiltered(top)), GIT_INDEX_FILE: join(folder, "index"), GIT_OBJECT_DIRECTORY: join(folder, "objects"), GIT_ALTERNATE_OBJECT_DIRECTORIES: objects },
-      claude: claude && !claude.startsWith("..") && !isAbsolute(claude) ? claude : undefined,
+      claude: within(top, claude) && !within(claude, this.cwd) ? relative(top, claude) : undefined,
     };
   }
 
@@ -272,13 +272,19 @@ async function unseenOf(repo: Repo, paths: string[], signal: AbortSignal) {
   const outside: string[] = [];
   const inside = new Map<string, string>();
   for (const path of paths) {
-    const where = relative(repo.top, join(await realpath(dirname(path)).catch(() => dirname(path)), basename(path)));
-    if (where === ".." || where.startsWith(`..${sep}`) || isAbsolute(where)) outside.push(path);
-    else inside.set(where, path);
+    const real = join(await realpath(dirname(path)).catch(() => dirname(path)), basename(path));
+    if (within(repo.top, real)) inside.set(relative(repo.top, real), path);
+    else outside.push(path);
   }
   // Exits 1 when none is ignored.
   const ignored = inside.size ? await git(repo, ["check-ignore", "-z", "--stdin"], signal, [...inside.keys()].map((where) => `${where}\0`).join("")) : null;
   return [...outside, ...(ignored ?? "").split("\0").flatMap((where) => inside.get(where) ?? [])];
+}
+
+/** `path` is `folder`, or in it. */
+function within(folder: string, path: string) {
+  const where = relative(folder, path);
+  return where !== ".." && !where.startsWith(`..${sep}`) && !isAbsolute(where);
 }
 
 /** What git printed, or null when it failed, or ran past the edge's deadline and was stopped. */
