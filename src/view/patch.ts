@@ -29,7 +29,9 @@ export function patchLines(patch: string): DiffLine[] {
 
 /**
  * The lines in runs that follow on in the file, and how many lines of it come before each run that
- * the diff leaves out. Lines without numbers are one run.
+ * the diff leaves out. Lines without numbers are one run. A line above the one before it, as in a
+ * diff made of a turn's edits, each against the file as it was then, starts a run with none left
+ * out: a run after the first with `skipped` 0 is one of those.
  */
 export function runsOf(lines: DiffLine[]): { skipped: number; lines: DiffLine[] }[] {
   const runs: { skipped: number; lines: DiffLine[] }[] = [];
@@ -39,7 +41,13 @@ export function runsOf(lines: DiffLine[]): { skipped: number; lines: DiffLine[] 
   let next = 1;
   for (const one of lines) {
     const at = one.kind === "removed" ? one.old : one.new;
-    const gap = at === undefined ? 0 : Math.max(0, at - (one.kind === "removed" ? old : next));
+    if (at !== undefined && at < (one.kind === "removed" ? old : next)) {
+      runs.push({ skipped: 0, lines: [] });
+      // An edit's hunk starts at the same line on both sides.
+      old = one.old ?? at;
+      next = one.new ?? at;
+    }
+    const gap = at === undefined ? 0 : at - (one.kind === "removed" ? old : next);
     if (!runs.length || gap > 0) runs.push({ skipped: gap, lines: [] });
     runs.at(-1)!.lines.push(one);
     old += gap + (one.kind === "added" ? 0 : 1);

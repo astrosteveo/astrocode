@@ -3,12 +3,12 @@ import { renderToString } from "ink";
 import { stripVTControlCharacters } from "node:util";
 import type { FileChange } from "../src/events";
 import { patchLines } from "../src/view/patch";
-import { initialState, type Item, type State } from "../src/view/state";
+import { initialState, type Item, type State, type ToolCall } from "../src/view/state";
 import { ItemView } from "./entries";
 import { DEFAULT_KEYMAP } from "./keys";
 import { fileTarget, moreTarget, opensLedger, scopeTarget, type Listed, type TurnItem } from "./ledger";
 import { cellWidth } from "./markdown";
-import { diffKey, NO_REVIEW, type Review } from "./review";
+import { diffKey, NO_REVIEW, turnDiff, type Review } from "./review";
 import { startOf } from "./start";
 import { layout, type Transcript } from "./transcript";
 
@@ -188,4 +188,28 @@ test("opens the diff of a file of a million lines and more, folded", () => {
   // One gutter, as wide as the last line's number.
   expect(lines[more - 12]).toMatch(/^ {4} {6}1  \+ 1/);
   expect(lines[more + 8]).toContain("1200000  + 1200000");
+});
+
+test("a diff made of edits, the second above the first, keeps each in a run of its own", async () => {
+  // Outside git, or for a resumed turn, the diff comes from the turn's edits, in the order Claude made them.
+  const edit = (id: string, at: number, text: string): ToolCall => ({
+    id,
+    name: "Edit",
+    input: { file_path: "/p/a.ts", old_string: `${text} old`, new_string: `${text} new` },
+    status: "done",
+    subagentCalls: 0,
+    output: { structuredPatch: [{ oldStart: at, oldLines: 3, newStart: at, newLines: 3, lines: [` before ${at}`, `-${text} old`, `+${text} new`, ` after ${at}`] }] },
+  });
+  const state = ended([{ path: "/p/a.ts", added: 2, removed: 2 }]);
+  const turn = state.items.at(-1) as TurnItem;
+  const none = { changes: async () => null, patch: async () => null };
+  const diff = await turnDiff(none, { ...turn, trees: undefined }, turn.files![0]!, [edit("1", 200, "far"), edit("2", 10, "near")]);
+  const review = { ...NO_REVIEW, diffs: new Map([[diffKey("turn", "end", "/p/a.ts"), diff]]) };
+  const lines = plain(draw(state, 118, { open: [fileTarget("end", "/p/a.ts")], review })).map((line) => line.trimEnd());
+  const far = lines.findIndex((line) => line.includes("after 200"));
+  expect(lines[far]).toMatch(/^ {4}202 {4}after 200/);
+  // Not joined on to it, as though it followed: a line apart, numbered again from where it is.
+  expect(lines[far + 1]).toMatch(/^ {4} +⋯$/);
+  expect(lines[far + 2]).toMatch(/^ {4} 10 {4}before 10/);
+  expect(lines[far + 3]).toMatch(/^ {4} 11  - near old/);
 });

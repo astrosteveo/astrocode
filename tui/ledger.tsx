@@ -220,9 +220,9 @@ function Runs({ runs, width, digits, path }: { runs: Run[]; width: number; digit
     <Box flexDirection="column" width={width}>
       {runs.map((run, i) => (
         <Box key={i} flexDirection="column">
-          {run.skipped ? (
+          {run.skipped || i > 0 ? (
             <Box backgroundColor={PALETTE.surface} width={width}>
-              <Text color={PALETTE.dust}>{`${" ".repeat(digits + 1)}   ⋯ ${plural(run.skipped, "line")}`}</Text>
+              <Text color={PALETTE.dust}>{`${" ".repeat(digits + 1)}   ⋯${run.skipped ? ` ${plural(run.skipped, "line")}` : ""}`}</Text>
             </Box>
           ) : null}
           <Diff lines={run.lines} width={width} limit={run.lines.length} path={path} framed={false} digits={digits} />
