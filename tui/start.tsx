@@ -43,7 +43,13 @@ export function startOf(state: State, branch: string | undefined, keymap: Keymap
   };
   return {
     engine: loaded?.version,
-    where: [shortPath(state.cwd, "", state.home), ...(branch ? [branch] : []), ...(model ? [effort ? `${model} ${effort}` : model] : []), MODE_CHIPS[state.mode].label],
+    where: [
+      shortPath(state.cwd, "", state.home),
+      ...(branch ? [branch] : []),
+      ...(model ? [effort ? `${model} ${effort}` : model] : []),
+      // Claude Code says its mode as it starts, before what it loaded; until then the mode is a guess.
+      ...(loaded ? [MODE_CHIPS[state.mode].label] : []),
+    ],
     loaded: [
       ...(loaded?.claudeMd === 1 ? ["CLAUDE.md"] : count(loaded?.claudeMd, "CLAUDE.md file")),
       ...count(loaded?.plugins, "plugin"),
