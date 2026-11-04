@@ -14,8 +14,8 @@ import { plural } from "../src/view/tools";
 import { callTarget } from "./entries";
 import { hit, MULTI_CLICK_MS, relative, useHover, useMouse } from "./mouse";
 import type { Find } from "./find";
-import { Keys } from "./inspector";
 import { strokeOf, type Keymap } from "./keys";
+import { cellWidth } from "./markdown";
 import { cellsOn, cursorOn, findIn, hasContent, highlight, isTextAt, linkAt, lit, litLink, markMatches, selectedText, wordAt, type Cell } from "./selection";
 import { PALETTE } from "./theme";
 import { Welcome, WELCOME_HEIGHT, WELCOME_WIDTH } from "./mirror";
@@ -190,6 +190,14 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     const { rows } = transcript;
     for (let i = Math.min(rows.length, top + view - pad) - 1; i >= top; i--) if (isStop(rows[i])) return i;
     return rows.findLastIndex(isStop);
+  };
+
+  /** The first line in view the cursor can be on, or as lastShown when none is. */
+  const firstShown = () => {
+    const { transcript, top, view, pad } = now.current;
+    const { rows } = transcript;
+    for (let i = top; i < Math.min(rows.length, top + view - pad); i++) if (isStop(rows[i])) return i;
+    return lastShown();
   };
 
   /** ↑ or ↓: the cursor to the line before or after, with the view following it. */
@@ -470,25 +478,6 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     setSelection(null);
   }, [epoch, sent]);
 
-  // Your keys coming to the transcript put the cursor on the last line in view, unless it's in view already.
-  useEffect(() => {
-    if (!focused) return;
-    const { at, top, view, pad } = now.current;
-    if (at !== null && at >= top && at < top + view - pad) return;
-    const index = lastShown();
-    if (index !== -1) place(index);
-  }, [focused]);
-
-  // While the transcript has your keys it shows a cursor: a line that's gone, as a streamed reply's
-  // is once it's written for good, leaves it on the last line in view, and with no line at all to be
-  // on, your keys go back to the box.
-  useEffect(() => {
-    if (!focused || now.current.at !== null) return;
-    const index = lastShown();
-    if (index === -1) onLeave();
-    else place(index);
-  }, [focused, transcript]);
-
   // Once a call that opens or closes is drawn so, as from ← and → or Esc, the cursor goes to its
   // line, which is scrolled into view with as much of what opened under it as fits.
   const keep = opened?.id;
@@ -509,6 +498,24 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
     if (focused) place(index);
     show(index, keep === undefined ? index : openedEnd(transcript, index));
   }, [keep, transcript]);
+
+  // While the transcript has your keys its cursor is in view, so the gold mark shows. Your keys
+  // coming to it put the cursor on the last line in view, unless it's in view already. After that,
+  // the view moving away from it (the wheel, or the end it follows growing) brings it to the nearest
+  // line in view, as does its line going, as a streamed reply's does once it's written for good.
+  // With no line at all to be on, your keys go back to the box.
+  const hadKeys = useRef(false);
+  useEffect(() => {
+    const arriving = focused && !hadKeys.current;
+    hadKeys.current = focused;
+    if (!focused) return;
+    const { at, top, view, pad } = now.current;
+    if (at !== null && at >= top && at < top + view - pad) return;
+    const index = !arriving && at !== null && at < top ? firstShown() : lastShown();
+    if (index === -1) return onLeave();
+    place(index);
+    show(index);
+  }, [focused, transcript, top, view]);
 
   // The match search is on stays in view, a third of the way down when it has to move.
   const target = matches[current]?.index;
@@ -625,19 +632,21 @@ export function Screen({ state, epoch, branch, columns, rows: height, expanded, 
   );
 }
 
-/** The keys of the transcript, while it has yours, on the line over the box. */
-export function TranscriptHint({ opened }: { opened: boolean }) {
-  return (
-    <Text wrap="truncate-end">
-      <Keys
-        pairs={
-          opened
-            ? [["↑↓", "move"], ["←→", "calls"], ["tab", "views"], ["c", "copy"], ["e", "$EDITOR"], ["enter", "open or close"], ["esc", "close"]]
-            : [["↑↓", "move"], ["enter", "open or close"], ["esc", "back to the box"]]
-        }
-      />
-    </Text>
-  );
+/**
+ * The transcript's keys while it has yours, as many as fit in `room` cells, for the box's top edge.
+ * It's drawn there rather than on a row of its own, so the transcript doesn't move as it takes them.
+ */
+export function transcriptHint(opened: boolean, room: number) {
+  const pairs = opened
+    ? ["↑↓ move", "←→ calls", "tab views", "c copy", "e $EDITOR", "enter open or close", "esc close"]
+    : ["↑↓ move", "enter open or close", "esc back to the box"];
+  let hint = "";
+  for (const pair of pairs) {
+    const next = hint ? `${hint}   ${pair}` : pair;
+    if (cellWidth(next) > room) break;
+    hint = next;
+  }
+  return hint;
 }
 
 /** A line the cursor stops on: one with something past the rail. */

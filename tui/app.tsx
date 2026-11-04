@@ -64,7 +64,7 @@ import { QueuedMessages } from "./queued";
 import { RemotePanel } from "./remote";
 import { GUTTER } from "./rail";
 import { SandboxPanel } from "./sandbox";
-import { Screen, TranscriptHint } from "./screen";
+import { Screen, transcriptHint } from "./screen";
 import { arrange, type Entry } from "./arrange";
 import { SessionPreview } from "./session-preview";
 import { SkillsPanel } from "./skills";
@@ -1574,7 +1574,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const pinned = showTodos && todos ? <PinnedTodos todos={todos} rows={Math.max(3, Math.min(8, rows - 20))} /> : null;
   const panel = (
     <Box ref={panelBox} flexDirection="column">
-      {focus === "transcript" ? <TranscriptHint opened={Boolean(inspected)} /> : null}
       <Activity state={state} width={width} />
       {/* The message box's own top edge sets it apart; what sits above it needs a row. */}
       <Box marginTop={above || pinned || state.queue.length ? 1 : 0} flexDirection="column">
@@ -1584,6 +1583,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         <Prompt
           active={focus === "box"}
           anywhere={focus === "transcript"}
+          // As much of it as fits in the edge with a cell of it at each end.
+          hint={focus === "transcript" ? transcriptHint(Boolean(inspected), width - 5) : undefined}
           fullscreen={fullscreen}
           busy={state.busy}
           waitingOn={question || elicitation ? "question" : request ? "permission" : undefined}

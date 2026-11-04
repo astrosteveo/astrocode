@@ -336,3 +336,36 @@ test("Alt+L with a call opened from the transcript closes it and follows Claude 
   expect(row(/◉ Following/)).not.toBe(-1);
   expect(row(/Following Claude again/)).not.toBe(-1);
 });
+
+/** Fifteen messages, each with a call: longer than a screen of 24 rows. */
+function long(): State {
+  const items: Item[] = Array.from({ length: 15 }, (_, i): Item[] => [
+    { kind: "prompt", key: `p${i}`, text: `message ${i}` },
+    { kind: "tool", key: `c${i}`, call: call(`c${i}`) },
+  ]).flat();
+  return { ...initialState("/p", "/home/u"), items, tools: Object.fromEntries(items.flatMap((item, i) => (item.kind === "tool" ? [[item.call.id, i]] : []))) };
+}
+
+test("the transcript taking your keys moves nothing on screen, and its cursor shows even after scrolling up", async () => {
+  const { press, cursor, screen, row } = await launch(long(), { rows: 24 });
+  await press("\x1b[5~");
+  const before = screen();
+  await press(KEYS.ctrlO);
+  // The box and every line stay where they were, and the cursor is on the last line in view.
+  expect(row(/^ ❯/)).toBe(before.findIndex((line) => line.startsWith(" ❯")));
+  const box = row(/^ ❯/) - 1;
+  const plain = (lines: string[]) => lines.slice(0, box).map((line) => line.replace("›", " ").trimEnd());
+  expect(plain(screen())).toEqual(plain(before));
+  expect(cursor()).not.toBe(-1);
+  const at = cursor();
+  await press(KEYS.up);
+  expect(cursor()).toBeLessThan(at);
+});
+
+test("a click on a line while the view follows the end leaves the line where it was clicked", async () => {
+  const { click, cursor, row } = await launch(long(), { rows: 24 });
+  const y = row(/message 13\b/);
+  await click(20, y);
+  expect(row(/message 13\b/)).toBe(y);
+  expect(cursor()).toBe(y);
+});
