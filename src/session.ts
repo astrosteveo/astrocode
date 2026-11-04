@@ -1070,7 +1070,8 @@ export class AgentSession {
       const settings = untyped(run.query, "getSettings").catch(() => undefined);
       await Promise.all([this.reportContext(run), this.reportUltracode(run, settings), this.reportLoaded(run, init.claude_code_version, settings)]);
     } catch {
-      // A failed start is reported by pump().
+      // A failed start is reported by pump(). It loaded nothing, which the start screen waits to hear.
+      if (!run.closing) this.options.emit({ kind: "loaded", loaded: {} });
     }
   }
 

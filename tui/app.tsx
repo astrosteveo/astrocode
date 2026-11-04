@@ -1752,13 +1752,15 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   }
 
   // The scrollback can't take back the start screen, so it's written there once it has all it will
-  // say, and until then it's drawn live with what follows it; or once the conversation starts.
-  const started = startReady(state) || state.items.some((item) => item.kind !== "notice");
+  // say, a moment after Claude Code starts. Until then nothing above the box is drawn, a resumed
+  // conversation's history included: drawn live, it could fill a short terminal, which then writes
+  // a copy of it to the scrollback on every frame.
+  const started = startReady(state);
   const settled = started ? settledSteps(state, settledCount(state.items, waiting)) : 0;
   // What's written for good is arranged on its own, as of a turn that's over, so it can't change later.
   const written = arrange({ ...state, items: state.items.slice(0, settled), busy: false }, waiting, NONE);
   const entries: ({ kind: "banner"; key: string } | Entry)[] = started ? [{ kind: "banner", key: "banner" }, ...written] : [];
-  const unsettled = arrange(state, waiting, NONE).filter((entry) => entry.index >= settled);
+  const unsettled = started ? arrange(state, waiting, NONE).filter((entry) => entry.index >= settled) : [];
   return (
     <>
       <Static key={store.epoch} items={entries}>
@@ -1775,7 +1777,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         )}
       </Static>
       <Box flexDirection="column">
-        {started ? null : <StartScreen start={start} width={width} />}
         {unsettled.map((entry) =>
           entry.kind === "step" ? (
             <StepView key={entry.key} step={entry.row} rail={entry.rail} open={entry.open} width={width} pictureRows={view.pictureRows} cwd={state.cwd} home={state.home} clickable={false} />
