@@ -128,7 +128,8 @@ test("the transcript keeps to the measure at every width, in full screen and in 
       const widest = Math.max(...transcript.map(cellWidth));
       // Claude's reply wraps at the measure, so something reaches it, and nothing goes past it.
       expect(widest).toBe(edge);
-      expect(lines.at(-1)).toContain("context");
+      // The readings kept longest are there at every width.
+      expect(lines.at(-1)).toMatch(/context .* 7d 64%/);
       if (columns === 200) expect(cellWidth(lines.at(-1)!.trimEnd())).toBeGreaterThan(190);
     }
   }

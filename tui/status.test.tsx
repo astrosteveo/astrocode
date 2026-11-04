@@ -18,7 +18,7 @@ const state: State = {
 };
 
 /** The bar on a fake terminal `columns` wide, with a mouse that `click` presses at a cell of it. */
-function bar(columns: number, props: { needsYou?: number; armed?: string | null; mode?: PermissionMode; toast?: string; onNeedsYou?: () => void; onMode?: () => void }) {
+function bar(columns: number, props: { needsYou?: number; armed?: string | null; mode?: PermissionMode; toast?: string; running?: number; onNeedsYou?: () => void; onMode?: () => void; onModel?: () => void; onEffort?: () => void }) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns, rows: 10 });
   let drawn = "";
   stdout.on("data", (chunk: Buffer) => {
@@ -37,13 +37,15 @@ function bar(columns: number, props: { needsYou?: number; armed?: string | null;
         git={{ branch: "feat/cache-clock", changes: 3 }}
         width={columns}
         armed={props.armed ?? null}
-        running={0}
+        running={props.running ?? 0}
         toast={props.toast ?? null}
         keepWarm={false}
         usageMode="on"
         needsYou={props.needsYou}
         onNeedsYou={props.onNeedsYou}
         onMode={props.onMode}
+        onModel={props.onModel}
+        onEffort={props.onEffort}
       />
     </MouseContext>,
     { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, exitOnCtrlC: false, patchConsole: false },
@@ -134,4 +136,43 @@ test("a click on the count beside a cut armed hint still opens the conversations
   await click(shown.indexOf("← 2 need you") + 4);
   stop();
   expect(opened).toBe(1);
+});
+
+/** Each reading by the words it starts with, in the order the bar keeps them in as it narrows. */
+const RANKED = [["context"], ["7d 64%"], ["◌ 2 running"], ["5h 31%"], ["Opus 5.5", "xhigh effort"], ["⎇ feat/cache-clock ±3"]];
+/** The same, in the order they're drawn. */
+const DRAWN = ["◌ 2 running", "context", "5h 31%", "7d 64%", "Opus 5.5", "xhigh effort", "⎇ feat/cache-clock ±3"];
+
+test("readings drop by rank as the bar narrows, are drawn in their own order, and the mode and the count always stay", () => {
+  const kept: Record<number, number> = {};
+  for (const columns of [50, 60, 70, 80, 90, 100, 120, 140, 200]) {
+    const { line, stop } = bar(columns, { needsYou: 1, running: 2 });
+    const shown = line();
+    stop();
+    expect(shown).toStartWith(" ▐ask first▌");
+    expect(shown).toContain("← 1 needs you");
+    expect(shown.trimEnd().length).toBeLessThanOrEqual(columns);
+    // The readings shown are the first ranks, whole: the model and its effort go together.
+    const ranks = RANKED.map((words) => words.filter((one) => shown.includes(one)).length);
+    const count = ranks.filter((n) => n > 0).length;
+    expect(ranks).toEqual(RANKED.map((words, i) => (i < count ? words.length : 0)));
+    const at = DRAWN.filter((words) => shown.includes(words)).map((words) => shown.indexOf(words));
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+    kept[columns] = count;
+  }
+  // Fewer as it narrows, all of them on a wide screen.
+  expect(Object.values(kept)).toEqual(Object.values(kept).sort((a, b) => a - b));
+  expect(kept[200]).toBe(RANKED.length);
+  expect(kept[80]).toBeGreaterThanOrEqual(2);
+});
+
+test("a click on a reading acts on that reading, drawn out of rank order", async () => {
+  const clicked: string[] = [];
+  const { line, click, stop } = bar(200, { running: 2, onModel: () => clicked.push("model"), onEffort: () => clicked.push("effort") });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const shown = line();
+  await click(shown.indexOf("Opus 5.5") + 2);
+  await click(shown.indexOf("xhigh effort") + 2);
+  stop();
+  expect(clicked).toEqual(["model", "effort"]);
 });

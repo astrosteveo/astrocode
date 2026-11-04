@@ -1,12 +1,14 @@
 // The status bar under the message box. On the left, the permission mode as a solid chip, or for
 // bypass, rose words without the fill, since it stays on all session and a solid rose block would
 // outshout everything else, then `← N needs you` in gold while another conversation, astrocode's or a
-// Claude Code background session, waits on you, which the readings make room for; on the right, readings: how full the context is, the model, what runs
-// in the background, your plan's usage windows once they're half used (or always, or never, as
-// /config says), the git branch and the
-// plan, as many as fit, most important first. After the context, how long the prompt cache stays
-// warm, `cache 54m`, with ↻ while astrocode keeps it warm, or `cache cold`; then `⇄ remote` while
-// Remote Control is on, teal once connected and rose if it failed. In full
+// Claude Code background session, waits on you, which the readings make room for; on the right,
+// readings by rank, as many as fit: how full the context is, your plan's 7-day usage window, what
+// runs in the background, its 5-hour window (the windows once they're half used, or always, or
+// never, as /config says), the model and effort, and the git branch, each dropped before the ones
+// above it as the bar narrows, and drawn in an order of their own. After those come how long the
+// prompt cache stays warm, `cache 54m`, with ↻ while astrocode keeps it warm, or `cache cold`; fast
+// mode, thinking off, `⇄ remote` while Remote Control is on, teal once connected and rose if it
+// failed, and the plan. In full
 // screen, clicking the chip changes the mode, clicking the model switches it, clicking the effort
 // sets it, clicking "thinking off" turns it back on, clicking the cache turns keep-warm on or off,
 // clicking `⇄ remote` opens Remote Control's link and QR code, clicking `← N needs you` opens the agents view, as ← in an empty box does,
@@ -52,6 +54,8 @@ const GAUGE = 10;
 const USAGE_SHOWN = 0.5;
 
 type Segment = { text: string; node: ReactNode; onClick?: () => void };
+/** A reading, and where it comes in the order readings are kept in as the bar narrows: the lowest last to go. */
+type Reading = Segment & { rank: number };
 
 type Props = {
   state: State;
@@ -95,8 +99,12 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, modT
   const hint = armed ? "" : "  shift+tab";
   const room = width - 2 - cellWidth(left) - cellWidth(hint) - beside - 2;
 
-  // In order of importance: the bar keeps what fits from the start of this list.
-  const segments: Segment[] = [];
+  // In the order they're drawn; the bar keeps them by rank, as many as fit.
+  const segments: Reading[] = [];
+  if (running) {
+    const text = `◌ ${running} running`;
+    segments.push({ text, node: <Text color={PALETTE.teal}>{text}</Text>, onClick: onTasks, rank: 3 });
+  }
   if (state.context) {
     const share = state.context.percentage / 100;
     const filled = Math.min(GAUGE, Math.round(share * GAUGE));
@@ -111,6 +119,7 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, modT
           <Text color={PALETTE.haze}>{` ${state.context.percentage}%`}</Text>
         </Text>
       ),
+      rank: 1,
     });
   }
   if (state.cache) {
@@ -126,52 +135,52 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, modT
         </Text>
       ),
       onClick: onCache,
+      rank: 7,
     });
   }
-  if (state.remote) {
-    const { text, color } = REMOTE[state.remote.status];
-    segments.push({ text, node: <Text color={color}>{text}</Text>, onClick: onRemote });
+  for (const [name, window, rank] of [
+    ["5h", state.limits.fiveHour, 4],
+    ["7d", state.limits.sevenDay, 2],
+  ] as const) {
+    if (window && (usageMode === "on" || (usageMode === "auto" && window.utilization >= USAGE_SHOWN))) segments.push({ ...usage(name, window), rank });
   }
   const model = state.model ? (state.models.find((one) => one.value === state.model)?.name ?? modelLabel(state.model)) : undefined;
-  if (model) segments.push({ text: model, node: <Text color={PALETTE.star}>{model}</Text>, onClick: onModel });
+  // The model and its effort are one reading, which goes whole.
+  if (model) segments.push({ text: model, node: <Text color={PALETTE.star}>{model}</Text>, onClick: onModel, rank: 5 });
   // Ultracode takes the effort's place: Claude Code runs it at its own level.
   if (state.ultracode) {
-    segments.push({ text: "ultracode", node: <Text>{paintKeywords("ultracode", 0, 9, keywordsIn("ultracode"))}</Text>, onClick: onEffort });
+    segments.push({ text: "ultracode", node: <Text>{paintKeywords("ultracode", 0, 9, keywordsIn("ultracode"))}</Text>, onClick: onEffort, rank: 5 });
   } else if (state.effort) {
     const text = `${state.effort} effort`;
-    segments.push({ text, node: <Text color={PALETTE.haze}>{text}</Text>, onClick: onEffort });
+    segments.push({ text, node: <Text color={PALETTE.haze}>{text}</Text>, onClick: onEffort, rank: 5 });
   }
   // Fast mode is off unless turned on; after a rate limit it pauses for a while.
-  if (state.fast?.state === "on") segments.push({ text: "↯ fast", node: <Text color={PALETTE.teal}>↯ fast</Text>, onClick: onFast });
-  if (state.fast?.state === "cooldown") segments.push({ text: "↯ fast paused", node: <Text color={PALETTE.ember}>↯ fast paused</Text>, onClick: onFast });
+  if (state.fast?.state === "on") segments.push({ text: "↯ fast", node: <Text color={PALETTE.teal}>↯ fast</Text>, onClick: onFast, rank: 8 });
+  if (state.fast?.state === "cooldown") segments.push({ text: "↯ fast paused", node: <Text color={PALETTE.ember}>↯ fast paused</Text>, onClick: onFast, rank: 8 });
   // Thinking is on unless turned off, so only off is worth a word, and only on a model that can stop.
-  if (state.thinking === false && canStopThinking(state)) segments.push({ text: "thinking off", node: <Text color={PALETTE.ember}>thinking off</Text>, onClick: onThinking });
-  if (running) {
-    const text = `◌ ${running} running`;
-    segments.push({ text, node: <Text color={PALETTE.teal}>{text}</Text>, onClick: onTasks });
-  }
-  for (const [name, window] of [
-    ["5h", state.limits.fiveHour],
-    ["7d", state.limits.sevenDay],
-  ] as const) {
-    if (window && (usageMode === "on" || (usageMode === "auto" && window.utilization >= USAGE_SHOWN))) segments.push(usage(name, window));
+  if (state.thinking === false && canStopThinking(state)) segments.push({ text: "thinking off", node: <Text color={PALETTE.ember}>thinking off</Text>, onClick: onThinking, rank: 9 });
+  if (state.remote) {
+    const { text, color } = REMOTE[state.remote.status];
+    segments.push({ text, node: <Text color={color}>{text}</Text>, onClick: onRemote, rank: 10 });
   }
   if (git) {
     const text = `⎇ ${git.branch}${git.changes ? ` ±${git.changes}` : ""}`;
-    segments.push({ text, node: <Text color={PALETTE.haze}>{text}</Text> });
+    segments.push({ text, node: <Text color={PALETTE.haze}>{text}</Text>, rank: 6 });
   }
-  if (state.plan) segments.push({ text: state.plan, node: <Text color={PALETTE.dust}>{state.plan}</Text> });
+  if (state.plan) segments.push({ text: state.plan, node: <Text color={PALETTE.dust}>{state.plan}</Text>, rank: 11 });
 
   const said = toast ? fit(`✓ ${toast}`, room, false) : "";
   const flash = toast ? { text: said, node: <Text color={PALETTE.teal}>{said}</Text> } : modToast ? modFlash(modToast, room) : null;
-  const shown: Segment[] = flash ? [flash] : [];
-  let used = flash ? cellWidth(flash.text) : 0;
-  for (const segment of flash ? [] : segments) {
-    const cost = cellWidth(segment.text) + (shown.length ? GAP.length : 0);
-    if (used + cost > room) break;
-    shown.push(segment);
-    used += cost;
+  const widthOf = (list: Segment[]) => list.reduce((sum, segment, i) => sum + (i ? GAP.length : 0) + cellWidth(segment.text), 0);
+  // The lowest ranks that fit, a rank's readings together, stopping at the first that doesn't.
+  let kept: Reading[] = [];
+  for (const rank of [...new Set(segments.map((segment) => segment.rank))].sort((a, b) => a - b)) {
+    const more = [...kept, ...segments.filter((segment) => segment.rank === rank)];
+    if (widthOf(more) > room) break;
+    kept = more;
   }
+  const shown: Segment[] = flash ? [flash] : segments.filter((segment) => kept.includes(segment));
+  const used = widthOf(shown);
 
   /** What a click at cell `x` of the bar acts on: the chip, the count of conversations waiting, a reading by its place in `shown`, or nothing. */
   const targetAt = (x: number): "mode" | "needs" | number | null => {
