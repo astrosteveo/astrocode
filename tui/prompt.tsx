@@ -435,7 +435,10 @@ export function Prompt(props: Props) {
         if (text) set("", 0);
         return busy ? undefined : exitOnSecond(action);
       case "app:exit":
-        return text ? deleteForward() : exitOnSecond(action);
+        // Deleting forward edits the box, which only has your keys while it's active: from the
+        // transcript, Ctrl+D with text does nothing.
+        if (text) return active ? deleteForward() : undefined;
+        return exitOnSecond(action);
       case "app:toggleTodos":
         return props.onToggleTodos();
       case "app:toggleTranscript":
