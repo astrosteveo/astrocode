@@ -19,12 +19,13 @@ export type TurnWork = Pick<Turn, "files" | "commands" | "tests" | "commits" | "
 const EDITS = new Set(["Edit", "Write", "NotebookEdit", "MultiEdit"]);
 
 /**
- * What the turn now ending did since the turn before it ended. A message you sent while Claude
- * worked, which it took mid-turn, doesn't split the turn. `git` is what git said the turn changed,
- * when the session could record its edges.
+ * What the turn now ending did since the turn before it ended, or since the message that started
+ * it, as when Claude Code stopped before the turn before it could end. A message you sent while
+ * Claude worked, which it took mid-turn, doesn't split the turn. `git` is what git said the turn
+ * changed, when the session could record its edges.
  */
 export function turnWork(items: Item[], { cwd, home }: { cwd: string; home: string }, git?: { files: FileChange[]; commits: string[] }): TurnWork {
-  const start = items.findLastIndex((item) => item.kind === "turn");
+  const start = items.findLastIndex((item) => item.kind === "turn" || (item.kind === "prompt" && item.starts));
   const edits = new Map<string, FileChange>();
   const commands: string[] = [];
   const commits: string[] = [];
