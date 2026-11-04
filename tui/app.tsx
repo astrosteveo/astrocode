@@ -64,6 +64,7 @@ import { QuestionPrompt } from "./question";
 import { QueuedMessages } from "./queued";
 import { RemotePanel } from "./remote";
 import { GUTTER } from "./rail";
+import { edgeOf } from "./measure";
 import { SandboxPanel } from "./sandbox";
 import { Screen, transcriptHint } from "./screen";
 import { KeySheet, sheetOf, type Place, type Prompted } from "./sheet";
@@ -322,6 +323,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const request = state.pending[0];
   // In scrollback, what's above the message box and status bar, which take about six rows.
   const view = { cwd: state.cwd, home: state.home, width, pictureRows: pictureRows(rows - 6) };
+  // The transcript keeps to the measure; a decision, the box and the status bar under it take the whole width.
+  const edge = edgeOf(width);
 
   const report = (error: unknown) =>
     store.emit({ kind: "notice", tone: "error", text: error instanceof Error ? error.message : String(error) });
@@ -806,7 +809,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     store.shells.set(id, controller);
     store.emit({ kind: "shell", id, command, at: Date.now() });
     const onOutput = (output: string) => store.emit({ kind: "shell-output", id, output, at: Date.now() });
-    void runShell(command, { cwd: state.cwd, cols: width - GUTTER - 2, signal: controller.signal, onOutput }).then((result) => {
+    void runShell(command, { cwd: state.cwd, cols: edge - GUTTER - 2, signal: controller.signal, onOutput }).then((result) => {
       store.shells.delete(id);
       // After /clear or a resume, the conversation it belonged to is gone.
       if (store.resets !== resets) return;
@@ -1829,11 +1832,11 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
         {(entry) => (
           <Box key={entry.kind === "item" ? entry.item.key : entry.key} flexDirection="column">
             {entry.kind === "item" ? (
-              <ItemView item={entry.item} rail={entry.rail} detailed scrollback {...view} />
+              <ItemView item={entry.item} rail={entry.rail} detailed scrollback {...view} width={edge} />
             ) : entry.kind === "step" ? (
-              <StepView step={entry.row} rail={entry.rail} open={entry.open} width={width} pictureRows={view.pictureRows} links="scrollback" cwd={state.cwd} home={state.home} clickable={false} />
+              <StepView step={entry.row} rail={entry.rail} open={entry.open} width={edge} pictureRows={view.pictureRows} links="scrollback" cwd={state.cwd} home={state.home} clickable={false} />
             ) : (
-              <StartScreen start={start} width={width} />
+              <StartScreen start={start} width={edge} />
             )}
           </Box>
         )}
@@ -1845,7 +1848,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           <>
             {unsettled.map((entry) =>
               entry.kind === "step" ? (
-                <StepView key={entry.key} step={entry.row} rail={entry.rail} open={entry.open} width={width} pictureRows={view.pictureRows} cwd={state.cwd} home={state.home} clickable={false} />
+                <StepView key={entry.key} step={entry.row} rail={entry.rail} open={entry.open} width={edge} pictureRows={view.pictureRows} cwd={state.cwd} home={state.home} clickable={false} />
               ) : (
                 <ItemView
                   key={entry.item.key}
@@ -1853,10 +1856,11 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
                   rail={entry.rail}
                   waiting={entry.item.kind === "tool" && waiting.has(entry.item.call.id)}
                   {...view}
+                  width={edge}
                 />
               ),
             )}
-            <LiveView live={state.live} width={width} room={Math.max(4, rows - 16)} />
+            <LiveView live={state.live} width={edge} room={Math.max(4, rows - 16)} />
           </>
         )}
         {panel}

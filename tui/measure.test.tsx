@@ -1,0 +1,132 @@
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { render } from "ink";
+import { PassThrough } from "node:stream";
+import { stripVTControlCharacters } from "node:util";
+import type { AgentSession } from "../src/session";
+import { initialState, type Item, type State, type ToolCall } from "../src/view/state";
+import { App } from "./app";
+import { Background, Fleet } from "./fleet";
+import { cellWidth } from "./markdown";
+import { edgeOf, isNarrow, MEASURE } from "./measure";
+import { Mouse, MouseContext } from "./mouse";
+import { scratchConfig } from "./scratch-config";
+import { Store } from "./store";
+
+const call = (id: string, name: string, input: Record<string, unknown>, more: Partial<ToolCall> = {}): ToolCall => ({ id, name, input, status: "done", subagentCalls: 0, ...more });
+
+/**
+ * A finished turn as working.png has it: your message, a step that reads, writes and edits, one
+ * that runs the tests, whose result doesn't fit beside its line under 100 columns, and Claude's
+ * reply, long enough to wrap at the measure, then the turn's ledger.
+ */
+function turn(): State {
+  const calls = [
+    call("r", "Read", { file_path: "/p/src/cache.ts" }, { result: Array.from({ length: 25 }, (_, i) => `${i + 1}\tline`).join("\n") }),
+    call("w", "Write", { file_path: "/p/src/clock.ts", content: Array.from({ length: 11 }, (_, i) => `line ${i + 1}`).join("\n") }, { result: "File created" }),
+    call("e", "Edit", { file_path: "/p/src/cache.ts", old_string: "Date.now()", new_string: "this.clock.now()" }, { result: "ok" }),
+    call("b", "Bash", { command: "bun test", description: "Run the whole suite, retry's attempts test included" }, { status: "error", result: "Exit code 1\n 7 pass\n 1 fail\nRan 8 tests across 1 file." }),
+  ];
+  const items: Item[] = [
+    { kind: "prompt", key: "p", text: "Give src/cache.ts the same injectable clock retry needs (Clock type in src/clock.ts), then run bun test. Don't fix retry.", starts: true },
+    { kind: "text", key: "t1", text: "I'll put the Clock type in its own file and give Cache an optional clock." },
+    { kind: "tool", key: "r", call: calls[0]! },
+    { kind: "tool", key: "w", call: calls[1]! },
+    { kind: "tool", key: "e", call: calls[2]! },
+    { kind: "text", key: "t2", text: "Running the whole suite; retry's attempts test should still fail." },
+    { kind: "tool", key: "b", call: calls[3]! },
+    {
+      kind: "text",
+      key: "t3",
+      text: "Cache takes a clock now, as retry does: Clock lives in src/clock.ts, and Cache's constructor takes an optional one that defaults to the system clock, so nothing that builds a Cache today has to change. The suite runs 8 tests; retry's attempts test still fails, as you asked.",
+    },
+    { kind: "turn", key: "end", outcome: "finished", durationMs: 99_000, tokens: 2900, files: [{ path: "/p/src/clock.ts", added: 11, removed: 0, status: "new" }, { path: "/p/src/cache.ts", added: 1, removed: 1 }], commands: ["bun test"] },
+  ];
+  return {
+    ...initialState("/p", "/home/u"),
+    items,
+    tools: Object.fromEntries(items.flatMap((item, i) => (item.kind === "tool" ? [[item.call.id, i]] : []))),
+    model: "claude-opus-5-5",
+    effort: "xhigh",
+    context: { percentage: 18, tokens: 36_000, max: 200_000 },
+    limits: { fiveHour: { utilization: 0.51, resetsAt: 0 }, sevenDay: { utilization: 0.64, resetsAt: 0 } },
+    loaded: { version: "2.1.318" },
+    recent: [],
+  };
+}
+
+const settle = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const config = scratchConfig();
+let quit: (() => void) | null = null;
+beforeEach(config.start);
+afterEach(async () => {
+  quit?.();
+  quit = null;
+  await config.stop();
+});
+
+/**
+ * astrocode over `state` on a fake terminal `columns` by `rows`, in full screen or scrollback, with a
+ * session that does nothing. `screen()` is the last frame drawn, a row per line, without its colors.
+ */
+async function launch(state: State, columns: number, rows: number, fullscreen = true) {
+  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns, rows });
+  const writes: string[] = [];
+  stdout.on("data", (chunk: Buffer) => writes.push(chunk.toString()));
+  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
+  const store = new Store("/p", "/home/u");
+  store.getSnapshot = () => state;
+  store.subscribe = () => () => {};
+  const session = new Proxy({}, { get: (_, name) => (name === "watchMods" ? () => () => {} : name === "knownId" ? undefined : () => Promise.resolve(null)) }) as unknown as AgentSession;
+  const mouse = new Mouse(stdin as unknown as NodeJS.ReadStream, stdout as unknown as NodeJS.WriteStream);
+  mouse.start();
+  const app = render(
+    <MouseContext.Provider value={mouse}>
+      {/* No conversations besides this one, and no background sessions: never the real `claude agents`. */}
+      <App store={store} session={session} fullscreen={fullscreen} onToggleFullscreen={() => {}} onAgents={() => {}} fleet={new Fleet()} backgroundSessions={new Background(async () => [])} agentsHint={Promise.resolve(false)} />
+    </MouseContext.Provider>,
+    { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, exitOnCtrlC: false, patchConsole: false, debug: true },
+  );
+  quit = () => {
+    app.unmount();
+    mouse.stop();
+  };
+  await settle();
+  // Each frame is written whole, scrollback's with what it wrote for good above it.
+  const screen = () => stripVTControlCharacters(writes.findLast((one) => one.includes("ask first")) ?? "").split("\n");
+  const press = async (keys: string) => {
+    stdin.write(keys);
+    await settle();
+  };
+  return { screen, press };
+}
+
+/** The transcript's rows: those above the box's top edge, less full screen's scrollbar at the right. */
+const transcriptOf = (lines: string[], columns: number) => lines.slice(0, lines.findIndex((line) => /^[▁▄]{20}/.test(line))).map((line) => [...line].slice(0, columns - 2).join("").trimEnd());
+
+test("the transcript's width: two columns short of the terminal's, and no wider than the measure", () => {
+  expect([80, 99, 100, 120, 200].map(edgeOf)).toEqual([78, 97, 98, 112, 112]);
+  expect(edgeOf(1000)).toBe(MEASURE + 2);
+  // Under 100 columns, not at 100.
+  expect([80, 99, 100, 120, 200].map((columns) => isNarrow(edgeOf(columns)))).toEqual([true, true, false, false, false]);
+});
+
+test("the transcript keeps to the measure at every width, in full screen and in scrollback, while the status bar takes the whole width", async () => {
+  for (const fullscreen of [true, false]) {
+    for (const [columns, rows, edge] of [
+      [80, 24, 78],
+      [120, 40, 112],
+      [200, 50, 112],
+    ] as const) {
+      const { screen } = await launch(turn(), columns, rows, fullscreen);
+      const lines = screen();
+      quit?.();
+      const transcript = transcriptOf(lines, columns);
+      const widest = Math.max(...transcript.map(cellWidth));
+      // Claude's reply wraps at the measure, so something reaches it, and nothing goes past it.
+      expect(widest).toBe(edge);
+      expect(lines.at(-1)).toContain("context");
+      if (columns === 200) expect(cellWidth(lines.at(-1)!.trimEnd())).toBeGreaterThan(190);
+    }
+  }
+});

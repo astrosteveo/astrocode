@@ -12,6 +12,7 @@ import { App } from "./app";
 import { Background, Fleet } from "./fleet";
 import { cellWidth } from "./markdown";
 import { DEFAULT_KEYMAP, loadKeymap, type Keymap } from "./keys";
+import { edgeOf } from "./measure";
 import { scratchConfig } from "./scratch-config";
 import { StartScreen, startOf, startReady } from "./start";
 import { Store } from "./store";
@@ -33,9 +34,9 @@ const fresh = (more: Partial<State> = {}): State => ({
   ...more,
 });
 
-/** The start screen as plain lines, `width` columns wide. */
-const draw = (state: State, width = 120, keymap: Keymap = DEFAULT_KEYMAP, branch = "feat/cache-clock") =>
-  stripVTControlCharacters(renderToString(<StartScreen start={startOf(state, branch, keymap, NOW)} width={width} />, { columns: width })).split("\n");
+/** The start screen as plain lines, as the transcript draws it on a terminal `columns` wide. */
+const draw = (state: State, columns = 120, keymap: Keymap = DEFAULT_KEYMAP, branch = "feat/cache-clock") =>
+  stripVTControlCharacters(renderToString(<StartScreen start={startOf(state, branch, keymap, NOW)} width={edgeOf(columns)} />, { columns })).split("\n");
 
 const lineWith = (lines: string[], text: string) => lines.find((line) => line.includes(text));
 

@@ -45,6 +45,7 @@ export type Transcript = {
 
 export type TranscriptInput = {
   state: State;
+  /** The transcript's width, which keeps to the measure (`edgeOf()`). */
   width: number;
   /** How tall a picture in an entry may be. */
   pictureRows: number;

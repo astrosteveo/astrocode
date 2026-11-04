@@ -3,12 +3,11 @@ import { stripVTControlCharacters } from "node:util";
 import type { FileChange } from "../src/events";
 import { patchLines } from "../src/view/patch";
 import { initialState, type Item, type State, type ToolCall } from "../src/view/state";
-import { SPLIT_WIDTH } from "./diff";
 import { DEFAULT_KEYMAP } from "./keys";
 import { fileTarget, moreTarget, opensLedger, scopeTarget, type Listed, type TurnItem } from "./ledger";
 import { cellWidth } from "./markdown";
+import { edgeOf } from "./measure";
 import { diffKey, NO_REVIEW, turnDiff, type Review } from "./review";
-import { OPEN_INSET } from "./opened";
 import { startOf } from "./start";
 import { layout, type Transcript } from "./transcript";
 
@@ -56,30 +55,20 @@ test("opens under its closing line at every width: each file and how it changed,
   }
 });
 
-test("a file's diff opens under its line, unified on a narrow screen and side by side on a wide one, with the lines it leaves out counted", () => {
-  // The transcript is the screen less 2 columns, so the sides go next to each other from 146.
-  for (const width of [78, 118, 143, 144, 198]) {
+test("a file's diff opens under its line, unified at every width, as it keeps to the measure, with the lines it leaves out counted", () => {
+  for (const columns of [80, 120, 200]) {
+    const width = edgeOf(columns);
     const transcript = draw(ended(), width, { open: [fileTarget("end", "/p/src/cache.ts")], review: withDiff() });
     const lines = plain(transcript);
     const file = lines.findIndex((line) => line.includes("src/cache.ts"));
     const diff = lines.slice(file + 1, lines.findIndex((line) => line.includes("bun test")));
     expect(diff[0]).toMatch(/^ {4}\s*⋯ 2 lines/);
     expect(diff.some((line) => /⋯ 14 lines/.test(line))).toBe(true);
-    expect(diff.some((line) => line.includes("Date.now()"))).toBe(true);
-    expect(diff.some((line) => line.includes("this.clock.now()"))).toBe(true);
-    expect(width < SPLIT_WIDTH + OPEN_INSET).toBe(width < 144);
-    if (width < SPLIT_WIDTH + OPEN_INSET) {
-      // Numbered too, the removed line by the old file and the added one by the new, in one gutter for every run.
-      expect(diff.some((line) => line.includes("│"))).toBe(false);
-      expect(diff.find((line) => line.includes("Date.now()"))).toMatch(/^ {4} 4  - +if \(Date\.now\(\)/);
-      expect(diff.find((line) => line.includes("this.clock.now()"))).toMatch(/^ {4} 4  \+ +if \(this\.clock\.now\(\)/);
-      expect(diff.find((line) => line.endsWith("y") || /\+ y\s*$/.test(line))).toMatch(/^ {4}21  \+ y/);
-    } else {
-      // The old line beside the new one, each numbered, in one gutter for every run.
-      expect(diff.find((line) => line.includes("Date.now()"))).toMatch(/ 4 +if \(Date\.now\(\).*│ +4 +if \(this\.clock\.now\(\)/);
-      const rule = (text: string) => [...(diff.find((line) => line.includes(text)) ?? "")].indexOf("│");
-      expect(rule("Date.now()")).toBe(rule("x "));
-    }
+    // Numbered, the removed line by the old file and the added one by the new, in one gutter for every run.
+    expect(diff.some((line) => line.includes("│"))).toBe(false);
+    expect(diff.find((line) => line.includes("Date.now()"))).toMatch(/^ {4} 4  - +if \(Date\.now\(\)/);
+    expect(diff.find((line) => line.includes("this.clock.now()"))).toMatch(/^ {4} 4  \+ +if \(this\.clock\.now\(\)/);
+    expect(diff.find((line) => line.endsWith("y") || /\+ y\s*$/.test(line))).toMatch(/^ {4}21  \+ y/);
     // Enter in the diff closes it: it goes by its file.
     expect(transcript.rows[file + 2]).toMatchObject({ target: fileTarget("end", "/p/src/cache.ts"), head: false, open: true });
     for (const line of lines) expect(cellWidth(line)).toBeLessThanOrEqual(width);

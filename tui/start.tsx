@@ -16,8 +16,6 @@ import { PALETTE } from "./theme";
 
 /** How many of the sessions saved here it lists. */
 export const RECENT = 3;
-/** Text runs no wider than this, at any width. */
-const MEASURE = 110;
 /** A key's column: four across where they fit, else two. */
 const KEY_COLUMN = 27;
 /** The least of a long branch the where line keeps. */
@@ -82,15 +80,15 @@ export function startReady(state: State) {
   return state.loaded !== undefined && state.recent !== undefined;
 }
 
+/** `width`: the transcript's, which keeps to the measure (`edgeOf()`). */
 export function StartScreen({ start, width }: { start: Start; width: number }) {
-  // Two columns in from each side, and no wider than the measure.
-  const edge = Math.min(width - 2, MEASURE + 2);
-  const room = edge - 2;
+  // Two columns in, as the rest of the transcript's text is.
+  const room = width - 2;
   const where = whereLine(start, room);
   const across = room - 2 >= 4 * KEY_COLUMN ? 4 : room - 2 >= 2 * KEY_COLUMN ? 2 : 1;
   const keyRows = Array.from({ length: Math.ceil(start.keys.length / across) }, (_, i) => start.keys.slice(i * across, (i + 1) * across));
   return (
-    <Box flexDirection="column" paddingTop={1} paddingLeft={2} width={edge}>
+    <Box flexDirection="column" paddingTop={1} paddingLeft={2} width={width}>
       <Text wrap="truncate-end">
         <Text bold color={PALETTE.star}>
           astrocode

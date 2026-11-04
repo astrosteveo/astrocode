@@ -26,6 +26,7 @@ import { imageAt, pictureRows, usePictureRows } from "./pictures";
 import { StartScreen, type Start } from "./start";
 import type { Review } from "./review";
 import { useTranscript, type Row, type Transcript } from "./transcript";
+import { edgeOf } from "./measure";
 
 const WHEEL_LINES = 3;
 /**
@@ -113,13 +114,14 @@ type Props = {
 };
 
 export function Screen({ state, epoch, start, columns, rows: height, expanded, waiting, opened, reveal, review, keys, focused, keymap, onFocus, onLedger, onLeave, onCursor, onStop, onToggle, onCopy, onEdit, onOpen, onPicture, find: sought, finding, onFind, onMatches, children }: Props) {
-  // A column for the scrollbar and one to keep it off the text.
+  // A column for the scrollbar and one to keep it off the text. The transcript keeps to the measure inside that.
   const width = Math.max(10, columns - 2);
+  const column = edgeOf(columns);
   const viewport = useRef<DOMElement>(null);
   const pill = useRef<DOMElement>(null);
   const metrics = useBoxMetrics(viewport);
   const view = Math.max(1, metrics.hasMeasured ? metrics.height : height - 6);
-  const transcript = useTranscript({ state, width, pictureRows: pictureRows(view), start, expanded, waiting, opened, review });
+  const transcript = useTranscript({ state, width: column, pictureRows: pictureRows(view), start, expanded, waiting, opened, review });
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   /** The row the cursor is on, kept while your keys are elsewhere. */
   const [cursor, setCursor] = useState<Anchor | null>(null);
@@ -802,7 +804,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
       {welcome ? (
         // At its own height, cut short when what's over the box leaves less room, rather than squeezed into it line over line.
         <Box ref={viewport} flexGrow={1} flexShrink={1} overflow="hidden" alignItems="flex-start">
-          <StartScreen start={start} width={width} />
+          <StartScreen start={start} width={column} />
         </Box>
       ) : (
         <Box ref={viewport} flexDirection="row" flexGrow={1} flexShrink={1} overflow="hidden">
@@ -820,7 +822,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
                       : drag.current
                       ? row.text || " "
                       : focused && top + i === at
-                        ? cursorOn(row.text, row.inset - 1, width)
+                        ? cursorOn(row.text, row.inset - 1, column)
                       : linkUrl && row.key === linkEntry
                         ? litLink(row.text, linkUrl)
                         : row.hot && (row.head || opensMore(row.target)) && hovered === (row.target ?? row.key)

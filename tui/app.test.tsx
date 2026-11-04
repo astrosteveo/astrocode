@@ -160,8 +160,9 @@ test("at 200 columns a click opens a call under its line, with nothing beside th
   expect(lines[at + 1]).toContain("‹ 2 of 3 ›");
   expect(lines[at + 1]).toMatch(/^│ {4}Run the tests/);
   expect(lines[at + 2]).toContain("Output");
-  // The transcript keeps its whole width: its lines run to the right edge, and no row holds two things side by side.
-  expect(lines[at]!.trimEnd().length).toBeGreaterThan(190);
+  // The transcript keeps to the measure, its lines ending at column 112, and no row holds two things side by side.
+  expect(lines[at]!.trimEnd().length).toBe(112);
+  for (const line of lines.slice(0, at + 3)) expect(line.trimEnd().length).toBeLessThanOrEqual(112);
   expect(lines.filter((line) => line.includes("Output")).length).toBe(1);
   await click(10, at);
   expect(screen().some((line) => line.includes("‹ 2 of 3 ›"))).toBe(false);
@@ -881,7 +882,6 @@ function ledgers(cwd = "/p"): State {
 }
 
 test("Enter on a turn's closing line opens its ledger, Enter on a file its diff, and Esc closes the diff, then the ledger", async () => {
-  // Under 146 columns, so the diff is unified.
   const { press, cursor, row, screen, boxKeys } = await launch(ledgers(), { columns: 120 });
   await press(KEYS.ctrlO);
   for (let i = 0; i < 3; i++) await press(KEYS.up);
