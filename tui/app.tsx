@@ -170,6 +170,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const { exit } = useApp();
   const mouse = useContext(MouseContext);
   const viewer = useViewer(mouse);
+  // main.tsx stops this app for the agents view and the other layout. From the viewer that goes by
+  // the scrollback, as Ink lets go of kitty's keyboard mode on the screen it's on as it stops.
+  const toAgents = () => void viewer.show(false).then(onAgents);
+  const toOtherLayout = () => void viewer.show(false).then(onToggleFullscreen);
   const { write } = useStdout();
   const { columns, rows } = useWindowSize();
   const width = Math.max(24, columns);
@@ -432,7 +436,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     } catch (error) {
       report(`Couldn't save the settings: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (layout !== undefined && layout !== fullscreen) onToggleFullscreen();
+    if (layout !== undefined && layout !== fullscreen) toOtherLayout();
   };
 
   /**
@@ -532,7 +536,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   /** Full screen or scrollback, kept for next time even when it's the layout already showing. */
   const pickLayout = (next: boolean) => {
     keep({ fullscreen: next });
-    if (next !== fullscreen) onToggleFullscreen();
+    if (next !== fullscreen) toOtherLayout();
   };
 
   /**
@@ -1744,7 +1748,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onStopTasks={stopAllTasks}
           onFind={fullscreen || viewer.open ? openFind : undefined}
           onFollow={toggleFollow}
-          onAgents={onAgents}
+          onAgents={toAgents}
           onKeys={() => setOverlay({ kind: "keys", place: "box" })}
           hintAgents={hintAgents}
           onEmpty={setBoxEmpty}
@@ -1782,7 +1786,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           usageMode={usageMode}
           needsYou={othersWaiting}
           // As a click moves your keys where it lands, it leaves the transcript too; never a decision or an overlay.
-          onNeedsYou={(boxKeys || focus === "transcript") && boxEmpty ? onAgents : undefined}
+          onNeedsYou={(boxKeys || focus === "transcript") && boxEmpty ? toAgents : undefined}
           follow={follow ? (inspected ? "paused" : "on") : undefined}
           onFollow={toggleFollow}
           onCache={toggleKeepWarm}

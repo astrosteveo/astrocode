@@ -22,7 +22,8 @@ export function useViewer(mouse: Mouse | null) {
   const [viewer, setViewer] = useState<Viewer>(null);
   /** Whether the terminal is on the alternate screen, which runs ahead of what's drawn while it switches. */
   const away = useRef(false);
-  const switching = useRef(false);
+  /** The switch under way, which the next waits for. */
+  const switched = useRef(Promise.resolve());
   const written = useRef(0);
 
   // Ink draws only what's committed, and React commits an update made outside an event a moment
@@ -40,7 +41,11 @@ export function useViewer(mouse: Mouse | null) {
       setViewer(update);
     });
 
-  /** Back to the scrollback, as astrocode stops or crashes with the viewer open. */
+  /**
+   * Back to the scrollback, as astrocode stops or crashes with the viewer open. Ink lets go of kitty's
+   * keyboard mode only after this, on the screen it's then on, so the ways out astrocode takes itself
+   * close the viewer first (`show(false)`).
+   */
   const restore = useRef(() => {
     if (!away.current) return;
     away.current = false;
@@ -56,36 +61,37 @@ export function useViewer(mouse: Mouse | null) {
   );
 
   /**
-   * Opens or closes the viewer. In order: scrollback stops writing for good, Ink lets go of the
-   * terminal, which goes to the other screen, the frame for that screen is drawn whole once Ink
-   * takes it back, and only then, on the scrollback's screen, does scrollback write what waited.
+   * Opens or closes the viewer, once the switch under way, if any, is done. In order: scrollback
+   * stops writing for good, Ink lets go of the terminal, which goes to the other screen, the frame
+   * for that screen is drawn whole once Ink takes it back, and only then, on the scrollback's screen,
+   * does scrollback write what waited.
    */
-  const show = async (open: boolean) => {
-    if (switching.current || away.current === open) return;
-    switching.current = true;
-    try {
-      // As of the render that commits it, so it's what scrollback has written, however late that is.
-      if (open) setViewer(() => ({ open: false, held: written.current }));
-      const suspension = await suspendTerminal();
-      if (!open) mouse?.stop();
-      stdout.write(open ? ENTER : LEAVE);
-      away.current = open;
-      if (open) {
-        mouse?.start();
-        process.on("exit", restore);
-      } else process.off("exit", restore);
-      // kitty keeps each screen's pictures apart, so they're sent again to the one now showing.
-      forgetSent();
-      // Ink draws the other screen's frame whole as it takes the terminal back.
-      await commit(
-        (now) => now && { ...now, open },
-        (now) => now?.open === open,
-      );
-      await suspension.resume();
-      if (!open) await commit(() => null, (now) => now === null);
-    } finally {
-      switching.current = false;
-    }
+  const show = (open: boolean) => {
+    const done = switched.current.then(() => toggle(open));
+    switched.current = done.catch(() => {});
+    return done;
+  };
+  const toggle = async (open: boolean) => {
+    if (away.current === open) return;
+    // As of the render that commits it, so it's what scrollback has written, however late that is.
+    if (open) setViewer(() => ({ open: false, held: written.current }));
+    const suspension = await suspendTerminal();
+    if (!open) mouse?.stop();
+    stdout.write(open ? ENTER : LEAVE);
+    away.current = open;
+    if (open) {
+      mouse?.start();
+      process.on("exit", restore);
+    } else process.off("exit", restore);
+    // kitty keeps each screen's pictures apart, so they're sent again to the one now showing.
+    forgetSent();
+    // Ink draws the other screen's frame whole as it takes the terminal back.
+    await commit(
+      (now) => now && { ...now, open },
+      (now) => now?.open === open,
+    );
+    await suspension.resume();
+    if (!open) await commit(() => null, (now) => now === null);
   };
 
   /**
