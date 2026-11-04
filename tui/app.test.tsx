@@ -342,15 +342,31 @@ test("following Claude goes on past Tab and a click on a tab, and stops at a cli
   expect(opened()).toBe("‹ 4 of 5 ›");
 });
 
-test("following Claude, a command that waits for your OK opens on the command, and on its output once it runs", async () => {
-  const { press, update, screen, row } = await launch({ ...turn([call("a"), running("b", "Build the app")]), busy: true });
+test("following Claude, a command that waits for your OK opens once it runs, so the line that asks sits right above its decision and the command shows once", async () => {
+  const { press, update, screen, row } = await launch({ ...turn([call("a"), running("b", "Build the app")]), busy: true }, { columns: 80, rows: 24 });
   await press(KEYS.ctrlO);
   await press(KEYS.enter);
   const asking = { ...turn([call("a"), running("b", "Build the app", { status: "done", result: "built" }), running("c", "Lint the code")]), busy: true };
-  await update({ ...asking, pending: [{ id: "c", toolName: "Bash", input: { command: "make c" } }] });
-  expect(screen()[row(/Lint +the code/) + 2]).toContain("▐Command▌");
+  // The prompt comes a moment after the call starts, as Claude Code sends them.
+  await update(asking);
+  await update({ ...asking, pending: [{ id: "c", toolName: "Bash", input: { command: "make c" }, description: "Lint the code" }] });
+  expect(row(/^▁+$/)).toBe(row(/^│.*Lint +the code/) + 1);
+  expect(screen().filter((line) => line.includes("make c"))).toEqual([" $ make c"]);
+  // Answered, it runs, and opens under its line on what it prints.
   await update(asking);
   expect(screen()[row(/Linting +the code/) + 2]).toContain("▐Output▌");
+});
+
+test("a click on the line that asks opens its call at once, though following Claude reached it and keeps it closed while it waits", async () => {
+  const { press, update, click, screen, row } = await launch({ ...turn([call("a"), running("b", "Build the app")]), busy: true });
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  const asking = { ...turn([call("a"), running("b", "Build the app", { status: "done", result: "built" }), running("c", "Lint the code")]), busy: true };
+  await update(asking);
+  await update({ ...asking, pending: [{ id: "c", toolName: "Bash", input: { command: "make c" }, description: "Lint the code" }] });
+  expect(row(/‹ \d of \d ›/)).toBe(-1);
+  await click(10, row(/^│.*Lint +the code/));
+  expect(screen()[row(/^│.*Lint +the code/) + 1]).toContain("‹ 3 of 3 ›");
 });
 
 test("a line of several reads, the last of them running, opens on the one running, and follows Claude from there", async () => {

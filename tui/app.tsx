@@ -280,9 +280,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   /**
    * The tool call opened under its line, with the tab it shows and whether that's whole. `follow`:
    * it was the call Claude is on when it opened, so each call Claude starts opens in its place, until
-   * you move the cursor.
+   * you move the cursor. `reached`: following Claude opened it, rather than you.
    */
-  const [inspect, setInspect] = useState<{ id: string; tab?: TabId; whole?: boolean; follow?: boolean } | null>(null);
+  const [inspect, setInspect] = useState<{ id: string; tab?: TabId; whole?: boolean; follow?: boolean; reached?: boolean } | null>(null);
 
   useEffect(() => {
     setExpanded(new Set());
@@ -293,7 +293,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   /** The call Claude started last, which it's on while that runs or waits for you. */
   const newest = state.items.findLast((item): item is ToolItem => item.kind === "tool")?.call;
   useEffect(() => {
-    if (newest) setInspect((open) => (open?.follow && open.id !== newest.id ? { id: newest.id, follow: true } : open));
+    if (newest) setInspect((open) => (open?.follow && open.id !== newest.id ? { id: newest.id, follow: true, reached: true } : open));
   }, [newest?.id]);
 
   // The sessions saved here, for each new or resumed conversation's start screen. The one on screen
@@ -658,7 +658,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
 
   /** A call's line clicked: it opens under the line, or closes if it's the one open. */
   const toggleCall = (id: string) => {
-    if (inspect?.id !== id) return inspectCall(id);
+    // One following Claude reached, kept closed while it waits for your OK, opens as any closed call.
+    if (drawnOpen?.id !== id) return inspectCall(id);
     setInspect(null);
     return true;
   };
@@ -1592,6 +1593,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const inspectedAt = inspect ? state.tools[inspect.id] : undefined;
   const inspectedItem = inspectedAt === undefined ? undefined : state.items[inspectedAt];
   const inspected = inspectedItem?.kind === "tool" ? inspectedItem.call : undefined;
+  // One following Claude reached is drawn open once it runs: while it waits for your OK its decision
+  // shows it, right under its line.
+  const drawnOpen = inspected && !(inspect?.reached && waiting.has(inspected.id)) ? inspected : undefined;
   // An opened command that Claude Code runs as a task, in the background or while Claude waits on it,
   // shows what that has printed, as it prints.
   const printing = inspected?.name === "Bash" ? (runningTaskOf(inspected, state) ?? (inspected.taskId ? state.taskInfo[inspected.taskId] : undefined)) : undefined;
@@ -1781,7 +1785,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       rows={rows}
       expanded={expanded}
       waiting={waiting}
-      opened={inspected ? { id: inspected.id, tab: inspect?.tab, whole: inspect?.whole, follow: inspect?.follow, output: printed } : undefined}
+      opened={drawnOpen ? { id: drawnOpen.id, tab: inspect?.tab, whole: inspect?.whole, follow: inspect?.follow, output: printed } : undefined}
       reveal={reveal}
       review={review}
       keys={!overlay}
