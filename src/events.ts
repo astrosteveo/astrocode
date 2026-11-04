@@ -110,15 +110,23 @@ export function sdkEvent(message: SDKMessage, at?: number): SessionEvent {
 
 export type CommandInfo = { name: string; description: string; argumentHint: string };
 
-/** A file a turn changed, by absolute path, with the lines it added and removed: none for a binary file. */
-export type FileChange = { path: string; added: number; removed: number };
+/**
+ * A file a turn changed, by absolute path, with the lines it added and removed: none for a binary
+ * file, or one too big to read (`big`). `status`: it's new, or deleted. `from`: where a file
+ * renamed was.
+ */
+export type FileChange = { path: string; added: number; removed: number; status?: "new" | "deleted"; from?: string; binary?: boolean; big?: boolean };
+
+/** What a diff runs between: two trees, or commits, by id. */
+export type Trees = { from: string; to: string };
 
 /**
  * What a turn changed in a git repository: the files that differ between the working tree at its
  * start and at its end, and the commits made on HEAD since it started, oldest first. `unseen`: the
  * files the edit tools changed that git can't see, being ignored or outside the repository.
+ * `trees`: the working tree at the turn's edges, which each file's diff runs between.
  */
-export type Ledger = { files: FileChange[]; commits: string[]; unseen: string[] };
+export type Ledger = { files: FileChange[]; commits: string[]; unseen: string[]; trees?: Trees };
 
 /**
  * Remote Control: the session reachable from claude.ai/code and the Claude app. `url` is the link to

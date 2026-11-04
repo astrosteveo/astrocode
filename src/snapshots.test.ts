@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Snapshots } from "./snapshots";
@@ -66,6 +66,7 @@ test("counts the audit's Python-heredoc edit, which no edit tool made", async ()
     ],
     commits: [],
     unseen: [],
+    trees: { from: expect.any(String), to: expect.any(String) },
   });
 });
 
@@ -79,8 +80,8 @@ test("counts new and deleted files, and leaves ignored ones out", async () => {
   unlinkSync(join(top, "gone.txt"));
   expect((await edges.end())?.files).toEqual([
     { path: join(top, "a.txt"), added: 1, removed: 0 },
-    { path: join(top, "gone.txt"), added: 0, removed: 2 },
-    { path: join(top, "new.txt"), added: 5, removed: 0 },
+    { path: join(top, "gone.txt"), added: 0, removed: 2, status: "deleted" },
+    { path: join(top, "new.txt"), added: 5, removed: 0, status: "new" },
   ]);
 });
 
@@ -90,10 +91,10 @@ test("counts a file too big to read without reading it, as one with no lines", a
   await edges.start();
   // Text, so had it been read, its lines would have been counted.
   write(top, "data.txt", "x\n".repeat(6 * 1024 * 1024));
-  expect((await edges.end())?.files).toEqual([{ path: join(top, "data.txt"), added: 0, removed: 0 }]);
+  expect((await edges.end())?.files).toEqual([{ path: join(top, "data.txt"), added: 0, removed: 0, status: "new", big: true }]);
   // Written again, it's changed again; left alone, it isn't.
   write(top, "data.txt", "y\n".repeat(7 * 1024 * 1024));
-  expect((await edges.end())?.files).toEqual([{ path: join(top, "data.txt"), added: 0, removed: 0 }]);
+  expect((await edges.end())?.files).toEqual([{ path: join(top, "data.txt"), added: 0, removed: 0, big: true }]);
   expect((await edges.end())?.files).toEqual([]);
 });
 
@@ -109,7 +110,7 @@ test("doesn't count a big file you track that was only touched, or written again
   expect((await edges.end())?.files).toEqual([]);
   // The same size, but not the same.
   write(top, "big.txt", `y${big.slice(1)}`);
-  expect((await edges.end())?.files).toEqual([{ path: join(top, "big.txt"), added: 0, removed: 0 }]);
+  expect((await edges.end())?.files).toEqual([{ path: join(top, "big.txt"), added: 0, removed: 0, big: true }]);
 });
 
 test("leaves your index, your stash and the repository's objects as they were", async () => {
@@ -134,7 +135,7 @@ test("leaves your index, your stash and the repository's objects as they were", 
   // The working tree counts, not what's staged: a.txt went from 4 lines to 5.
   expect((await edges.end())?.files).toEqual([
     { path: join(top, "a.txt"), added: 1, removed: 0 },
-    { path: join(top, "c.txt"), added: 1, removed: 0 },
+    { path: join(top, "c.txt"), added: 1, removed: 0, status: "new" },
   ]);
   expect(fingerprint()).toEqual(before);
 });
@@ -151,7 +152,7 @@ test("doesn't run your clean filters, such as Git LFS's, which write into .git",
   write(top, "b.dat", lines(3));
   expect((await edges.end())?.files).toEqual([
     { path: join(top, "a.dat"), added: 1, removed: 0 },
-    { path: join(top, "b.dat"), added: 3, removed: 0 },
+    { path: join(top, "b.dat"), added: 3, removed: 0, status: "new" },
   ]);
   expect(existsSync(marks)).toBe(false);
 });
@@ -165,7 +166,7 @@ test("says which of the files the edit tools changed git can't see: ignored, or 
   write(top, "a.txt", lines(2));
   write(elsewhere, ".zshrc", "PATH=x\n");
   const edited = [join(top, ".env"), join(top, "a.txt"), join(elsewhere, ".zshrc")];
-  expect(await edges.end(edited)).toEqual({ files: [{ path: join(top, "a.txt"), added: 1, removed: 0 }], commits: [], unseen: [join(elsewhere, ".zshrc"), join(top, ".env")] });
+  expect(await edges.end(edited)).toMatchObject({ files: [{ path: join(top, "a.txt"), added: 1, removed: 0 }], commits: [], unseen: [join(elsewhere, ".zshrc"), join(top, ".env")] });
 });
 
 test("sees the whole repository from a folder inside it", async () => {
@@ -188,7 +189,7 @@ test("leaves ~/.claude out when it's inside the repository, but not the project'
   const elsewhere = snapshots(project, folder());
   await elsewhere.start();
   write(project, ".claude/settings.json", "{}\n");
-  expect((await elsewhere.end())?.files).toEqual([{ path: join(project, ".claude/settings.json"), added: 1, removed: 0 }]);
+  expect((await elsewhere.end())?.files).toEqual([{ path: join(project, ".claude/settings.json"), added: 1, removed: 0, status: "new" }]);
 });
 
 test("counts ~/.claude when you work in it", async () => {
@@ -206,7 +207,7 @@ test("names the commits the turn made, not one made before it", async () => {
   write(top, "a.txt", lines(2));
   git(top, "commit", "-q", "-am", "two");
   const made = git(top, "rev-parse", "--short", "HEAD");
-  expect(await edges.end()).toEqual({ files: [{ path: join(top, "a.txt"), added: 1, removed: 0 }], commits: [made], unseen: [] });
+  expect(await edges.end()).toMatchObject({ files: [{ path: join(top, "a.txt"), added: 1, removed: 0 }], commits: [made], unseen: [] });
 });
 
 test("names a signed commit by its hash when git log shows signatures", async () => {
@@ -251,6 +252,85 @@ test("counts a turn Claude starts by itself from where the last one ended", asyn
   expect((await edges.end())?.files).toEqual([{ path: join(top, "b.txt"), added: 2, removed: 0 }]);
 });
 
+test("reads a rename as one file, from where it was, and says which files are new or deleted", async () => {
+  const top = repo({ "old.txt": lines(6), "gone.txt": lines(2, "gone") });
+  const edges = snapshots(top);
+  await edges.start();
+  renameSync(join(top, "old.txt"), join(top, "new.txt"));
+  write(top, "new.txt", lines(7));
+  unlinkSync(join(top, "gone.txt"));
+  write(top, "add.txt", lines(1, "added"));
+  expect((await edges.end())?.files).toEqual([
+    { path: join(top, "add.txt"), added: 1, removed: 0, status: "new" },
+    { path: join(top, "gone.txt"), added: 0, removed: 2, status: "deleted" },
+    { path: join(top, "new.txt"), added: 1, removed: 0, from: join(top, "old.txt") },
+  ]);
+});
+
+test("tells a file too big to diff from a binary one", async () => {
+  const top = repo({ "a.txt": lines(1) });
+  const edges = snapshots(top);
+  await edges.start();
+  write(top, "data.txt", "x\n".repeat(6 * 1024 * 1024));
+  write(top, "logo.png", Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3]));
+  expect((await edges.end())?.files).toEqual([
+    { path: join(top, "data.txt"), added: 0, removed: 0, status: "new", big: true },
+    { path: join(top, "logo.png"), added: 0, removed: 0, status: "new", binary: true },
+  ]);
+});
+
+test("gives a file's diff for the turn, a rename's against where it was, until the session closes", async () => {
+  const top = repo({ "a.txt": lines(3), "old.txt": lines(6) });
+  const edges = snapshots(top);
+  await edges.start();
+  write(top, "a.txt", "line 1\nchanged 2\nline 3\n");
+  renameSync(join(top, "old.txt"), join(top, "new.txt"));
+  write(top, "new.txt", lines(7));
+  const ledger = (await edges.end())!;
+  const [a, moved] = ledger.files;
+  const patch = await edges.patch(ledger.trees!, a!);
+  expect(patch).toContain("@@ -1,3 +1,3 @@");
+  expect(patch).toContain("-line 2\n+changed 2");
+  const renamed = await edges.patch(ledger.trees!, moved!);
+  expect(renamed).toContain("rename from old.txt");
+  expect(renamed).toContain("+line 7");
+  // The turn's trees go with the session's objects.
+  edges.close();
+  expect(await edges.patch(ledger.trees!, a!)).toBeNull();
+});
+
+test("gives what isn't committed, and the branch's changes against the branch it started from", async () => {
+  const top = repo({ "a.txt": lines(1) });
+  git(top, "branch", "-M", "main");
+  git(top, "switch", "-q", "-c", "feature");
+  write(top, "a.txt", lines(2));
+  git(top, "commit", "-q", "-am", "two");
+  write(top, "b.txt", lines(3));
+  const edges = snapshots(top);
+  await edges.start();
+  write(top, "c.txt", lines(1));
+  const uncommitted = (await edges.changes("uncommitted"))!;
+  expect(uncommitted.files).toEqual([
+    { path: join(top, "b.txt"), added: 3, removed: 0, status: "new" },
+    { path: join(top, "c.txt"), added: 1, removed: 0, status: "new" },
+  ]);
+  const branch = (await edges.changes("branch"))!;
+  expect(branch.base).toBe("main");
+  expect(branch.files.map((file) => file.path)).toEqual([join(top, "a.txt"), join(top, "b.txt"), join(top, "c.txt")]);
+  expect(await edges.patch(branch.trees, branch.files[0]!)).toContain("+line 2");
+  // Neither moves where the turn counts from.
+  expect((await edges.end())?.files.map((file) => file.path)).toEqual([join(top, "c.txt")]);
+});
+
+test("gives what's new in a repository with no commits yet, and no branch without a base", async () => {
+  const top = folder();
+  git(top, "init", "-q");
+  write(top, "a.txt", lines(2));
+  const edges = snapshots(top);
+  expect((await edges.changes("uncommitted"))?.files).toEqual([{ path: join(top, "a.txt"), added: 2, removed: 0, status: "new" }]);
+  expect(await edges.changes("branch")).toBeNull();
+});
+
 test("says nothing outside git", async () => {
   const edges = snapshots(folder());
   await edges.start();
@@ -275,7 +355,7 @@ test("starts from the repository's first file", async () => {
   const edges = snapshots(top);
   await edges.start();
   write(top, "a.txt", lines(2));
-  expect(await edges.end()).toEqual({ files: [{ path: join(top, "a.txt"), added: 2, removed: 0 }], commits: [], unseen: [] });
+  expect(await edges.end()).toMatchObject({ files: [{ path: join(top, "a.txt"), added: 2, removed: 0, status: "new" }], commits: [], unseen: [] });
 });
 
 

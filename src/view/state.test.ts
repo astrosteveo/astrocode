@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { SDKMessage, SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { FileChange, SessionEvent } from "../events";
 import { historyEvents } from "../history";
-import { ledgerLine } from "./ledger";
+import { commandsOf, ledgerLine } from "./ledger";
 import { initialState, reduce, type State } from "./state";
 
 /** One of the messages Claude Code sends a host about a mod, which the SDK's types don't list. */
@@ -89,6 +89,25 @@ test("lists a command that failed among those the turn ran", () => {
     ended(),
   ].reduce(reduce, start());
   expect(lastTurn(state)).toMatchObject({ commands: ["bun test", "git log --oneline -3", "seq 200"] });
+});
+
+test("keeps the trees git recorded at the turn's edges, and finds each command's call again", () => {
+  const state = [
+    { kind: "prompt", text: "check it", starts: true } as const,
+    call("t", "Bash", { command: "bun test" }),
+    answered("t", "Exit code 1\n 2 pass\n 1 fail\nRan 3 tests across 1 file.", undefined, true),
+    { kind: "ledger", files: [], commits: [], unseen: [], trees: { from: "aaa", to: "bbb" } } as SessionEvent,
+    ended(),
+    { kind: "prompt", text: "again", starts: true } as const,
+    call("s", "Bash", { command: "seq 2" }),
+    answered("s", "1\n2", { stdout: "1\n2", stderr: "", interrupted: false }),
+    ended(),
+  ].reduce(reduce, start());
+  const ends = state.items.flatMap((item, i) => (item.kind === "turn" ? [i] : []));
+  expect(state.items[ends[0]!]).toMatchObject({ trees: { from: "aaa", to: "bbb" } });
+  expect(state.items[ends[1]!]).toMatchObject({ trees: undefined });
+  expect(commandsOf(state.items, ends[0]!).map((one) => one.id)).toEqual(["t"]);
+  expect(commandsOf(state.items, ends[1]!).map((one) => one.id)).toEqual(["s"]);
 });
 
 test("counts the calls before a message you sent while Claude worked, which it took mid-turn", () => {

@@ -15,7 +15,7 @@ import { editedFile, field, plural } from "./tools";
 type Turn = Extract<Item, { kind: "turn" }>;
 
 /** What a turn did, as its closing line and its opened list read it. */
-export type TurnWork = Pick<Turn, "files" | "commands" | "tests" | "commits" | "pushed" | "pr">;
+export type TurnWork = Pick<Turn, "files" | "commands" | "tests" | "commits" | "pushed" | "pr" | "trees">;
 
 /**
  * What the turn now ending did since the turn before it ended, or since the message that started
@@ -24,7 +24,7 @@ export type TurnWork = Pick<Turn, "files" | "commands" | "tests" | "commits" | "
  * the turn changed, when the session could record its edges.
  */
 export function workOf(items: Item[], { cwd, home }: { cwd: string; home: string }, git?: Ledger): TurnWork {
-  const start = items.findLastIndex((item) => item.kind === "turn" || (item.kind === "prompt" && item.starts));
+  const start = turnStart(items, items.length);
   const edits = new Map<string, FileChange>();
   const commands: string[] = [];
   const commits: string[] = [];
@@ -41,8 +41,8 @@ export function workOf(items: Item[], { cwd, home }: { cwd: string; home: string
       const before = edits.get(path);
       edits.set(path, { path, added: (before?.added ?? 0) + counts.added, removed: (before?.removed ?? 0) + counts.removed });
     }
-    if (call.name !== "Bash" || typeof call.input.command !== "string" || !ran(call)) continue;
-    commands.push(call.input.command);
+    if (!isCommand(call)) continue;
+    commands.push(call.input.command as string);
     const run = runOfCall(call, false);
     const tests = testTotals(`${run.stdout}\n${run.stderr}`);
     if (tests) work.tests = { passed: tests.passed, failed: tests.failed };
@@ -61,12 +61,23 @@ export function workOf(items: Item[], { cwd, home }: { cwd: string; home: string
   work.commands = commands;
   // Without git's word, a commit Claude Code saw is known, but not that there was none.
   work.commits = git?.commits ?? (commits.length ? commits : undefined);
+  work.trees = git?.trees;
   return work;
 }
 
-/** A command that failed, or was stopped as it ran, still ran. */
-function ran(call: ToolCall) {
-  return call.status === "done" || call.status === "error" || (call.status === "stopped" && !call.unanswered);
+/** The calls of the commands the turn that `items[index]` closes ran, in order, as its `commands` lists them. */
+export function commandsOf(items: Item[], index: number): ToolCall[] {
+  return items.slice(turnStart(items, index) + 1, index).flatMap((item) => (item.kind === "tool" && isCommand(item.call) ? [item.call] : []));
+}
+
+/** Where the turn before `index` ends: the last turn's end, or the message that started one, before it. */
+function turnStart(items: Item[], index: number) {
+  return items.findLastIndex((item, i) => i < index && (item.kind === "turn" || (item.kind === "prompt" && item.starts)));
+}
+
+/** A command Claude ran: one that failed, or was stopped as it ran, still ran. */
+function isCommand(call: ToolCall) {
+  return call.name === "Bash" && typeof call.input.command === "string" && (call.status === "done" || call.status === "error" || (call.status === "stopped" && !call.unanswered));
 }
 
 /** The line that closes a turn: `1m 40s · 3 files +58 −3 · 7 passed 1 failed · not committed`. */

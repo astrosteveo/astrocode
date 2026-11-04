@@ -32,11 +32,13 @@ import {
   type ElicitationAnswer,
   type ElicitationField,
   type ElicitationRequest,
+  type FileChange,
   type ImageAttachment,
   type PermissionRequest,
   type Question,
   type RemoteControl,
   type SessionEvent,
+  type Trees,
 } from "./events";
 import { AsyncQueue } from "./queue";
 import { SHOW_SERVER, SHOW_TOOL } from "./show";
@@ -820,6 +822,16 @@ export class AgentSession {
     const answer = await this.untyped("askSideQuestion", question, { history: earlier, signal });
     const response = field(answer, "response");
     return typeof response === "string" ? response : null;
+  }
+
+  /** What /diff's other scopes show: the working tree against HEAD, or against the branch's base. */
+  changes(scope: "uncommitted" | "branch") {
+    return this.snapshots.changes(scope);
+  }
+
+  /** One file's diff between two trees, as a turn's ledger or a scope of /diff lists it. */
+  patch(trees: Trees, file: FileChange) {
+    return this.snapshots.patch(trees, file);
   }
 
   /** The output styles there are, and the one in use, which is "default" unless your settings name another. */
