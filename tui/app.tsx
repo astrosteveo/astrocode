@@ -18,8 +18,6 @@ import { ago, canStopThinking, currentModel } from "../src/view/format";
 import { isCurrent, steps, titleWorthy } from "../src/view/steps";
 import { askedBy } from "../src/view/permissions";
 import { findRunning, runningKeyOf, runningList, type Running } from "../src/view/runs";
-import { callsOf } from "../src/view/ledger";
-import type { DiffLine } from "../src/view/patch";
 import type { Item, State } from "../src/view/state";
 import { todoList } from "../src/view/todos";
 import { plural, shortPath } from "../src/view/tools";
@@ -39,7 +37,7 @@ import { useNeedsYou, type Background, type Fleet } from "./fleet";
 import { focusOf } from "./focus";
 import { HooksPanel } from "./hooks";
 import { ItemView, LiveView, StepView, targetCall } from "./entries";
-import { commandRows, fileTarget, ledgerTarget } from "./ledger";
+import { fileTarget, ledgerTarget } from "./ledger";
 import { gitInfo, type GitInfo } from "./git";
 import { mentionedImages } from "./images";
 import { DEFAULT_KEYMAP, keyFor, keyLabel, strokeOf } from "./keys";
@@ -56,7 +54,7 @@ import { ModelPicker } from "./model-picker";
 import { FollowDock, followedCall, useDwell } from "./follow";
 import type { TabId } from "./inspector";
 import { targetMove, targetTab, WHOLE } from "./opened";
-import { listedIn, scopeOf, turnDiff, useReview } from "./review";
+import { listedIn, scopeOf, useReview } from "./review";
 import { hit, MouseContext, useMouse } from "./mouse";
 import { Picker } from "./picker";
 import { drawsImages, pictureRows, resendPictures } from "./pictures";
@@ -589,7 +587,11 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
    */
   const toTranscript = (on: boolean) => {
     if (fullscreen) return setTranscriptKeys(on);
-    if (!on) setInspect(null);
+    if (!on) {
+      setInspect(null);
+      // The viewer draws the transcript afresh each time it opens, and would go to /diff's ledger again.
+      setReveal(undefined);
+    }
     void viewer.show(on);
   };
 
@@ -706,27 +708,15 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   };
 
   /**
-   * /diff: the latest turn's ledger, opened. In full screen your keys and the cursor go to it. In
-   * scrollback, which has no cursor to give them to, it's printed whole at the end, each file's diff
-   * under its line, once Claude is done: printed sooner, it would land inside the turn running.
+   * /diff: the latest turn's ledger, opened, with your keys and the cursor on it, in full screen's
+   * transcript or scrollback's viewer.
    */
   const openDiff = () => {
-    const index = state.items.findLastIndex((item) => item.kind === "turn");
-    const turn = state.items[index];
+    const turn = state.items.findLast((item) => item.kind === "turn");
     if (turn?.kind !== "turn") return notice("info", "No turn has ended yet. /diff opens the latest turn's ledger: what it changed, ran and committed.");
-    if (fullscreen) {
-      setExpanded((open) => (open.has(turn.key) ? open : new Set(open).add(turn.key)));
-      setTranscriptKeys(true);
-      setReveal({ key: turn.key });
-      return;
-    }
-    if (state.busy) return notice("info", "Claude is working. Run /diff again once it's done to print the latest turn's ledger.");
-    const calls = callsOf(state.items, index);
-    const files = (turn.files ?? []).filter((file) => !file.big && !file.binary);
-    void Promise.all(files.map(async (file) => [file.path, await turnDiff(session, turn, file, calls)] as const)).then((read) => {
-      const diffs = Object.fromEntries(read.filter((one): one is readonly [string, DiffLine[]] => Array.isArray(one[1])));
-      store.emit({ kind: "review", turn: turn.key, diffs, commands: commandRows(state.items, index, state.cwd, state.home) });
-    }, report);
+    setExpanded((open) => (open.has(turn.key) ? open : new Set(open).add(turn.key)));
+    toTranscript(true);
+    setReveal({ key: turn.key });
   };
 
   /** The conversation's tool calls in order, which ← and → in an opened call move through. */
@@ -909,9 +899,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const submit = (text: string, how: { now?: boolean; later?: boolean; ignoreUltracode?: boolean } = {}) => {
     const { now = false } = how;
     const [command = "", ...rest] = text.trim().split(/\s+/);
-    // Sending uses up Claude Code's suggestion, as in `claude`, but for full screen's /diff: it only
-    // takes you to the ledger, and the spec has the suggestion in the box when Esc gives it back.
-    if (!(fullscreen && command === "/diff")) store.emit({ kind: "sent" });
+    // Sending uses up Claude Code's suggestion, as in `claude`, but for /diff: it only takes you to
+    // the ledger, and the spec has the suggestion in the box when Esc gives it back.
+    if (command !== "/diff") store.emit({ kind: "sent" });
     void sent.add(text);
     if (text.startsWith("!")) return runCommand(text.slice(1).trim());
     if (text.startsWith("#")) return openMemory(text.slice(1).trim());
@@ -1190,9 +1180,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     },
     {
       name: "diff",
-      description: fullscreen
-        ? "Review the latest turn's changes: each file's diff, the commands it ran and its commits; [ and ] switch to what isn't committed, or the branch"
-        : "Print the latest turn's changes: each file's diff, the commands it ran and its commits",
+      description: "Review the latest turn's changes: each file's diff, the commands it ran and its commits; [ and ] switch to what isn't committed, or the branch",
       argumentHint: "",
     },
     { name: "play", description: "Run a command from one of Claude's shell code blocks, as with !", argumentHint: "" },
