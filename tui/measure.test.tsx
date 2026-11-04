@@ -178,6 +178,22 @@ test("under 100 columns a result that doesn't fit beside its line goes under it,
   }
 });
 
+test("an activity line's verb has a 12-column field, or 10 under 100 columns, and why a call failed starts where its target does", () => {
+  const state = turn();
+  for (const columns of [80, 99, 100, 120, 200]) {
+    const { rows } = layout({ state, width: edgeOf(columns), pictureRows: 10, start: startOf(state, undefined, DEFAULT_KEYMAP), expanded: new Set(), waiting: new Set() });
+    const lines = rows.map((row) => [...stripVTControlCharacters(row.text)].join(""));
+    const read = lines.find((line) => /Read +src\/cache\.ts/.test(line))!;
+    const field = columns < 100 ? 10 : 12;
+    expect(read.indexOf("src/cache.ts") - read.indexOf("Read")).toBe(field);
+    const ran = lines.findIndex((line) => /Ran +the whole suite/.test(line));
+    const target = lines[ran]!.indexOf("the whole suite");
+    expect(target - lines[ran]!.indexOf("Ran")).toBe(field);
+    const why = lines.find((line) => line.includes("Ran 8 tests across 1 file."))!;
+    expect(why.indexOf("Ran 8 tests")).toBe(target);
+  }
+});
+
 const KEYS = { ctrlO: "\x0f", down: "\x1b[B", enter: "\r" };
 
 test("closing a call in a conversation that then fits leaves it at the top, as it started, with the blank rows above the box", async () => {

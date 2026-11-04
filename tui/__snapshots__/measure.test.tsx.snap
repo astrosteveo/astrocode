@@ -94,13 +94,13 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 │ fix retry.
 │
 ✓ Put the Clock type in its own file and give Cache an optional clock
-│   Read      src/cache.ts                                                                           25 lines  ›
-│   Wrote     src/clock.ts                                                                         +11  ■■■■■  ›
-│   Edited    src/cache.ts                                                                       +1 −1  ■■■■■  ›
+│   Read        src/cache.ts                                                                         25 lines  ›
+│   Wrote       src/clock.ts                                                                       +11  ■■■■■  ›
+│   Edited      src/cache.ts                                                                     +1 −1  ■■■■■  ›
 │
 ✗ Running the whole suite; retry's attempts test should still fail
-│   Ran       the whole suite, retry's attempts test and the cache's            ✕ exit 1 · 7 passed, 1 failed  ›
-│             Ran 8 tests across 1 file.
+│   Ran         the whole suite, retry's attempts test and the cache's          ✕ exit 1 · 7 passed, 1 failed  ›
+│               Ran 8 tests across 1 file.
 │
 ◆ Cache takes a clock now, as retry does: Clock lives in src/clock.ts, and Cache's constructor takes an optional
 │ one that defaults to the system clock, so nothing that builds a Cache today has to change. The suite runs 8
@@ -137,13 +137,13 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 │ fix retry.
 │
 ✓ Put the Clock type in its own file and give Cache an optional clock
-│   Read      src/cache.ts                                                                           25 lines  ›
-│   Wrote     src/clock.ts                                                                         +11  ■■■■■  ›
-│   Edited    src/cache.ts                                                                       +1 −1  ■■■■■  ›
+│   Read        src/cache.ts                                                                         25 lines  ›
+│   Wrote       src/clock.ts                                                                       +11  ■■■■■  ›
+│   Edited      src/cache.ts                                                                     +1 −1  ■■■■■  ›
 │
 ✗ Running the whole suite; retry's attempts test should still fail
-│›▌ Ran       the whole suite, retry's attempts test and the cache's            ✕ exit 1 · 7 passed, 1 failed  ›
-│             Ran 8 tests across 1 file.
+│›▌ Ran         the whole suite, retry's attempts test and the cache's          ✕ exit 1 · 7 passed, 1 failed  ›
+│               Ran 8 tests across 1 file.
 │    Run the whole suite, retry's attempts test and the cache's                         ▐✕ exit 1▌   ‹ 4 of 4 ›
 │    ▐Output▌  Command   Sent to Claude   Input
 │    $ bun test
@@ -180,13 +180,13 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 │ fix retry.
 │
 ✓ Put the Clock type in its own file and give Cache an optional clock
-│   Read      src/cache.ts                                                                           25 lines  ›
-│   Wrote     src/clock.ts                                                                         +11  ■■■■■  ›
-│   Edited    src/cache.ts                                                                       +1 −1  ■■■■■  ›
+│   Read        src/cache.ts                                                                         25 lines  ›
+│   Wrote       src/clock.ts                                                                       +11  ■■■■■  ›
+│   Edited      src/cache.ts                                                                     +1 −1  ■■■■■  ›
 │
 ✗ Running the whole suite; retry's attempts test should still fail
-│   Ran       the whole suite, retry's attempts test and the cache's            ✕ exit 1 · 7 passed, 1 failed  ›
-│             Ran 8 tests across 1 file.
+│   Ran         the whole suite, retry's attempts test and the cache's          ✕ exit 1 · 7 passed, 1 failed  ›
+│               Ran 8 tests across 1 file.
 │
 ◆ Cache takes a clock now, as retry does: Clock lives in src/clock.ts, and Cache's constructor takes an optional
 │ one that defaults to the system clock, so nothing that builds a Cache today has to change. The suite runs 8
@@ -223,13 +223,13 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 │ fix retry.
 │
 ✓ Put the Clock type in its own file and give Cache an optional clock
-│   Read      src/cache.ts                                                                           25 lines  ›
-│   Wrote     src/clock.ts                                                                         +11  ■■■■■  ›
-│   Edited    src/cache.ts                                                                       +1 −1  ■■■■■  ›
+│   Read        src/cache.ts                                                                         25 lines  ›
+│   Wrote       src/clock.ts                                                                       +11  ■■■■■  ›
+│   Edited      src/cache.ts                                                                     +1 −1  ■■■■■  ›
 │
 ✗ Running the whole suite; retry's attempts test should still fail
-│   Ran       the whole suite, retry's attempts test and the cache's            ✕ exit 1 · 7 passed, 1 failed  ›
-│             Ran 8 tests across 1 file.
+│   Ran         the whole suite, retry's attempts test and the cache's          ✕ exit 1 · 7 passed, 1 failed  ›
+│               Ran 8 tests across 1 file.
 │
 ◆ Cache takes a clock now, as retry does: Clock lives in src/clock.ts, and Cache's constructor takes an optional
 │ one that defaults to the system clock, so nothing that builds a Cache today has to change. The suite runs 8
@@ -276,13 +276,13 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 │ fix retry.
 │
 ✓ Put the Clock type in its own file and give Cache an optional clock
-│   Read      src/cache.ts                                                                           25 lines  ›
-│   Wrote     src/clock.ts                                                                         +11  ■■■■■  ›
-│   Edited    src/cache.ts                                                                       +1 −1  ■■■■■  ›
+│   Read        src/cache.ts                                                                         25 lines  ›
+│   Wrote       src/clock.ts                                                                       +11  ■■■■■  ›
+│   Edited      src/cache.ts                                                                     +1 −1  ■■■■■  ›
 │
 ✗ Running the whole suite; retry's attempts test should still fail
-│›▌ Ran       the whole suite, retry's attempts test and the cache's            ✕ exit 1 · 7 passed, 1 failed  ›
-│             Ran 8 tests across 1 file.
+│›▌ Ran         the whole suite, retry's attempts test and the cache's          ✕ exit 1 · 7 passed, 1 failed  ›
+│               Ran 8 tests across 1 file.
 │    Run the whole suite, retry's attempts test and the cache's                         ▐✕ exit 1▌   ‹ 4 of 4 ›
 │    ▐Output▌  Command   Sent to Claude   Input
 │    $ bun test
@@ -329,13 +329,13 @@ exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, 
 │ fix retry.
 │
 ✓ Put the Clock type in its own file and give Cache an optional clock
-│   Read      src/cache.ts                                                                           25 lines  ›
-│   Wrote     src/clock.ts                                                                         +11  ■■■■■  ›
-│   Edited    src/cache.ts                                                                       +1 −1  ■■■■■  ›
+│   Read        src/cache.ts                                                                         25 lines  ›
+│   Wrote       src/clock.ts                                                                       +11  ■■■■■  ›
+│   Edited      src/cache.ts                                                                     +1 −1  ■■■■■  ›
 │
 ✗ Running the whole suite; retry's attempts test should still fail
-│   Ran       the whole suite, retry's attempts test and the cache's            ✕ exit 1 · 7 passed, 1 failed  ›
-│             Ran 8 tests across 1 file.
+│   Ran         the whole suite, retry's attempts test and the cache's          ✕ exit 1 · 7 passed, 1 failed  ›
+│               Ran 8 tests across 1 file.
 │
 ◆ Cache takes a clock now, as retry does: Clock lives in src/clock.ts, and Cache's constructor takes an optional
 │ one that defaults to the system clock, so nothing that builds a Cache today has to change. The suite runs 8

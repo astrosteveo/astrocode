@@ -48,7 +48,7 @@ test("a call opens under its own line, inside the column, at every width", () =>
     expect(transcript.opened).toMatchObject({ id: "b", tab: "output" });
     // Closing it is what the panel's rows do; the next call's line follows them.
     expect(transcript.rows[at + 1]).toMatchObject({ target: callTarget("b"), open: true, hot: true });
-    expect(lines.findIndex((line) => line.includes("Searched  c"))).toBeGreaterThan(at + 3);
+    expect(lines.findIndex((line) => /Searched +c/.test(line))).toBeGreaterThan(at + 3);
     for (const line of lines) expect(cellWidth(line)).toBeLessThanOrEqual(width);
   }
   // Closed again, it's one line.

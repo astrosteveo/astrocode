@@ -154,11 +154,13 @@ export const TONES: Record<Tone, string> = {
   elsewhere: PALETTE.sky,
 };
 
-/** Cells before an activity line's verb, and the verb's column, so targets line up down a step. */
+/** Cells before an activity line's verb. */
 const INDENT = 2;
-const VERB = 10;
-/** Where a line's target starts: what goes under a line (why it failed, a subagent's calls, pictures) starts there too. */
-const UNDER = INDENT + VERB;
+/**
+ * The verb's field, so targets line up down a step: 12 cells, or 10 under 100 columns (`narrow`).
+ * What goes under a line (why it failed, a subagent's calls, pictures) starts where the target does.
+ */
+const verbField = (narrow: boolean) => (narrow ? 10 : 12);
 /** Lines a closed step shows; past that, the first two and the last three, and a line for the rest. */
 const MOST_ROWS = 6;
 
@@ -277,6 +279,8 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
       shown = [...rows.slice(0, 2), ...rows.slice(-3)];
     }
   }
+  const narrow = isNarrow(width);
+  const under = INDENT + verbField(narrow);
   /** The verb of the line just drawn: a line that does the same leaves its verb out, so a run of commands reads as one. */
   let verb = "";
   shown.forEach((one, i) => {
@@ -316,7 +320,7 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
       );
     }
     const isPicked = picked !== undefined && row.calls.some((call) => call.id === picked);
-    pieces.push(railed(`row:${id}`, <ActivityLine row={row} width={inner} picked={isPicked} again={row.verb === verb} clickable={clickable} narrow={isNarrow(width)} />, target));
+    pieces.push(railed(`row:${id}`, <ActivityLine row={row} width={inner} picked={isPicked} again={row.verb === verb} clickable={clickable} narrow={narrow} />, target));
     // What goes under the line sets the next one apart, which then says its verb again.
     verb = row.failure || row.calls.some((call) => (call.status === "running" && call.subagent) || hasPictures(call)) ? "" : row.verb;
     if (row.failure) {
@@ -324,7 +328,7 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
         railed(
           `why:${id}`,
           <Text wrap="truncate-end" color={PALETTE.rose}>
-            {`${" ".repeat(UNDER)}${fit(row.failure, inner - UNDER, false)}`}
+            {`${" ".repeat(under)}${fit(row.failure, inner - under, false)}`}
           </Text>,
           target,
         ),
@@ -335,8 +339,8 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
       pieces.push(
         railed(
           `agent:${id}`,
-          <Box paddingLeft={UNDER}>
-            <SubagentLines call={agent} cwd={cwd} home={home} width={inner - UNDER} />
+          <Box paddingLeft={under}>
+            <SubagentLines call={agent} cwd={cwd} home={home} width={inner - under} />
           </Box>,
           target,
         ),
@@ -346,8 +350,8 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
       pieces.push(
         railed(
           `pictures:${call.id}`,
-          <Box paddingLeft={UNDER}>
-            <Figure shown={shownOf(call)} width={inner - UNDER} rows={Math.max(4, Math.floor(pictureRows / 2))} links={links} />
+          <Box paddingLeft={under}>
+            <Figure shown={shownOf(call)} width={inner - under} rows={Math.max(4, Math.floor(pictureRows / 2))} links={links} />
           </Box>,
         ),
       );
@@ -376,7 +380,8 @@ function ActivityLine({ row, width, picked, again, clickable, narrow }: { row: A
   const verbColor = VERB_COLORS[going] ?? (picked ? PALETTE.gold : PALETTE.dust);
   const lit = picked || row.status === "waiting";
   const color = (tone: Tone) => (lit && LIT.has(tone) ? PALETTE.gold : TONES[tone]);
-  const named = row.verb.length >= VERB ? `${row.verb} ` : row.verb.padEnd(VERB);
+  const field = verbField(narrow);
+  const named = row.verb.length >= field ? `${row.verb} ` : row.verb.padEnd(field);
   // A verb the line above has is left out, unless how the line is going colors it.
   const verb = again && !VERB_COLORS[going] ? " ".repeat(cellWidth(named)) : named;
   const result = row.result.reduce((sum, part) => sum + cellWidth(part.text), 0);
@@ -414,7 +419,7 @@ function ActivityLine({ row, width, picked, again, clickable, narrow }: { row: A
           {clickable ? <Text color={picked ? PALETTE.gold : PALETTE.dust}>{"  ›"}</Text> : null}
         </Text>
       </Box>
-      {under ? <Box paddingLeft={UNDER}>{came}</Box> : null}
+      {under ? <Box paddingLeft={INDENT + field}>{came}</Box> : null}
     </Box>
   );
 }
