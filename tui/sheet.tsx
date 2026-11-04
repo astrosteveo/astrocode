@@ -12,8 +12,11 @@ import { Panel } from "./markdown-view";
 import { hit, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
 
-/** What has your keys as the sheet opens. An opened call is under its line in full screen, and the inspector in scrollback. */
-export type Place = "box" | "transcript" | "opened" | "decision";
+/**
+ * What has your keys as the sheet opens. An opened call is under its line in full screen, and the
+ * inspector in scrollback. An opened ledger is full screen's: the cursor is in it.
+ */
+export type Place = "box" | "transcript" | "opened" | "ledger" | "decision";
 
 type Row = [key: string, does: string];
 
@@ -28,7 +31,9 @@ const GAP = 3;
 /** Claude Code's other spellings of Ctrl+_, which terminals send for the one key. */
 const SPELLINGS = new Set(["ctrl+-", "ctrl+shift+-", "ctrl+shift+_"]);
 
-export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean, prompt?: Prompted): Section[] {
+/** `prompt`: the keys the permission prompt takes. `scopes`: whether an opened ledger's `[ ]` switch its scope, as in git. */
+export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean, { prompt, scopes = false }: { prompt?: Prompted; scopes?: boolean } = {}): Section[] {
+  const scoping = place === "ledger" && scopes;
   /**
    * Keys of the box's own, in the keymap's spelling, that no binding has taken from it: the box asks
    * the keymap first, so a stroke bound, or one that starts a chord, is the binding's.
@@ -94,6 +99,7 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean, promp
       ["home, end", "top, end"],
       ["{ }, alt+↑ ↓", "your messages"],
       ["alt+shift+↑ ↓", "tool calls"],
+      ...(scoping ? [] : [["[ ]", "ledgers"] as Row]),
       ["enter", "open or close"],
       [["esc", "q", hintKey(keymap, "app:toggleTranscript")].filter(Boolean).join(", "), "back to the box"],
       ["?", "every key"],
@@ -122,6 +128,16 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean, promp
         ],
   };
   // In `claude`'s words: its hint line says `Esc to cancel · Tab to amend`.
+  const ledger: Section = {
+    title: "In an opened ledger",
+    rows: [
+      ["← →", "file before, after"],
+      ["enter", "open or close a diff"],
+      ["a", "every diff, or none"],
+      ...(scoping ? [["[ ]", "this turn, uncommitted, branch"] as Row] : []),
+      ["esc", "close the diff, then the ledger"],
+    ],
+  };
   const decision: Section = {
     title: "In a permission prompt",
     rows: [
@@ -155,6 +171,7 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean, promp
     title: "Mouse",
     rows: [
       ["click a line", "open, close"],
+      ["click a ledger's scope", "switch to it"],
       ["click an option", "choose it"],
       ["click a link", "open it"],
       ["click a picture", "enlarge it"],
@@ -193,6 +210,8 @@ export function sheetOf(place: Place, keymap: Keymap, fullscreen: boolean, promp
       return [transcript, ...pointer, anywhere];
     case "opened":
       return fullscreen ? [opened, transcript, mouse, anywhere] : [opened, redraw];
+    case "ledger":
+      return [ledger, transcript, mouse, anywhere];
     case "decision":
       return [decision, ...(fullscreen ? [scrolling, mouse] : []), redraw];
   }

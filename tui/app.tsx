@@ -1203,7 +1203,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const picker = () => {
     switch (overlay?.kind) {
       case "keys":
-        return <KeySheet sections={sheetOf(overlay.place, store.keymap, fullscreen, overlay.prompt)} custom={store.keymap !== DEFAULT_KEYMAP} width={width} rows={Math.max(3, rows - 13)} onClose={close} />;
+        return <KeySheet sections={sheetOf(overlay.place, store.keymap, fullscreen, { prompt: overlay.prompt, scopes: review.git })} custom={store.keymap !== DEFAULT_KEYMAP} width={width} rows={Math.max(3, rows - 13)} onClose={close} />;
       case "picture":
         return (
           <Lightbox
@@ -1598,7 +1598,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const boxKeys = focus === "box";
   // `?` lists the keys where yours are: the box and a permission prompt read their own, and an
   // overlay's filter, a question's answer or a form's field take it as typed.
-  const keysHere: Place | null = focus === "transcript" || inspectorKeys ? (inspected ? "opened" : "transcript") : null;
+  const keysHere: Place | null = focus === "transcript" || inspectorKeys ? (inLedger ? "ledger" : inspected ? "opened" : "transcript") : null;
   // Ctrl+L redraws wherever the keys are, the transcript too, as a garbled screen can't wait for an
   // overlay to close. The message box reads its own, chords and all.
   useInput(

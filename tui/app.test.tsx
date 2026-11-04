@@ -700,6 +700,19 @@ test("/diff opens the latest turn's ledger with the cursor on it, and the keys a
   expect(row(/a open all/)).toBe(-1);
 });
 
+test("? with the cursor in an opened ledger lists the ledger's keys first, and Esc leaves the ledger open with your keys in it", async () => {
+  const { press, cursor, row, screen } = await launch(ledgers());
+  await press("/diff");
+  await press(KEYS.enter);
+  await press("?");
+  expect(sheetFirst(screen())).toBe("In an opened ledger");
+  expect(screen().join("\n")).toMatch(/a +every diff, or none/);
+  await press(KEYS.esc);
+  expect(sheetFirst(screen())).toBeUndefined();
+  expect(cursor()).toBe(row(/^╰.─ 9s/));
+  expect(row(/^ {4}300 tokens/)).toBe(cursor() + 1);
+});
+
 test("a click on a ledger's file opens its diff, and one on a scope's tab switches to it, as Enter and ] do", async () => {
   const cwd = process.cwd();
   const changes = async () => ({ files: [{ path: `${cwd}/notes.md`, added: 2, removed: 0, status: "new" }], trees: { from: "h", to: "w" } });
