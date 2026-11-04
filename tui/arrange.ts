@@ -29,28 +29,42 @@ function stepRow(step: Step, state: State, waiting: ReadonlySet<string>, toggled
 }
 
 /**
- * The step's members in order: each run of calls as activity lines, and the thinking and progress
- * lines between the runs, which show once the step opens. Calls group into a line only within a
- * run, so a step's lines are the same open or closed. A stretch of thinking is one line, open if
- * it's in `toggled`.
+ * The step's members in order: each run of calls as activity lines, and the progress lines between
+ * the runs and the thinking between the lines, which show once the step opens. Calls group into a
+ * line only within a run, so a step's lines are the same open or closed. Thinking doesn't end a
+ * run: it goes before the first line that starts after it, so thinking inside a line goes after
+ * it. A stretch of thinking is one line, open if it's in `toggled`.
  */
 function flowOf(step: Step, state: State, waiting: ReadonlySet<string>, toggled: ReadonlySet<string>): Flow[] {
   const flow: Flow[] = [];
-  let run: ToolItem[] = [];
-  const rows = (calls: ToolItem[]): Flow[] => activityRows(calls.map((one) => one.call), waiting, state.cwd, state.home).map((row) => ({ kind: "row", row }));
+  let run: Item[] = [];
+  const think = (member: Item) => {
+    if (member.kind !== "thinking") return;
+    const last = flow.at(-1);
+    if (last?.kind === "thinking") flow[flow.length - 1] = { ...last, text: `${last.text}\n\n${member.text}` };
+    else flow.push({ kind: "thinking", key: member.key, text: member.text, open: toggled.has(member.key) });
+  };
+  const flush = () => {
+    const calls = run.filter((one): one is ToolItem => one.kind === "tool");
+    let at = 0;
+    for (const row of activityRows(calls.map((one) => one.call), waiting, state.cwd, state.home)) {
+      const first = row.calls[0]!.id;
+      const start = run.findIndex((one) => one.kind === "tool" && one.call.id === first);
+      for (; at < start; at++) think(run[at]!);
+      flow.push({ kind: "row", row });
+    }
+    for (; at < run.length; at++) think(run[at]!);
+    run = [];
+  };
   for (const member of step.members) {
-    if (member.kind === "tool") {
+    if (member.kind !== "notice") {
       run.push(member);
       continue;
     }
-    flow.push(...rows(run));
-    run = [];
-    const last = flow.at(-1);
-    if (member.kind === "thinking" && last?.kind === "thinking") flow[flow.length - 1] = { ...last, text: `${last.text}\n\n${member.text}` };
-    else if (member.kind === "thinking") flow.push({ kind: "thinking", key: member.key, text: member.text, open: toggled.has(member.key) });
-    else if (member.kind === "notice") flow.push({ kind: "notice", key: member.key, text: member.text, tone: member.tone });
+    flush();
+    flow.push({ kind: "notice", key: member.key, text: member.text, tone: member.tone });
   }
-  flow.push(...rows(run));
+  flush();
   return flow;
 }
 

@@ -230,3 +230,37 @@ test("a finished turn, folded, at 80, 120 and 200 columns", () => {
   });
   expect(drawn).toMatchSnapshot();
 });
+
+/** Your message, Claude's sentence, and `members`, Claude's calls and its thinking between them, in a turn still going. */
+function thinking(members: (ToolCall | string)[]): State {
+  const items: Item[] = [
+    { kind: "prompt", key: "p", text: "check the math" },
+    { kind: "text", key: "t", text: "Reading the math helpers." },
+    ...members.map((one, i): Item => (typeof one === "string" ? { kind: "thinking", key: `k${i}`, text: one } : { kind: "tool", key: one.id, call: one })),
+  ];
+  const tools = Object.fromEntries(items.flatMap((item, i) => (item.kind === "tool" ? [[item.call.id, i]] : [])));
+  return { ...initialState("/p", "/home/u"), items, busy: true, tools };
+}
+
+const read = (id: string) => call(id, { name: "Read", input: { file_path: `/p/${id}.ts` }, result: "1\tx\n2\ty" });
+
+test("thinking between reads leaves them one line, and shows after it once the step opens", () => {
+  const state = thinking([read("math"), "I'm checking the edge cases.", read("mul"), "And the last one.", read("sub")]);
+  const closed = plain(layout(input(state, 118)));
+  expect(closed.filter((line) => line.includes(".ts"))).toHaveLength(1);
+  expect(at(closed, "math.ts, mul.ts, sub.ts")).toBeGreaterThan(-1);
+  const open = plain(layout({ ...input(state, 118), expanded: new Set(["step:t"]) }));
+  const line = at(open, "math.ts, mul.ts, sub.ts");
+  expect(open[line + 1]).toContain("∴ I'm checking the edge cases.");
+  expect(open.filter((one) => one.includes("∴"))).toHaveLength(1);
+  // It isn't the thinking that led to the step, which stands above its sentence.
+  expect(at(open, "∴")).toBeGreaterThan(at(open, "Reading the math helpers"));
+});
+
+test("thinking between two lines stays between them once the step opens", () => {
+  const state = thinking([read("math"), "Now the tests.", call("b", { name: "Bash", input: { command: "bun test", description: "Run the tests" }, result: "3 pass" })]);
+  const open = plain(layout({ ...input(state, 118), expanded: new Set(["step:t"]) }));
+  const thought = at(open, "∴ Now the tests.");
+  expect(thought).toBe(at(open, "math.ts") + 1);
+  expect(at(open, "Ran ")).toBe(thought + 1);
+});
