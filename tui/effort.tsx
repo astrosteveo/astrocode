@@ -40,6 +40,17 @@ export function effortOn(levels: readonly EffortLevel[], wanted: EffortLevel | u
   return [...levels].reverse().find((level) => EFFORTS.indexOf(level) <= rank) ?? levels[0];
 }
 
+/**
+ * The level Shift+↑ or Shift+↓ steps to from `current`, as `claude` steps: from high when none is
+ * set, through the levels the model takes but max, which only /effort max sets. Undefined when
+ * there's no level further that way.
+ */
+export function effortStep(levels: readonly EffortLevel[], current: EffortLevel | undefined, by: -1 | 1): EffortLevel | undefined {
+  const rank = EFFORTS.indexOf(current ?? "high");
+  const steps = levels.filter((level) => level !== "max");
+  return by === 1 ? steps.find((level) => EFFORTS.indexOf(level) > rank) : steps.findLast((level) => EFFORTS.indexOf(level) < rank);
+}
+
 type Props = {
   value: string;
   /** Gold while it's yours to change, dim when there's nothing to step to. */
