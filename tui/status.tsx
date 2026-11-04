@@ -18,6 +18,7 @@ import { Box, Text, type DOMElement } from "ink";
 import { useRef, type ReactNode } from "react";
 import { canStopThinking, modelLabel, resetTime } from "../src/view/format";
 import { cacheLeft, keptWarm, minutesLeft, useNow } from "./cache";
+import { needYou } from "./fleet";
 import type { State, UsageWindow } from "../src/view/state";
 import type { UsageMode } from "../src/settings";
 import type { GitInfo } from "./git";
@@ -92,7 +93,7 @@ export function StatusBar({ state, mode, git, width, armed, running, toast, modT
   // The chip's caps are half blocks, so it reads as a solid lozenge.
   const left = armed ?? `▐${chip.label}▌`;
   const hint = armed ? "" : "  shift+tab";
-  const needs = needsYou ? `← ${needsYou} needs you` : "";
+  const needs = needsYou ? `← ${needYou(needsYou)}` : "";
   const room = width - 2 - cellWidth(left) - cellWidth(hint) - (needs ? 2 + cellWidth(needs) : 0) - 2;
 
   // In order of importance: the bar keeps what fits from the start of this list.

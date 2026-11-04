@@ -140,16 +140,22 @@ export function prLabel(agent: Agent) {
 }
 
 /**
+ * Whether it waits on you. A session can be listed as needing input while it's idle, only waiting
+ * for a prompt, as a conversation handed to the background service is until it's sent one.
+ */
+export function waitsOnYou(agent: Agent) {
+  return agent.state === "blocked" && agent.status !== "idle";
+}
+
+/**
  * Whether opening it means joining it where it runs, with `claude attach`: it's working or waiting
- * on you, and taking it over would cut that off. The rest can be moved into astrocode.
- *
- * A session can be listed as needing input while it's idle, only waiting for a prompt, as a
- * conversation handed to the background service is until it's sent one. Nothing would be cut off.
+ * on you, and taking it over would cut that off. The rest can be moved into astrocode, which a
+ * session only waiting for a prompt loses nothing by.
  */
 export function attaches(agent: Agent) {
   if (!agent.alive) return false;
-  if (agent.state === "blocked" && agent.status === "idle") return false;
-  return agent.state === "working" || agent.state === "blocked" || agent.status === "busy" || agent.status === "waiting";
+  if (agent.state === "blocked") return waitsOnYou(agent);
+  return agent.state === "working" || agent.status === "busy" || agent.status === "waiting";
 }
 
 /**

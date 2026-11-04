@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
+import type { SessionSettings } from "../src/agents";
 import { installedBinary } from "../src/claude";
 import { loadSettings, remember } from "../src/settings";
 import { AgentsView, othersListed } from "./agents";
@@ -47,7 +48,7 @@ afterAll(() => {
 });
 
 /** The agents view on a fake terminal, over a fleet of stand-in conversations, with what it was asked to do. */
-function view(options: { here?: string; mine?: string[] } = {}) {
+function view(options: { here?: string; mine?: string[]; settings?: SessionSettings } = {}) {
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 100, rows: 30 });
   let screen = "";
@@ -71,7 +72,7 @@ function view(options: { here?: string; mine?: string[] } = {}) {
       here={options.here}
       cwd={here}
       home={root}
-      settings={{}}
+      settings={options.settings ?? {}}
       onShow={(key) => shownKeys.push(key)}
       onOpen={async () => {}}
       onStart={async (task, cwd) => {
@@ -112,7 +113,7 @@ test("Enter starts the task in astrocode and stays in the view, so another can s
   expect(shown).toEqual([]);
   expect(fleet.getSnapshot().map((one) => one.cwd)).toEqual([other, other]);
   expect(existsSync(dispatched)).toBe(false);
-  const last = screen().split("Agents").at(-1) ?? "";
+  const last = screen().split("Conversations").at(-1) ?? "";
   expect(last).toContain("2 working");
   expect(last).toContain("fix the build");
   expect(last).toContain("add the tests");
@@ -180,7 +181,7 @@ test("Ctrl+X stops one of astrocode's conversations, and its row goes", async ()
   await settle(500);
   app.unmount();
   expect(stopped).toEqual(["astrocode-1"]);
-  expect(screen().split("Agents").at(-1)).toContain("Stopped first.");
+  expect(screen().split("Conversations").at(-1)).toContain("Stopped first.");
 });
 
 test("the box mentions ← while the view would list a conversation besides this one", async () => {
@@ -211,5 +212,40 @@ test("having opened the view is remembered, so the box stops mentioning ← next
   } finally {
     if (kept === undefined) delete process.env.XDG_CONFIG_HOME;
     else process.env.XDG_CONFIG_HOME = kept;
+  }
+});
+
+test("draws each conversation with the Ledger's mark for its state, under counts of each, and never the state's word", async () => {
+  const kept = await Bun.file(listed).text();
+  writeFileSync(
+    listed,
+    JSON.stringify([
+      { id: "4a1b2c3d", cwd: other, kind: "background", startedAt: 1, state: "blocked", pid: 1, status: "waiting", name: "asking" },
+      // Handed to the background service as astrocode quit: listed as needing input, it only waits for a prompt.
+      { id: "5a1b2c3d", cwd: other, kind: "background", startedAt: 2, state: "blocked", pid: 2, status: "idle", name: "handed" },
+      { id: "6a1b2c3d", cwd: other, kind: "background", startedAt: 3, state: "working", pid: 3, status: "busy", name: "busy" },
+      { id: "7a1b2c3d", cwd: third, kind: "background", startedAt: 4, state: "failed", name: "broke" },
+      { id: "8a1b2c3d", cwd: third, kind: "background", startedAt: 5, state: "stopped", name: "halted" },
+    ]),
+  );
+  try {
+    const { fleet, app, screen } = view({ here: "astrocode-1", mine: ["first", "second"], settings: { model: "claude-opus-5-5", effort: "xhigh", mode: "default" } });
+    fleet.get("astrocode-2")?.store.emit({ kind: "permission", request: { id: "p", toolName: "Bash", input: { command: "rm -rf dist" } } });
+    await settle(500);
+    app.unmount();
+    const last = screen().split("Conversations").at(-1) ?? "";
+    const row = (name: string) => last.split("\n").find((line) => line.includes(` ${name} `)) ?? "";
+    expect(last).toContain("new ones start in ~/here · Opus 5.5 xhigh · ask first");
+    expect(last).toContain("2 need you · 2 working · 1 failed");
+    expect(row("first")).toMatch(/◐ first {2}\(this one\)/);
+    expect(row("second")).toContain("◇ second");
+    expect(row("asking")).toContain("◇ asking");
+    expect(row("handed")).toContain("○ handed");
+    expect(row("busy")).toContain("◐ busy");
+    expect(row("broke")).toContain("✕ broke");
+    expect(row("halted")).toContain("■ halted");
+    for (const word of ["Working", "Needs input", "Done", "Failed", "Stopped", "Idle"]) expect(last).not.toContain(word);
+  } finally {
+    writeFileSync(listed, kept);
   }
 });
