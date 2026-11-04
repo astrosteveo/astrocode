@@ -176,17 +176,18 @@ test("/diff in scrollback says so when no turn has ended yet", async () => {
   expect(stripVTControlCharacters(written())).toContain("No turn has ended yet.");
 });
 
-test("/help shows the key sheet in scrollback too, with Ctrl+O's transcript and without full screen's mouse", async () => {
+test("/help in scrollback lists Ctrl+O's transcript and the keys it takes there, without full screen's mouse", async () => {
   const { press, store, ink, written } = app();
   await settle();
-  // The sheet is taller than 30 rows; typing filters it to the row.
+  // The sheet is taller than 30 rows; typing filters it to Ctrl+O's row and the transcript's section.
   await press("/help", KEYS.enter, "transcript");
   // /help went into the scratch prompt history; the line has to land before the scratch folder goes.
   await store.prompts.written();
   ink.unmount();
   const sheet = stripVTControlCharacters(written());
-  expect(sheet).toContain("In the box");
   expect(sheet).toMatch(/ctrl\+o +transcript/);
+  expect(sheet).toContain("In the transcript");
+  expect(sheet).toMatch(/enter +open or close/);
   expect(sheet).not.toContain("click a line");
 });
 
