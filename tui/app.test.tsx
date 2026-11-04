@@ -439,6 +439,58 @@ test("scrolling away from the call followed stops following, so the view stays w
   expect(cursor()).not.toBe(-1);
 });
 
+/** A turn closed by its ledger, then the next, with Claude at work in it on `calls`. */
+function workingAfterLedger(calls: ToolCall[], cwd = "/p"): State {
+  const before = ledgers(cwd);
+  const items: Item[] = [...before.items.slice(0, 5), { kind: "prompt", key: "p2", text: "and again", starts: true }, { kind: "text", key: "t2", text: "Going again." }, ...calls.map((one) => ({ kind: "tool" as const, key: one.id, call: one }))];
+  return { ...before, items, busy: true, tools: { ...before.tools, ...Object.fromEntries(calls.map((one, i) => [one.id, 7 + i])) } };
+}
+
+for (const [name, keys, lands] of [
+  ["[ to the ledger before", ["["], /6s · 2 files/],
+  ["n to the next match", ["n"], /and again/],
+  ["/ and Enter on a match", ["/", "and again", KEYS.enter], /and again/],
+  ["/diff to the latest ledger", [KEYS.ctrlO, "/diff", KEYS.enter], /6s · 2 files/],
+] as const) {
+  test(`${name} moves the cursor, so following Claude stops there rather than pull the cursor to the next call`, async () => {
+    const built = running("m", "Build the app", { status: "done", result: "built" });
+    const { press, update, screen, row, cursor } = await launch(workingAfterLedger([running("m", "Build the app")]));
+    const opened = () => screen().find((line) => /‹ \d of \d ›/.test(line))?.match(/‹ \d of \d ›/)?.[0];
+    await press(KEYS.ctrlO);
+    // Something found already, for n to go on to.
+    for (const key of ["/", "and again", KEYS.enter, "\x1b[F"]) await press(key);
+    expect(cursor()).toBe(row(/Building +the app/));
+    await press(KEYS.enter);
+    expect(opened()).toBe("‹ 1 of 1 ›");
+    for (const key of keys) await press(key);
+    expect(cursor()).toBe(row(lands));
+    await update(workingAfterLedger([built, running("n", "Lint the code")]));
+    expect(cursor()).toBe(row(lands));
+    expect(opened()).toBe("‹ 1 of 2 ›");
+  });
+}
+
+test("a click on an opened ledger's scope moves the cursor, so following Claude stops there", async () => {
+  // A git repository, so the ledger has scopes, whose files the session reads.
+  const cwd = process.cwd();
+  const changes = async () => ({ files: [{ path: `${cwd}/notes.md`, added: 2, removed: 0, status: "new" }], trees: { from: "h", to: "w" } });
+  const built = running("m", "Build the app", { status: "done", result: "built" });
+  const { press, update, click, screen, row, cursor } = await launch(workingAfterLedger([running("m", "Build the app")], cwd), { session: { changes } });
+  const opened = () => screen().find((line) => /‹ \d of \d ›/.test(line))?.match(/‹ \d of \d ›/)?.[0];
+  await press(KEYS.ctrlO);
+  await press("[");
+  await press(KEYS.enter);
+  await press("\x1b[F");
+  await press(KEYS.enter);
+  expect(opened()).toBe("‹ 1 of 1 ›");
+  const scopes = row(/▐this turn▌/);
+  await click(screen()[scopes]!.indexOf("uncommitted") + 1, scopes);
+  expect(screen()[cursor()]).toContain("▐uncommitted▌");
+  await update(workingAfterLedger([built, running("n", "Lint the code")], cwd));
+  expect(screen()[cursor()]).toContain("▐uncommitted▌");
+  expect(opened()).toBe("‹ 1 of 2 ›");
+});
+
 test("full screen opens on the start screen, which names Ctrl+O by the transcript it gives your keys to", async () => {
   const { screen } = await launch(initialState("/p", "/home/u"));
   expect(screen().join("\n")).toContain("ctrl+o transcript");

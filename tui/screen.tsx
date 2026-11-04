@@ -21,7 +21,7 @@ import { cellWidth } from "./markdown";
 import { cellsOn, cursorOn, findIn, hasContent, highlight, isTextAt, linkAt, lit, litLink, markMatches, selectedText, wordAt, type Cell } from "./selection";
 import { PALETTE } from "./theme";
 import { allTarget, fileTarget, isMore, ledgerTarget, scopeTarget } from "./ledger";
-import { moveTarget, tabTarget, WHOLE, type Opened } from "./opened";
+import { moveTarget, tabTarget, targetTab, WHOLE, type Opened } from "./opened";
 import { imageAt, pictureRows, usePictureRows } from "./pictures";
 import { StartScreen, type Start } from "./start";
 import type { Review } from "./review";
@@ -82,8 +82,8 @@ type Props = {
   /** Esc, q or Ctrl+O, which give your keys back to the box. */
   onLeave: () => void;
   /**
-   * Your keys or a click moved the cursor, or you scrolled the view away from the end, which stops
-   * an opened call following Claude.
+   * Your keys, a click, a find or /diff moved the cursor, or you scrolled the view away from the
+   * end, which stops an opened call following Claude.
    */
   onCursor: () => void;
   /** `x` on a line: what it stands for, as `onToggle` gets it, to stop while it runs. */
@@ -253,6 +253,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   const findNext = (by: -1 | 1) => {
     const { transcript, at } = now.current;
     if (!sought.query) return;
+    onCursor();
     const from = at ?? lastShown();
     const lines = [...new Set(matchesIn(transcript.rows, sought.query).map((match) => match.index))].filter((line) => isStop(transcript.rows[line]));
     const next = by < 0 ? (lines.findLast((line) => line < from) ?? lines.at(-1)) : (lines.find((line) => line > from) ?? lines[0]);
@@ -360,6 +361,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
 
   /** `[` or `]`: in an opened ledger in git, the scope before or after; elsewhere, the cursor to the ledger before or after. */
   const bracket = (by: -1 | 1) => {
+    onCursor();
     const { transcript, at } = now.current;
     const ledger = ledgerAt(at);
     if (ledger !== undefined && review?.git) {
@@ -570,12 +572,13 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
           const image = imageAt(row.text, point.col);
           if (image) return onPicture(image);
           // A click puts the cursor on its line, with your keys, and does there what Enter does. One
-          // on a tab of what's open is Tab, which, unlike moving the cursor, keeps it following Claude.
+          // on a tab of the opened call is Tab, which, unlike moving the cursor, keeps it following
+          // Claude; one on a ledger's scope moves the cursor there.
           const spot = spotAt(row, point.col);
           if (isStop(row)) {
             place(index);
             onFocus();
-            if (!spot) onCursor();
+            if (spot === undefined || targetTab(spot) === undefined) onCursor();
           }
           if (!row.hot) return;
           if (spot) return onToggle(spot);
@@ -707,6 +710,7 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
     const row = rows[index];
     if (!row || (row.hot && !row.open)) return;
     revealed.current = reveal;
+    onCursor();
     place(index);
     show(index, rows.findLastIndex((one) => one.key === reveal.key));
   }, [reveal, transcript]);
@@ -739,7 +743,10 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   const target = matches[current]?.index;
   useEffect(() => {
     if (target === undefined) return;
-    if (isStop(now.current.transcript.rows[target])) place(target);
+    if (isStop(now.current.transcript.rows[target])) {
+      onCursor();
+      place(target);
+    }
     const { top, view, pad } = now.current;
     if (target >= top && target < top + view - pad) return;
     scrollAway(target - Math.floor(view / 3));
