@@ -126,7 +126,7 @@ async function launch(state: State, { columns = 200, rows = 40, follow = false }
   return { screen, row, press, click, update, cursor, boxKeys, asked, writes };
 }
 
-const KEYS = { ctrlO: "\x0f", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", ctrlC: "\x03", ctrlL: "\x0c" };
+const KEYS = { ctrlO: "\x0f", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", ctrlC: "\x03", ctrlL: "\x0c", ctrlA: "\x01", ctrlD: "\x04" };
 
 test("at 200 columns a click opens a call under its line, with nothing beside the column, and another closes it", async () => {
   const { screen, row, click } = await launch(THREE);
@@ -503,4 +503,16 @@ test("Ctrl+L redraws while the transcript has your keys, and leaves them there",
   await press(KEYS.ctrlL);
   expect(writes.slice(before).join("")).toContain("\x1b[2J\x1b[H");
   expect(boxKeys()).toBe(false);
+});
+
+test("Ctrl+D in the transcript with text in the box does nothing: it neither deletes from it nor counts toward exit", async () => {
+  const { press, row, boxKeys } = await launch(THREE);
+  await press("hello");
+  await press(KEYS.ctrlA);
+  await press(KEYS.ctrlO);
+  await press(KEYS.ctrlD);
+  expect(row(/again to exit/)).toBe(-1);
+  await press(KEYS.esc);
+  expect(boxKeys()).toBe(true);
+  expect(row(/^ ❯ hello/)).not.toBe(-1);
 });
