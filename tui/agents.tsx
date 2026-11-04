@@ -53,6 +53,16 @@ function plainLine(markdown: string) {
   return line.replace(/^\s*(?:#+|>|[-*]|\d+\.)\s+/, "").replace(/\*\*|`/g, "").trim();
 }
 
+/**
+ * Whether the view would list a conversation besides the one whose session is `except`: one of
+ * Claude Code's background sessions, which the message box mentions ← for until the view has been
+ * opened once. A `claude` that can't list them has nothing to show there.
+ */
+export async function othersListed(except: string | undefined) {
+  const agents = await listAgents().catch(() => []);
+  return agents.some((agent) => !agent.sessionId || agent.sessionId !== except);
+}
+
 const LOOK: Record<AgentState | "idle", { glyph: string; color: string; label: string }> = {
   working: { glyph: "◌", color: PALETTE.teal, label: STATE_LABELS.working },
   blocked: { glyph: "●", color: PALETTE.gold, label: STATE_LABELS.blocked },

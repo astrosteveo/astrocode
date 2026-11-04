@@ -7,9 +7,9 @@ import { loadHistory, savedSessions, sessionTitle } from "../src/history";
 import { PromptHistory } from "../src/prompt-history";
 import { AgentSession } from "../src/session";
 import { showServer, visualInstructions } from "../src/show";
-import { loadSettings, saved as settingsSaved } from "../src/settings";
+import { loadSettings, remember, saved as settingsSaved } from "../src/settings";
 import { loadStash, stashSaved } from "../src/stash";
-import { AgentsView } from "./agents";
+import { AgentsView, othersListed } from "./agents";
 import { App } from "./app";
 import { CANVAS_COLORS, canvas } from "./diagrams";
 import { Fleet, liveState, moveAll, titleOf, type Conversation } from "./fleet";
@@ -136,6 +136,8 @@ export async function startTerminal(options: TerminalOptions) {
   };
 
   let fullscreen = options.fullscreen ?? (await loadSettings()).fullscreen ?? false;
+  /** Whether you've ever opened the agents view: until you have, the message box mentions ←. */
+  let viewed = (await loadSettings()).agentsViewed ?? false;
 
   /**
    * The conversation on screen until it's left for the agents view or astrocode quits. /fullscreen
@@ -144,6 +146,8 @@ export async function startTerminal(options: TerminalOptions) {
    */
   const showSession = async ({ store, session, cwd }: Held) => {
     const git = await gitInfo(cwd);
+    // Read while the conversation draws: `claude agents` takes longer than the first frame should wait.
+    const agentsHint = viewed ? Promise.resolve(false) : othersListed(session.knownId);
     for (;;) {
       let leaving = null as "layout" | "agents" | null;
       // Ink asks the terminal about the kitty keyboard protocol as it starts, before its input hooks
@@ -169,6 +173,7 @@ export async function startTerminal(options: TerminalOptions) {
             onToggleFullscreen={() => leave("layout")}
             onAgents={() => leave("agents")}
             fleet={fleet}
+            agentsHint={agentsHint}
           />
         </MouseContext>,
         {
@@ -234,6 +239,11 @@ export async function startTerminal(options: TerminalOptions) {
   /** The agents view, until it's left for one of astrocode's conversations or out of astrocode. */
   const showAgents = async (notice?: string): Promise<Leaving> => {
     const settings = await newSettings();
+    if (!viewed) {
+      viewed = true;
+      // Should it not save, the hint only shows again next time.
+      remember({ agentsViewed: true }).catch(() => {});
+    }
     let leaving: Leaving = { kind: "exit" };
     process.stdin.setRawMode(true);
     const app = render(
