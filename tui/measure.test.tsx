@@ -177,3 +177,45 @@ test("under 100 columns a result that doesn't fit beside its line goes under it,
     }
   }
 });
+
+const KEYS = { ctrlO: "\x0f", down: "\x1b[B", enter: "\r" };
+
+test("render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger", async () => {
+  for (const [columns, rows] of [
+    [80, 24],
+    [120, 40],
+    [200, 50],
+  ] as const) {
+    const frame = (lines: string[]) => lines.map((line) => line.trimEnd()).join("\n");
+    const ended = await launch(turn(), columns, rows);
+    expect(frame(ended.screen())).toMatchSnapshot(`${columns}×${rows} ended`);
+    quit?.();
+
+    // The call that ran the tests, found and opened with the transcript's keys.
+    const call = await launch(turn(), columns, rows);
+    await call.press(KEYS.ctrlO);
+    await call.press("/");
+    for (const key of "whole suite") await call.press(key);
+    await call.press(KEYS.enter);
+    await call.press(KEYS.enter);
+    const opened = call.screen();
+    expect(opened.some((line) => line.includes("Sent to Claude"))).toBe(true);
+    expect(frame(opened)).toMatchSnapshot(`${columns}×${rows} call opened`);
+    quit?.();
+
+    // The ledger on its closing line, and the edited file's diff under the file.
+    const ledger = await launch(turn(), columns, rows);
+    await ledger.press(KEYS.ctrlO);
+    await ledger.press(KEYS.enter);
+    await ledger.press(KEYS.down);
+    await ledger.press(KEYS.down);
+    await ledger.press(KEYS.enter);
+    const diff = ledger.screen();
+    expect(diff.some((line) => line.includes("this.clock.now()"))).toBe(true);
+    expect(frame(diff)).toMatchSnapshot(`${columns}×${rows} diff opened`);
+    quit?.();
+
+    // Nothing opens beside the column: what's open keeps to the measure, too.
+    for (const lines of [opened, diff]) for (const line of transcriptOf(lines, columns)) expect(cellWidth(line)).toBeLessThanOrEqual(edgeOf(columns));
+  }
+}, 60_000);

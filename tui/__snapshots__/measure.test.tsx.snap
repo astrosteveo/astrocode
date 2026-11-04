@@ -1,0 +1,370 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 80×24 ended 1`] = `
+"
+● Give src/cache.ts the same injectable clock retry needs (Clock type in
+│ src/clock.ts), then run bun test. Don't fix retry.
+│
+✓ Put the Clock type in its own file and give Cache an optional clock
+│   Read      src/cache.ts                                         25 lines  ›
+│   Wrote     src/clock.ts                                       +11  ■■■■■  › ┃
+│   Edited    src/cache.ts                                     +1 −1  ■■■■■  › ┃
+│                                                                              ┃
+✗ Running the whole suite; retry's attempts test should still fail             ┃
+│   Ran       the whole suite, retry's attempts test and the cache's         › ┃
+│             ✕ exit 1 · 7 passed, 1 failed                                    ┃
+│             Ran 8 tests across 1 file.                                       ┃
+│                                                                              ┃
+◆ Cache takes a clock now, as retry does: Clock lives in src/clock.ts, and     ┃
+│ Cache's constructor takes an optional one that defaults to the system clock, ┃
+│ so nothing that builds a Cache today has to change. The suite runs 8 tests;  ┃
+│ retry's attempts test still fails, as you asked.                             ┃
+│                                                                              ┃
+╰── 1m 39s · 2 files +12 −1                                                    ┃
+▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+ ❯
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+ ▐ask first▌  shift+tab                context ━━──────── 18%   5h 51%   7d 64%"
+`;
+
+exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 80×24 call opened 1`] = `
+"
+● Give src/cache.ts the same injectable clock retry needs (Clock type in
+│ src/clock.ts), then run bun test. Don't fix retry.
+│
+✓ Put the Clock type in its own file and give Cache an optional clock
+│   Read      src/cache.ts                                         25 lines  › ┃
+│   Wrote     src/clock.ts                                       +11  ■■■■■  › ┃
+│   Edited    src/cache.ts                                     +1 −1  ■■■■■  › ┃
+│                                                                              ┃
+✗ Running the whole suite; retry's attempts test should still fail             ┃
+│›▌ Ran       the whole suite, retry's attempts test and the cache's         › ┃
+│             ✕ exit 1 · 7 passed, 1 failed                                    ┃
+│             Ran 8 tests across 1 file.                                       ┃
+│    Run the whole suite, retry's attempts test and…  ▐✕ exit 1▌   ‹ 4 of 4 ›  ┃
+│    ▐Output▌  Command   Sent to Claude   Input                                ┃
+│    $ bun test                                                                ┃
+│
+│    1   7 pass
+│    2   1 fail
+│    3  Ran 8 tests across 1 file.                           ▐↓ 7 more lines▌
+▄▄▄▄ ↑↓ move   ←→ calls   tab views   c copy   enter open or close   esc close ▄
+ ❯
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+ ▐ask first▌  shift+tab                context ━━──────── 18%   5h 51%   7d 64%"
+`;
+
+exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 80×24 diff opened 1`] = `
+"│   Read      src/cache.ts                                         25 lines  ›
+│   Wrote     src/clock.ts                                       +11  ■■■■■  ›
+│   Edited    src/cache.ts                                     +1 −1  ■■■■■  ›
+│
+✗ Running the whole suite; retry's attempts test should still fail
+│   Ran       the whole suite, retry's attempts test and the cache's         ›
+│             ✕ exit 1 · 7 passed, 1 failed
+│             Ran 8 tests across 1 file.
+│                                                                              ┃
+◆ Cache takes a clock now, as retry does: Clock lives in src/clock.ts, and     ┃
+│ Cache's constructor takes an optional one that defaults to the system clock, ┃
+│ so nothing that builds a Cache today has to change. The suite runs 8 tests;  ┃
+│ retry's attempts test still fails, as you asked.                             ┃
+│                                                                              ┃
+╰── 1m 39s · 2 files +12 −1                                                    ┃
+    src/clock.ts                                                       new +11 ┃
+   ›src/cache.ts                                                         +1 −1 ┃
+       - Date.now()                                                            ┃
+       + this.clock.now()                                                      ┃
+    bun test                                     ✕ exit 1 · 7 ▐↓ 1 more line▌d
+▄▄▄▄▄▄▄▄▄▄ ↑↓ move   enter open or close   ←→ files   a open all   [ ] ledgers ▄
+ ❯
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+ ▐ask first▌  shift+tab                context ━━──────── 18%   5h 51%   7d 64%"
+`;
+
+exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 120×40 ended 1`] = `
+"
+  astrocode  0.1.0 · Claude Code 2.1.318 underneath
+  /p · Opus 5.5 xhigh · ask first
+
+  Keys   ? lists them all, for whatever has your keys
+    / commands                 @ files                    ! shell command            ? every key
+    shift+tab mode             ctrl+o transcript          ← conversations            esc stop Claude
+
+● Give src/cache.ts the same injectable clock retry needs (Clock type in src/clock.ts), then run bun test. Don't
+│ fix retry.
+│
+✓ Put the Clock type in its own file and give Cache an optional clock
+│   Read      src/cache.ts                                                                           25 lines  ›
+│   Wrote     src/clock.ts                                                                         +11  ■■■■■  ›
+│   Edited    src/cache.ts                                                                       +1 −1  ■■■■■  ›
+│
+✗ Running the whole suite; retry's attempts test should still fail
+│   Ran       the whole suite, retry's attempts test and the cache's            ✕ exit 1 · 7 passed, 1 failed  ›
+│             Ran 8 tests across 1 file.
+│
+◆ Cache takes a clock now, as retry does: Clock lives in src/clock.ts, and Cache's constructor takes an optional
+│ one that defaults to the system clock, so nothing that builds a Cache today has to change. The suite runs 8
+│ tests; retry's attempts test still fails, as you asked.
+│
+╰── 1m 39s · 2 files +12 −1
+
+
+
+
+
+
+
+
+
+
+
+▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+ ❯
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+ ▐ask first▌  shift+tab                              context ━━──────── 18%   5h 51%   7d 64%   Opus 5.5   xhigh effort"
+`;
+
+exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 120×40 call opened 1`] = `
+"
+  astrocode  0.1.0 · Claude Code 2.1.318 underneath
+  /p · Opus 5.5 xhigh · ask first
+
+  Keys   ? lists them all, for whatever has your keys
+    / commands                 @ files                    ! shell command            ? every key
+    shift+tab mode             ctrl+o transcript          ← conversations            esc stop Claude
+
+● Give src/cache.ts the same injectable clock retry needs (Clock type in src/clock.ts), then run bun test. Don't
+│ fix retry.
+│
+✓ Put the Clock type in its own file and give Cache an optional clock
+│   Read      src/cache.ts                                                                           25 lines  ›
+│   Wrote     src/clock.ts                                                                         +11  ■■■■■  ›
+│   Edited    src/cache.ts                                                                       +1 −1  ■■■■■  ›
+│
+✗ Running the whole suite; retry's attempts test should still fail
+│›▌ Ran       the whole suite, retry's attempts test and the cache's            ✕ exit 1 · 7 passed, 1 failed  ›
+│             Ran 8 tests across 1 file.
+│    Run the whole suite, retry's attempts test and the cache's                         ▐✕ exit 1▌   ‹ 4 of 4 ›
+│    ▐Output▌  Command   Sent to Claude   Input
+│    $ bun test
+│
+│    1   7 pass
+│    2   1 fail
+│    3  Ran 8 tests across 1 file.
+│
+◆ Cache takes a clock now, as retry does: Clock lives in src/clock.ts, and Cache's constructor takes an optional
+│ one that defaults to the system clock, so nothing that builds a Cache today has to change. The suite runs 8
+│ tests; retry's attempts test still fails, as you asked.
+│
+╰── 1m 39s · 2 files +12 −1
+
+
+
+
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ ↑↓ move   ←→ calls   tab views   c copy   enter open or close   esc close ▄
+ ❯
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+ ▐ask first▌  shift+tab                              context ━━──────── 18%   5h 51%   7d 64%   Opus 5.5   xhigh effort"
+`;
+
+exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 120×40 diff opened 1`] = `
+"
+  astrocode  0.1.0 · Claude Code 2.1.318 underneath
+  /p · Opus 5.5 xhigh · ask first
+
+  Keys   ? lists them all, for whatever has your keys
+    / commands                 @ files                    ! shell command            ? every key
+    shift+tab mode             ctrl+o transcript          ← conversations            esc stop Claude
+
+● Give src/cache.ts the same injectable clock retry needs (Clock type in src/clock.ts), then run bun test. Don't
+│ fix retry.
+│
+✓ Put the Clock type in its own file and give Cache an optional clock
+│   Read      src/cache.ts                                                                           25 lines  ›
+│   Wrote     src/clock.ts                                                                         +11  ■■■■■  ›
+│   Edited    src/cache.ts                                                                       +1 −1  ■■■■■  ›
+│
+✗ Running the whole suite; retry's attempts test should still fail
+│   Ran       the whole suite, retry's attempts test and the cache's            ✕ exit 1 · 7 passed, 1 failed  ›
+│             Ran 8 tests across 1 file.
+│
+◆ Cache takes a clock now, as retry does: Clock lives in src/clock.ts, and Cache's constructor takes an optional
+│ one that defaults to the system clock, so nothing that builds a Cache today has to change. The suite runs 8
+│ tests; retry's attempts test still fails, as you asked.
+│
+╰── 1m 39s · 2 files +12 −1
+    src/clock.ts                                                                                         new +11
+   ›src/cache.ts                                                                                           +1 −1
+       - Date.now()
+       + this.clock.now()
+    bun test                                                                       ✕ exit 1 · 7 passed, 1 failed
+    2.9k tokens
+
+
+
+
+
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ ↑↓ move   enter open or close   ←→ files   a open all   [ ] ledgers   esc close ▄
+ ❯
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+ ▐ask first▌  shift+tab                              context ━━──────── 18%   5h 51%   7d 64%   Opus 5.5   xhigh effort"
+`;
+
+exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 200×50 ended 1`] = `
+"
+  astrocode  0.1.0 · Claude Code 2.1.318 underneath
+  /p · Opus 5.5 xhigh · ask first
+
+  Keys   ? lists them all, for whatever has your keys
+    / commands                 @ files                    ! shell command            ? every key
+    shift+tab mode             ctrl+o transcript          ← conversations            esc stop Claude
+
+● Give src/cache.ts the same injectable clock retry needs (Clock type in src/clock.ts), then run bun test. Don't
+│ fix retry.
+│
+✓ Put the Clock type in its own file and give Cache an optional clock
+│   Read      src/cache.ts                                                                           25 lines  ›
+│   Wrote     src/clock.ts                                                                         +11  ■■■■■  ›
+│   Edited    src/cache.ts                                                                       +1 −1  ■■■■■  ›
+│
+✗ Running the whole suite; retry's attempts test should still fail
+│   Ran       the whole suite, retry's attempts test and the cache's            ✕ exit 1 · 7 passed, 1 failed  ›
+│             Ran 8 tests across 1 file.
+│
+◆ Cache takes a clock now, as retry does: Clock lives in src/clock.ts, and Cache's constructor takes an optional
+│ one that defaults to the system clock, so nothing that builds a Cache today has to change. The suite runs 8
+│ tests; retry's attempts test still fails, as you asked.
+│
+╰── 1m 39s · 2 files +12 −1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+ ❯
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+ ▐ask first▌  shift+tab                                                                                                              context ━━──────── 18%   5h 51%   7d 64%   Opus 5.5   xhigh effort"
+`;
+
+exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 200×50 call opened 1`] = `
+"
+  astrocode  0.1.0 · Claude Code 2.1.318 underneath
+  /p · Opus 5.5 xhigh · ask first
+
+  Keys   ? lists them all, for whatever has your keys
+    / commands                 @ files                    ! shell command            ? every key
+    shift+tab mode             ctrl+o transcript          ← conversations            esc stop Claude
+
+● Give src/cache.ts the same injectable clock retry needs (Clock type in src/clock.ts), then run bun test. Don't
+│ fix retry.
+│
+✓ Put the Clock type in its own file and give Cache an optional clock
+│   Read      src/cache.ts                                                                           25 lines  ›
+│   Wrote     src/clock.ts                                                                         +11  ■■■■■  ›
+│   Edited    src/cache.ts                                                                       +1 −1  ■■■■■  ›
+│
+✗ Running the whole suite; retry's attempts test should still fail
+│›▌ Ran       the whole suite, retry's attempts test and the cache's            ✕ exit 1 · 7 passed, 1 failed  ›
+│             Ran 8 tests across 1 file.
+│    Run the whole suite, retry's attempts test and the cache's                         ▐✕ exit 1▌   ‹ 4 of 4 ›
+│    ▐Output▌  Command   Sent to Claude   Input
+│    $ bun test
+│
+│    1   7 pass
+│    2   1 fail
+│    3  Ran 8 tests across 1 file.
+│
+◆ Cache takes a clock now, as retry does: Clock lives in src/clock.ts, and Cache's constructor takes an optional
+│ one that defaults to the system clock, so nothing that builds a Cache today has to change. The suite runs 8
+│ tests; retry's attempts test still fails, as you asked.
+│
+╰── 1m 39s · 2 files +12 −1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ ↑↓ move   ←→ calls   tab views   c copy   enter open or close   esc close ▄
+ ❯
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+ ▐ask first▌  shift+tab                                                                                                              context ━━──────── 18%   5h 51%   7d 64%   Opus 5.5   xhigh effort"
+`;
+
+exports[`render snapshots at 80×24, 120×40 and 200×50: the turn as it ended, a call opened under its line, and a file's diff opened in the turn's ledger: 200×50 diff opened 1`] = `
+"
+  astrocode  0.1.0 · Claude Code 2.1.318 underneath
+  /p · Opus 5.5 xhigh · ask first
+
+  Keys   ? lists them all, for whatever has your keys
+    / commands                 @ files                    ! shell command            ? every key
+    shift+tab mode             ctrl+o transcript          ← conversations            esc stop Claude
+
+● Give src/cache.ts the same injectable clock retry needs (Clock type in src/clock.ts), then run bun test. Don't
+│ fix retry.
+│
+✓ Put the Clock type in its own file and give Cache an optional clock
+│   Read      src/cache.ts                                                                           25 lines  ›
+│   Wrote     src/clock.ts                                                                         +11  ■■■■■  ›
+│   Edited    src/cache.ts                                                                       +1 −1  ■■■■■  ›
+│
+✗ Running the whole suite; retry's attempts test should still fail
+│   Ran       the whole suite, retry's attempts test and the cache's            ✕ exit 1 · 7 passed, 1 failed  ›
+│             Ran 8 tests across 1 file.
+│
+◆ Cache takes a clock now, as retry does: Clock lives in src/clock.ts, and Cache's constructor takes an optional
+│ one that defaults to the system clock, so nothing that builds a Cache today has to change. The suite runs 8
+│ tests; retry's attempts test still fails, as you asked.
+│
+╰── 1m 39s · 2 files +12 −1
+    src/clock.ts                                                                                         new +11
+   ›src/cache.ts                                                                                           +1 −1
+       - Date.now()
+       + this.clock.now()
+    bun test                                                                       ✕ exit 1 · 7 passed, 1 failed
+    2.9k tokens
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ ↑↓ move   enter open or close   ←→ files   a open all   [ ] ledgers   esc close ▄
+ ❯
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+ ▐ask first▌  shift+tab                                                                                                              context ━━──────── 18%   5h 51%   7d 64%   Opus 5.5   xhigh effort"
+`;
