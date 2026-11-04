@@ -1029,3 +1029,19 @@ test("the wheel over the key sheet scrolls the sheet, and leaves the conversatio
   expect(keys()).toBe(first);
   expect(behind()).toBe(transcript);
 });
+
+test("a key sheet taller than the room above it cuts the start screen short, and never draws its lines over each other", async () => {
+  const { press, screen } = await launch(initialState("/p", "/home/u"), { columns: 80, rows: 23 });
+  const start = new Set(screen().map((line) => line.trimEnd()));
+  /** The rows above the sheet's top edge, each a row of the start screen as it was before. */
+  const above = () => {
+    const lines = screen();
+    return lines.slice(0, lines.findIndex((line) => /^▁{20}/.test(line)));
+  };
+  await press("?");
+  for (const line of above()) expect(start).toContain(line.trimEnd());
+  // Filtering makes the sheet shorter, and the start screen has more room.
+  for (const key of "send") await press(key);
+  expect(above().length).toBeGreaterThan(3);
+  for (const line of above()) expect(start).toContain(line.trimEnd());
+});
