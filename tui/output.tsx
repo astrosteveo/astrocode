@@ -1,51 +1,18 @@
-// A tool call's whole output, printed into scrollback on request (Ctrl+O or /output), or opened
-// under its row in full screen.
+// A tool call's whole output, opened under its row.
 import { Box, Text } from "ink";
-import { runOfCall } from "../src/view/runs";
 import type { ToolCall } from "../src/view/state";
-import { field, subagentReport, toolLabel, toolTarget } from "../src/view/tools";
+import { field, subagentReport } from "../src/view/tools";
 import { highlightCode } from "./highlight";
 import { linked } from "./links";
 import { printable } from "./markdown";
-import { Markdown, fit, onPanel, Panel } from "./markdown-view";
+import { Markdown, onPanel, Panel } from "./markdown-view";
 import { isReady, Pictures } from "./pictures";
-import { ShellCard } from "./shell-card";
 import { PALETTE } from "./theme";
 import { clip } from "./tool-row";
 import { Diff, editLines } from "./diff";
 
 /** The most lines printed for one output; scrollback can hold this much without trouble. */
 const MAX_LINES = 2000;
-
-type Props = { call: ToolCall; cwd: string; home: string; width: number; pictureRows: number };
-
-/** The header of a printed output: which call it belongs to, since it lands at the end of the transcript. */
-export function FullOutput({ call, cwd, home, width, pictureRows }: Props) {
-  // A command's card says which it was, and opened, it holds the whole command and output.
-  if (call.name === "Bash") {
-    return (
-      <Box flexDirection="column">
-        <ShellCard run={runOfCall(call, false)} width={width} expanded />
-        <Pictures images={call.images?.filter(isReady) ?? []} width={width} rows={pictureRows} />
-      </Box>
-    );
-  }
-  return (
-    <Box flexDirection="column">
-      <Text wrap="truncate-end">
-        <Text bold color={PALETTE.teal}>
-          {toolLabel(call.name)}
-        </Text>
-        <Text>{`  ${fit(toolTarget(call, cwd, home), width - TARGET_ROOM, true)}`}</Text>
-        <Text color={PALETTE.haze}>{"  whole output"}</Text>
-      </Text>
-      <OutputBody call={call} width={width} pictureRows={pictureRows} />
-    </Box>
-  );
-}
-
-/** About how many cells a row's tool name and summary take, leaving the rest for what the call acts on. */
-const TARGET_ROOM = 30;
 
 /**
  * A call's whole output. Where the terminal draws images, the pictures its result carried come

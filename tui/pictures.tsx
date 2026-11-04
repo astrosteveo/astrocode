@@ -122,7 +122,6 @@ export function imagesOf(item: Item): ImageAttachment[] {
   if (item.kind === "prompt") return Object.values(item.images ?? {});
   if (item.kind === "text") return drawsImages ? textImages(item) : [];
   if (item.kind === "tool") return item.call.images ?? [];
-  if (item.kind === "output") return item.of.kind === "tool" ? (item.of.call.images ?? []) : [];
   return [];
 }
 

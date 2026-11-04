@@ -12,7 +12,7 @@ import type { Item, Live } from "../src/view/state";
 import { cellWidth } from "./markdown";
 import { fit, Markdown } from "./markdown-view";
 import { ModTree } from "./mod-tree";
-import { FullOutput, OutputBody } from "./output";
+import { OutputBody } from "./output";
 import { ledgerPieces } from "./ledger";
 import { hyperlink } from "./links";
 import { ImageView, isReady } from "./pictures";
@@ -103,22 +103,6 @@ export function ItemView({ item, rail, detailed = false, waiting = false, expand
               <ModTree node={item.call.drawing} width={inner.width} onPress={() => {}} />
             </Box>
           ) : null}
-        </Railed>
-      );
-    }
-    case "output": {
-      const shown = item.of;
-      if (shown.kind === "shell") {
-        return (
-          <Railed node="!" color={PALETTE.gold} rail={rail}>
-            <ShellCard run={runOfShell(shown)} width={inner.width} expanded />
-          </Railed>
-        );
-      }
-      const { glyph, color } = toolNode(shown.call, false);
-      return (
-        <Railed node={glyph} color={color} rail={rail}>
-          <FullOutput call={shown.call} {...inner} />
         </Railed>
       );
     }
