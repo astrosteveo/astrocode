@@ -1596,17 +1596,16 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     if (event.type === "press" && event.button === "left" && !event.handled && focus === "transcript" && hit(panelBox.current, event)) setTranscriptKeys(false);
   });
   const boxKeys = focus === "box";
-  // `?` lists the keys where yours are: the box reads its own, and an overlay's filter, a question's
-  // answer or a form's field take it as typed.
-  const keysHere: Place | null =
-    focus === "transcript" || inspectorKeys ? (inspected ? "opened" : "transcript") : focus === "decision" && request && !question && !elicitation && !overlay ? "decision" : null;
+  // `?` lists the keys where yours are: the box and a permission prompt read their own, and an
+  // overlay's filter, a question's answer or a form's field take it as typed.
+  const keysHere: Place | null = focus === "transcript" || inspectorKeys ? (inspected ? "opened" : "transcript") : null;
   // Ctrl+L redraws wherever the keys are, the transcript too, as a garbled screen can't wait for an
   // overlay to close. The message box reads its own, chords and all.
   useInput(
     (input, key) => {
       if (key.eventType === "release") return;
       if (store.keymap.get(strokeOf(input, key) ?? "") === "chat:clearInput") redrawScreen();
-      else if (input === "?" && !key.ctrl && !key.meta && keysHere) setOverlay({ kind: "keys", place: keysHere, request: request?.id });
+      else if (input === "?" && !key.ctrl && !key.meta && keysHere) setOverlay({ kind: "keys", place: keysHere });
     },
     { isActive: !boxKeys },
   );
@@ -1654,6 +1653,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           active={!sheet}
           onDecide={(answer) => session.decide(request.id, answer)}
           onEdit={(path) => handOver(() => editFile(path)).catch(report)}
+          // A decision that took an overlay's place, such as the box's sheet, leaves it to come back once answered.
+          onKeys={overlay ? undefined : () => setOverlay({ kind: "keys", place: "decision", request: request.id })}
         />
       </Box>
     </>

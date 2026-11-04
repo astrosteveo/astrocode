@@ -29,7 +29,8 @@ const GRACE_MS = 500;
  * diff, command or plan may take, so the line that asks stays in view above. `agent`: the subagent
  * that asks, as `askedBy()` names it. `mode` and `modes`: the mode you're in and those a row may
  * switch to. `onEdit`: opens a file in your editor, done once you've closed it. `active`: false
- * while the key sheet covers it, which keeps its choice for when it's back.
+ * while the key sheet covers it, which keeps its choice for when it's back. `onKeys`: `?` off a row
+ * you type in, for the key sheet.
  */
 type Props = {
   request: PermissionRequest;
@@ -44,6 +45,7 @@ type Props = {
   active?: boolean;
   onDecide: (decision: Decision) => void;
   onEdit: (path: string) => Promise<void>;
+  onKeys?: () => void;
 };
 
 /**
@@ -51,7 +53,7 @@ type Props = {
  * Shift+Tab picks the row that names it. Claude Code may ask that no one key say yes
  * (`defaultToNo`): the prompt then starts on No, and numbers pick only the rows that say no.
  */
-export function DecisionPrompt({ request, agent, cwd, home, width, rows, pictureRows, mode, modes, active = true, onDecide, onEdit }: Props) {
+export function DecisionPrompt({ request, agent, cwd, home, width, rows, pictureRows, mode, modes, active = true, onDecide, onEdit, onKeys }: Props) {
   const [exists] = useState(() => (request.toolName === "Write" && typeof request.input.file_path === "string" ? existsSync(request.input.file_path) : undefined));
   // A plan you edited with Ctrl+G is the one shown, and the one a yes approves.
   const file = request.toolName === "ExitPlanMode" && typeof request.input.planFilePath === "string" ? request.input.planFilePath : undefined;
@@ -125,6 +127,8 @@ export function DecisionPrompt({ request, agent, cwd, home, width, rows, picture
       return;
     }
     if (typing && (key.backspace || key.delete)) return type((text) => text.slice(0, -1));
+    // On a row you pick it lists the keys; in a comment it's typed.
+    if (!typing && input === "?" && !key.ctrl && !key.meta && onKeys) return onKeys();
     if (early()) return;
     if (key.tab && key.shift) {
       const index = ask.rows.findIndex((one) => one.key === "shift+tab");
