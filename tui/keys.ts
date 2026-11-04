@@ -13,7 +13,7 @@ export const ACTIONS = {
   "app:interrupt": "stop or clear",
   "app:exit": "exit",
   "app:toggleTodos": "to-dos",
-  "app:toggleTranscript": "tool output",
+  "app:toggleTranscript": "transcript",
   "history:search": "search",
   "chat:killAgents": "stop background",
   "chat:cycleMode": "mode",

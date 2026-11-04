@@ -1,4 +1,4 @@
-// A list to choose from, for /model, /resume and the tool output browser, on a panel with a gold
+// A list to choose from, for /effort, /resume, /rewind and the like, on a panel with a gold
 // top edge while it has your keys. Type to filter. In full screen, click an item to pick it; the
 // wheel moves through the list.
 import { Box, Text, useInput, type DOMElement } from "ink";

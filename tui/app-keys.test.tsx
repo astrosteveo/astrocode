@@ -213,61 +213,18 @@ test("/diff in scrollback while Claude works says to run it again once Claude is
   expect(store.getSnapshot().items.at(-1)?.kind).toBe("review");
 });
 
-test("/help shows the key sheet in scrollback too, with Ctrl+O's tool output and without full screen's mouse", async () => {
+test("/help shows the key sheet in scrollback too, with Ctrl+O's transcript and without full screen's mouse", async () => {
   const { press, store, ink, written } = app();
   await settle();
   // The sheet is taller than 30 rows; typing filters it to the row.
-  await press("/help", KEYS.enter, "tool");
+  await press("/help", KEYS.enter, "transcript");
   // /help went into the scratch prompt history; the line has to land before the scratch folder goes.
   await store.prompts.written();
   ink.unmount();
   const sheet = stripVTControlCharacters(written());
   expect(sheet).toContain("In the box");
-  expect(sheet).toMatch(/ctrl\+o +tool output/);
+  expect(sheet).toMatch(/ctrl\+o +transcript/);
   expect(sheet).not.toContain("click a line");
-});
-
-test("? in scrollback's inspector lists an opened call's keys, with nothing from the box", async () => {
-  const { press, store, ink, written } = app();
-  await settle();
-  const sdk = (message: Record<string, unknown>) => store.emit({ kind: "sdk", message: message as unknown as SDKMessage });
-  sdk({ type: "assistant", uuid: "a", session_id: "s", parent_tool_use_id: null, message: { id: "m", model: "claude-opus-5-5", role: "assistant", content: [{ type: "tool_use", id: "t", name: "Grep", input: { pattern: "deadline" } }] } });
-  sdk({ type: "user", uuid: "u", session_id: "s", parent_tool_use_id: null, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: "src/retry.ts" }] } });
-  await settle();
-  // Ctrl+O lists the calls, and Enter opens the newest in the inspector, which has your keys.
-  await press(KEYS.ctrlO, KEYS.enter);
-  const before = written().length;
-  await press("?");
-  ink.unmount();
-  const sheet = stripVTControlCharacters(written().slice(before));
-  expect(sheet).toContain("In an opened call");
-  expect(sheet).toMatch(/1, 2, … +that tab/);
-  expect(sheet).not.toContain("In the box");
-});
-
-test("the key sheet over scrollback's inspector keeps its place: the tab you're on and how far you've scrolled", async () => {
-  const { press, store, ink, written } = app();
-  await settle();
-  const sdk = (message: Record<string, unknown>) => store.emit({ kind: "sdk", message: message as unknown as SDKMessage });
-  const output = Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join("\n");
-  sdk({ type: "assistant", uuid: "a", session_id: "s", parent_tool_use_id: null, message: { id: "m", model: "claude-opus-5-5", role: "assistant", content: [{ type: "tool_use", id: "t", name: "Bash", input: { command: "seq 1 300", description: "Count" } }] } });
-  sdk({ type: "user", uuid: "u", session_id: "s", parent_tool_use_id: null, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: output }] } });
-  await settle();
-  /** What the inspector shows after `keys`: its tab and its first line of output. */
-  const after = async (...keys: string[]) => {
-    const before = written().length;
-    await press(...keys);
-    const shown = stripVTControlCharacters(written().slice(before));
-    return { tab: shown.match(/▐(\w+)▌/)?.[1], first: shown.match(/line \d+/)?.[0] };
-  };
-  await press(KEYS.ctrlO, KEYS.enter);
-  const scrolled = await after(KEYS.pgDn);
-  expect(scrolled.first).not.toBe("line 1");
-  expect(await after("?", KEYS.esc)).toEqual(scrolled);
-  const command = await after(KEYS.tab);
-  expect(command.tab).toBe("Command");
-  expect((await after("?", KEYS.esc)).tab).toBe("Command");
-  ink.unmount();
 });
 
 /** Claude Code's guess at your next message, as the SDK sends it after a turn's result. */

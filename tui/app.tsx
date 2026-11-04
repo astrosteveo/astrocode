@@ -14,7 +14,7 @@ import type { AgentSession, Sending } from "../src/session";
 import { remember, settingsPath, type NotifyMode, type Remembered, type TodoMode, type UsageMode } from "../src/settings";
 import { runShell } from "../src/shell";
 import { saveStash } from "../src/stash";
-import { ago, canStopThinking, currentModel, duration } from "../src/view/format";
+import { ago, canStopThinking, currentModel } from "../src/view/format";
 import { isCurrent, steps, titleWorthy } from "../src/view/steps";
 import { askedBy } from "../src/view/permissions";
 import { findRunning, runningKeyOf, runningList, type Running } from "../src/view/runs";
@@ -22,7 +22,7 @@ import { callsOf } from "../src/view/ledger";
 import type { DiffLine } from "../src/view/patch";
 import type { Item, State } from "../src/view/state";
 import { todoList } from "../src/view/todos";
-import { plural, shortPath, toolLabel, toolSummary, toolTarget } from "../src/view/tools";
+import { plural, shortPath } from "../src/view/tools";
 import { Activity } from "./activity";
 import { AsidePanel } from "./aside";
 import { useAttention } from "./attention";
@@ -54,11 +54,11 @@ import { McpPanel } from "./mcp";
 import { MemoryPanel } from "./memory";
 import { ModelPicker } from "./model-picker";
 import { FollowDock, followedCall, useDwell } from "./follow";
-import { Inspector, placeOf, type TabId } from "./inspector";
+import type { TabId } from "./inspector";
 import { targetMove, targetTab, WHOLE } from "./opened";
 import { listedIn, scopeOf, turnDiff, useReview } from "./review";
 import { hit, MouseContext, useMouse } from "./mouse";
-import { Picker, type PickerItem } from "./picker";
+import { Picker } from "./picker";
 import { drawsImages, pictureRows, resendPictures } from "./pictures";
 import { PermissionsPanel } from "./permissions";
 import { PluginManager } from "./plugins";
@@ -79,7 +79,8 @@ import { useModCards } from "./mod-cards";
 import { ModStatus, StatusBar } from "./status";
 import type { Store } from "./store";
 import { RUNNING_STATUS, TaskView } from "./tasks";
-import { PinnedTodos, STATUS } from "./tool-row";
+import { PinnedTodos } from "./tool-row";
+import { useViewer } from "./viewer";
 
 type Overlay =
   /** The model and its effort, as Alt+P opens it. */
@@ -88,7 +89,6 @@ type Overlay =
   /** astrocode's settings, as they were when /config opened. */
   | { kind: "config"; initial: ConfigValues }
   | { kind: "resume"; sessions: SavedSession[] | null }
-  | { kind: "output" }
   /** The commands in Claude's code blocks, to run one. */
   | { kind: "play" }
   | { kind: "plugins" }
@@ -167,8 +167,9 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const [boxEmpty, setBoxEmpty] = useState(true);
   useEffect(() => void agentsHint.then(setHintAgents), [agentsHint]);
   useModCards(session, state, store.emit);
-  const { exit, suspendTerminal } = useApp();
+  const { exit } = useApp();
   const mouse = useContext(MouseContext);
+  const viewer = useViewer(mouse);
   const { write } = useStdout();
   const { columns, rows } = useWindowSize();
   const width = Math.max(24, columns);
@@ -180,8 +181,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const wanted = useRef<PermissionMode | null>(null);
   const turns = state.items.filter((item) => item.kind === "turn").length;
   const git = useGit(state.cwd, turns);
-  // Full screen's own: entries a click opened or closed, away from how they start, whether the
-  // transcript has your keys, and what was copied.
+  // Entries a click or Enter opened or closed, away from how they start, whether full screen's
+  // transcript has your keys (scrollback's has them while its viewer is open), and what was copied.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [transcriptKeys, setTranscriptKeys] = useState(false);
   /** The ledgers' scopes and the diffs read for their files, which `expanded` opens by `fileTarget()`. */
@@ -227,7 +228,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     setFollowState(on);
   };
   const title = useSessionTitle(session.knownId, state.cwd, turns, store.epoch);
-  const start = startOf(state, branch, store.keymap, fullscreen);
+  const start = startOf(state, branch, store.keymap);
   useAttention({ state, window: store.window, notify: notifyMode, title, git });
   /** The message put aside with Ctrl+S, kept in the store so it outlives a switch of layouts. */
   const [stash, setStash] = useState(store.stash);
@@ -279,15 +280,12 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     }
   }, [state.mode]);
 
-  /**
-   * The tool call opened: under its line in full screen, with the tab it shows and whether that's
-   * whole; in the inspector in scrollback, with whether that has the keys.
-   */
-  const [inspect, setInspect] = useState<{ id: string; focus: boolean; tab?: TabId; whole?: boolean } | null>(null);
+  /** The tool call opened under its line, with the tab it shows and whether that's whole. */
+  const [inspect, setInspect] = useState<{ id: string; tab?: TabId; whole?: boolean } | null>(null);
 
   useEffect(() => {
     setExpanded(new Set());
-    setTranscriptKeys(false);
+    toTranscript(false);
     setInspect(null);
   }, [store.resets]);
 
@@ -555,7 +553,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
    * as coming back from full screen does.
    */
   const redrawScreen = () => {
-    if (fullscreen) return write("\x1b[2J\x1b[H");
+    // The viewer is drawn as full screen is; writing scrollback out again would clear it, under the viewer.
+    if (fullscreen || viewer.open) return write("\x1b[2J\x1b[H");
     store.redraw(write);
     repaint();
   };
@@ -580,22 +579,20 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       });
   };
 
-  /** Picked in scrollback's output browser: a tool call opens in the inspector, and a command of yours prints its output at the end. */
-  const showOutput = (id: string) => {
-    if (state.tools[id] !== undefined) return inspectCall(id);
-    store.emit({ kind: "output", id });
+  /** Your keys to the transcript, or back to the box. In scrollback that opens or closes the viewer. */
+  const toTranscript = (on: boolean) => (fullscreen ? setTranscriptKeys(on) : void viewer.show(on));
+
+  /**
+   * Ctrl+O and /output: your keys go to the transcript, whose cursor opens any line in place. With
+   * no line for the cursor, scrollback's viewer would only flash open and shut.
+   */
+  const openTranscript = () => {
+    if (fullscreen || state.items.length || state.live) toTranscript(true);
   };
 
   /**
-   * Ctrl+O and /output: in full screen your keys go to the transcript, whose cursor opens any line
-   * in place; scrollback has the output browser until it has a transcript viewer of its own.
-   */
-  const openTranscript = () => (fullscreen ? setTranscriptKeys(true) : setOverlay({ kind: "output" }));
-
-  /**
-   * Opens a call: under its line in full screen, with your keys in the transcript, and in the
-   * inspector with the keys in scrollback. One still running in a task opens that task's view
-   * instead.
+   * Opens a call under its line, with your keys in the transcript. One still running in a task
+   * opens that task's view instead.
    */
   const inspectCall = (id: string) => {
     const index = state.tools[id];
@@ -605,8 +602,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       setOverlay({ kind: "task", key: task });
       return false;
     }
-    setInspect({ id, focus: true });
-    if (fullscreen) setTranscriptKeys(true);
+    setInspect({ id });
+    toTranscript(true);
     return true;
   };
 
@@ -641,7 +638,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     }
     const by = targetMove(key);
     if (by) {
-      moveInspector(by);
+      moveOpened(by);
       return false;
     }
     const call = targetCall(key);
@@ -702,20 +699,20 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     }, report);
   };
 
-  /** The conversation's tool calls in order, which ← and → in the inspector move through. */
+  /** The conversation's tool calls in order, which ← and → in an opened call move through. */
   const allCalls = state.items.flatMap((item) => (item.kind === "tool" ? [item.call] : []));
-  /** ← or → in the inspector, from the call it shows to the one before or after, with the keys. */
+  /** ← or → in an opened call, from it to the call before or after. */
   const moveFrom = (id: string, by: -1 | 1) => {
     const next = allCalls[allCalls.findIndex((call) => call.id === id) + by];
-    if (next) setInspect({ id: next.id, focus: true });
+    if (next) setInspect({ id: next.id });
   };
-  const moveInspector = (by: -1 | 1) => {
+  const moveOpened = (by: -1 | 1) => {
     if (inspect) moveFrom(inspect.id, by);
   };
 
   /**
    * Alt+L: follow Claude, or stop. Looking at a call yourself holds following on it, and Alt+L then
-   * follows Claude again, as closing the inspector does. Remembered for next time.
+   * follows Claude again, as closing the call does. Remembered for next time.
    */
   const toggleFollow = () => {
     if (follow && inspect) {
@@ -853,16 +850,21 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const handOver = async <T,>(edit: () => Promise<T>): Promise<T> => {
     if (editing.current) throw new Error("An editor is open already.");
     editing.current = true;
+    // Full screen and scrollback's viewer are on the alternate screen, where the mouse reports, and
+    // whose pictures kitty drops while another program has it.
+    const alternate = fullscreen || viewer.open;
     mouse?.stop();
     store.window?.stop();
-    const suspension = await suspendTerminal();
+    const suspension = await viewer.suspend();
     try {
       return await edit();
     } finally {
       await suspension.resume();
       store.window?.start();
-      mouse?.start();
-      if (fullscreen) resendPictures();
+      if (alternate) {
+        mouse?.start();
+        resendPictures();
+      }
       editing.current = false;
     }
   };
@@ -1055,10 +1057,11 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const suspend = () => {
     if (editing.current) return;
     editing.current = true;
+    const alternate = fullscreen || viewer.open;
     void (async () => {
       mouse?.stop();
       store.window?.stop();
-      const suspension = await suspendTerminal();
+      const suspension = await viewer.suspend();
       const started = Date.now();
       let resumed = false;
       try {
@@ -1079,8 +1082,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       } finally {
         await suspension.resume();
         store.window?.start();
-        mouse?.start();
-        if (fullscreen) resendPictures();
+        if (alternate) {
+          mouse?.start();
+          resendPictures();
+        }
         editing.current = false;
       }
       if (!resumed && Date.now() - started < 1000) notice("info", "Ctrl+Z needs a shell with job control to come back to, and this terminal has none.");
@@ -1150,9 +1155,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     },
     {
       name: "output",
-      description: fullscreen
-        ? "Move through the transcript and open any line in place: a tool call's command or input, its whole output, what Claude got back (Ctrl+O)"
-        : "Inspect a tool call: its exact command or input, its whole output, what Claude got back (Ctrl+O)",
+      description: "Move through the transcript and open any line in place: a tool call's command or input, its whole output, what Claude got back (Ctrl+O)",
       argumentHint: "",
     },
     {
@@ -1300,21 +1303,6 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
             onPick={(item) => {
               close();
               resumeSession(item.key, item.label);
-            }}
-          />
-        );
-      case "output":
-        return (
-          <Picker
-            title="Inspect a tool call"
-            width={width}
-            rows={listRows}
-            items={toolCalls(state.items, view)}
-            empty="Claude hasn't used any tools in this session yet."
-            onCancel={close}
-            onPick={(item) => {
-              close();
-              showOutput(item.key);
             }}
           />
         );
@@ -1574,8 +1562,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     if (message) notice(ok ? "info" : "error", message);
   };
 
-  // The call opened, while that's still in the conversation, and whether scrollback's inspector has
-  // the keys, which go to a prompt or a picker that opens meanwhile.
+  // The call opened, while that's still in the conversation.
   const inspectedAt = inspect ? state.tools[inspect.id] : undefined;
   const inspectedItem = inspectedAt === undefined ? undefined : state.items[inspectedAt];
   const inspected = inspectedItem?.kind === "tool" ? inspectedItem.call : undefined;
@@ -1586,22 +1573,21 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   useEffect(() => {
     if (sheetGone) setOverlay(null);
   }, [sheetGone]);
-  // Your keys are in one place: a decision, else an overlay (scrollback's inspector among them), else
-  // the transcript once it's been given them, else the box.
+  // Your keys are in one place: a decision, else an overlay, else the transcript once it's been given
+  // them, else the box.
   const focus = focusOf({
     decision: Boolean(question || elicitation || request) && !sheet,
-    overlay: Boolean(overlay) || Boolean(!fullscreen && inspected && inspect?.focus),
-    transcript: fullscreen && transcriptKeys,
+    overlay: Boolean(overlay),
+    transcript: fullscreen ? transcriptKeys : viewer.open,
   });
-  const inspectorKeys = focus === "overlay" && !overlay;
   // A click on the message box, or under it, gives it back your keys from the transcript.
   useMouse((event) => {
-    if (event.type === "press" && event.button === "left" && !event.handled && focus === "transcript" && hit(panelBox.current, event)) setTranscriptKeys(false);
+    if (event.type === "press" && event.button === "left" && !event.handled && focus === "transcript" && hit(panelBox.current, event)) toTranscript(false);
   });
   const boxKeys = focus === "box";
   // `?` lists the keys where yours are: the box and a permission prompt read their own, and an
   // overlay's filter, a question's answer or a form's field take it as typed.
-  const keysHere: Place | null = focus === "transcript" || inspectorKeys ? (inLedger ? "ledger" : inspected ? "opened" : "transcript") : null;
+  const keysHere: Place | null = focus === "transcript" ? (inLedger ? "ledger" : inspected ? "opened" : "transcript") : null;
   // Ctrl+L redraws wherever the keys are, the transcript too, as a garbled screen can't wait for an
   // overlay to close. The message box reads its own, chords and all.
   useInput(
@@ -1613,17 +1599,13 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     { isActive: !boxKeys },
   );
   // Follow Claude: the call Claude is on, a moment behind a burst of them, while you aren't looking
-  // at one yourself, which holds it until the inspector closes.
+  // at one yourself, which holds it until that call closes.
   const followTarget = follow ? followedCall(state, waiting) : undefined;
   const followedId = useDwell(followTarget, followTarget !== undefined && waiting.has(followTarget));
   const followedAt = followedId === undefined ? undefined : state.tools[followedId];
   const followedItem = followedAt === undefined ? undefined : state.items[followedAt];
   const followed = followedItem?.kind === "tool" ? followedItem.call : undefined;
   const following = follow && !inspected;
-  const copied = (text: string, what: string) => {
-    copy(text);
-    setToast(`Copied the ${what}, ${plural(text.split("\n").length, "line")}`);
-  };
   const overlaid = picker();
   // A decision takes the box's place until you answer it.
   const decision = question ? (
@@ -1662,32 +1644,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       </Box>
     </>
   ) : null;
-  const above = decision ? null : inspected && !fullscreen ? (
-    // In scrollback the inspector sits above the message box, as tall as leaves the box in view. An
-    // overlay stands in its place, and the inspector stays under it, hidden, as you left it.
-    <>
-      {overlaid}
-      <Box display={overlaid ? "none" : "flex"} flexDirection="column">
-        <Inspector
-          call={inspected}
-          place={placeOf(state, inspected.id)}
-          waiting={waiting.has(inspected.id)}
-          width={width}
-          height={Math.max(10, rows - 10)}
-          focused={inspectorKeys}
-          cwd={state.cwd}
-          home={state.home}
-          log={state.agentLogs[inspected.id]}
-          keymap={store.keymap}
-          onFollow={toggleFollow}
-          onClose={() => setInspect(null)}
-          onFocus={() => setInspect((open) => open && { ...open, focus: true })}
-          onMove={moveInspector}
-          onCopy={copied}
-        />
-      </Box>
-    </>
-  ) : overlaid ? (
+  const above = decision ? null : overlaid ? (
     overlaid
   ) : following ? (
     <FollowDock
@@ -1703,7 +1660,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   ) : null;
   const pinned = showTodos && todos ? <PinnedTodos todos={todos} rows={Math.max(3, Math.min(8, rows - 20))} /> : null;
   const panel = (
-    <Box ref={panelBox} flexDirection="column">
+    <Box ref={panelBox} flexDirection="column" flexShrink={0}>
       {/* In the transcript Esc leaves it, and Ctrl+C, which works anywhere, stops Claude. */}
       <Activity state={state} width={width} stop={focus === "transcript" ? (keyFor(store.keymap, "app:interrupt") ?? undefined) : undefined} />
       {/* The message box's own top edge sets it apart; what sits above it needs a row. */}
@@ -1731,7 +1688,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onInterrupt={interrupt}
           onCycleMode={cycleMode}
           onArmed={setArmed}
-          onExit={exit}
+          // Exiting from scrollback's viewer goes back to the scrollback first, to write there what waited.
+          onExit={() => void viewer.show(false).then(() => exit())}
           onRedraw={redrawScreen}
           onOpenOutput={openTranscript}
           prefill={prefill}
@@ -1750,7 +1708,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           onModelPicker={() => setOverlay({ kind: "model" })}
           onFastMode={toggleFast}
           onStopTasks={stopAllTasks}
-          onFind={fullscreen ? () => setOverlay({ kind: "find" }) : undefined}
+          onFind={fullscreen || viewer.open ? () => setOverlay({ kind: "find" }) : undefined}
           onFollow={toggleFollow}
           onAgents={onAgents}
           onKeys={() => setOverlay({ kind: "keys", place: "box" })}
@@ -1806,37 +1764,38 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
     </Box>
   );
 
-  if (fullscreen) {
-    return (
-      <Screen
-        state={state}
-        epoch={store.epoch}
-        start={start}
-        columns={width}
-        rows={rows}
-        expanded={expanded}
-        waiting={waiting}
-        opened={inspected ? { id: inspected.id, tab: inspect?.tab, whole: inspect?.whole } : undefined}
-        reveal={reveal}
-        review={review}
-        keys={!overlay}
-        focused={focus === "transcript"}
-        keymap={store.keymap}
-        onFocus={() => setTranscriptKeys(true)}
-        onLedger={setInLedger}
-        onLeave={() => setTranscriptKeys(false)}
-        onToggle={toggleTool}
-        onCopy={copySelection}
-        onEdit={(text) => void handOver(() => readInEditor(text)).catch(report)}
-        onOpen={openAddress}
-        onPicture={openPictures}
-        find={overlay?.kind === "find" ? find : null}
-        onMatches={setMatchCount}
-      >
-        {panel}
-      </Screen>
-    );
-  }
+  // Full screen's layout, and scrollback's transcript viewer, which draws the same on the alternate
+  // screen and leaves the message box where scrollback has it, so nothing typed there is lost.
+  const screen = (
+    <Screen
+      state={state}
+      epoch={store.epoch}
+      start={start}
+      columns={width}
+      rows={rows}
+      expanded={expanded}
+      waiting={waiting}
+      opened={inspected ? { id: inspected.id, tab: inspect?.tab, whole: inspect?.whole } : undefined}
+      reveal={reveal}
+      review={review}
+      keys={!overlay}
+      focused={focus === "transcript"}
+      keymap={store.keymap}
+      onFocus={() => toTranscript(true)}
+      onLedger={setInLedger}
+      onLeave={() => toTranscript(false)}
+      onToggle={toggleTool}
+      onCopy={copySelection}
+      onEdit={(text) => void handOver(() => readInEditor(text)).catch(report)}
+      onOpen={openAddress}
+      onPicture={openPictures}
+      find={overlay?.kind === "find" ? find : null}
+      onMatches={setMatchCount}
+    >
+      {fullscreen ? panel : null}
+    </Screen>
+  );
+  if (fullscreen) return screen;
 
   // The scrollback can't take back the start screen, so it's written there once it has all it will
   // say, a moment after Claude Code starts. Until then nothing above the box is drawn, a resumed
@@ -1850,7 +1809,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const unsettled = started ? arrange(state, waiting, NONE).filter((entry) => entry.index >= settled) : [];
   return (
     <>
-      <Static key={store.epoch} items={entries}>
+      <Static key={store.epoch} items={viewer.hold(entries)}>
         {(entry) => (
           <Box key={entry.kind === "item" ? entry.item.key : entry.key} flexDirection="column">
             {entry.kind === "item" ? (
@@ -1863,21 +1822,27 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           </Box>
         )}
       </Static>
-      <Box flexDirection="column">
-        {unsettled.map((entry) =>
-          entry.kind === "step" ? (
-            <StepView key={entry.key} step={entry.row} rail={entry.rail} open={entry.open} width={width} pictureRows={view.pictureRows} cwd={state.cwd} home={state.home} clickable={false} />
-          ) : (
-            <ItemView
-              key={entry.item.key}
-              item={entry.item}
-              rail={entry.rail}
-              waiting={entry.item.kind === "tool" && waiting.has(entry.item.call.id)}
-              {...view}
-            />
-          ),
+      <Box flexDirection="column" height={viewer.open ? rows : undefined}>
+        {viewer.open ? (
+          screen
+        ) : (
+          <>
+            {unsettled.map((entry) =>
+              entry.kind === "step" ? (
+                <StepView key={entry.key} step={entry.row} rail={entry.rail} open={entry.open} width={width} pictureRows={view.pictureRows} cwd={state.cwd} home={state.home} clickable={false} />
+              ) : (
+                <ItemView
+                  key={entry.item.key}
+                  item={entry.item}
+                  rail={entry.rail}
+                  waiting={entry.item.kind === "tool" && waiting.has(entry.item.call.id)}
+                  {...view}
+                />
+              ),
+            )}
+            <LiveView live={state.live} width={width} room={Math.max(4, rows - 16)} />
+          </>
         )}
-        <LiveView live={state.live} width={width} room={Math.max(4, rows - 16)} />
         {panel}
       </Box>
     </>
@@ -1917,29 +1882,6 @@ function useGit(cwd: string, refresh: number) {
     };
   }, [cwd, refresh]);
   return info;
-}
-
-/** This session's tool calls and your commands for the output browser, newest first. */
-function toolCalls(items: Item[], { cwd, home, width }: { cwd: string; home: string; width: number }): PickerItem[] {
-  return items
-    .flatMap((item): PickerItem[] => {
-      if (item.kind === "shell") {
-        const took = item.startedAt !== undefined && item.endedAt !== undefined ? duration(item.endedAt - item.startedAt) : "";
-        return [{ key: item.id, label: `! ${fit(item.command.split("\n")[0] ?? "", width - 30, false)}`, note: [item.status === "done" ? "finished" : item.status, took].filter(Boolean).join(" · ") }];
-      }
-      if (item.kind !== "tool") return [];
-      const { call } = item;
-      const description = call.name === "Bash" && typeof call.input.description === "string" ? call.input.description : "";
-      return [
-        {
-          key: call.id,
-          label: `${STATUS[call.status].glyph} ${toolLabel(call.name)}  ${fit(description || toolTarget(call, cwd, home), width - 40, !description)}`,
-          note: toolSummary(call, false),
-        },
-      ];
-    })
-    .reverse()
-    .slice(0, 50);
 }
 
 /** How many leading items are finished, so they can go into scrollback for good. */

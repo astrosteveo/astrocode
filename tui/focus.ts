@@ -1,8 +1,8 @@
 // Where your keys are: always in exactly one of four places, which has the gold mark. The message
 // box has them unless something else does; Ctrl+O or a click moves them to the transcript, where a
-// cursor moves over its lines; an overlay (a picker, a panel, scrollback's inspector) takes them
-// while it's open, and a decision (a permission prompt, Claude's question, an MCP form) takes them
-// from all of those until you answer it. Whatever had them before gets them back.
+// cursor moves over its lines (scrollback's opens in a viewer of its own); an overlay (a picker, a
+// panel) takes them while it's open, and a decision (a permission prompt, Claude's question, an MCP
+// form) takes them from all of those until you answer it. Whatever had them before gets them back.
 import type { Action } from "./keys";
 
 export type Focus = "box" | "transcript" | "overlay" | "decision";

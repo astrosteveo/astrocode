@@ -1,5 +1,5 @@
-// A tool call opened in full screen: what the inspector shows, drawn under the call's own line in the
-// transcript at every width, so nothing opens beside the column. A header says what the call did,
+// A tool call opened in the transcript, in full screen or scrollback's viewer: its tabs, drawn under
+// the call's own line at every width, so nothing opens beside the column. A header says what the call did,
 // how it went, how long it took and which of the turn's calls it is (`‹ 3 of 10 ›`); under it are
 // the tool's tabs, and the open tab's first 12 and last 8 lines with `⋯ N lines` between, which
 // opens the rest. Its rows are the transcript's own, so they scroll and select with it.
