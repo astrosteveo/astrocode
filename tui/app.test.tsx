@@ -383,6 +383,23 @@ test("a line of reads that finished out of order opens on the one still running"
   expect(screen().find((line) => /‹ \d of \d ›/.test(line))).toContain("‹ 2 of 3 ›");
 });
 
+test("in scrollback's transcript viewer the call opened on the one Claude is on follows Claude, until ← or →", async () => {
+  const { press, update, writes } = await launch({ ...turn([call("a"), running("b", "Build the app")]), busy: true }, { fullscreen: false });
+  /** Where the opened call is, by the last frame it's in. */
+  const place = () => stripVTControlCharacters(writes.join("")).match(/\d of \d(?= *›)/g)?.at(-1);
+  const done = (id: string, description: string) => running(id, description, { status: "done", result: "ok" });
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  expect(place()).toBe("2 of 2");
+  await update({ ...turn([call("a"), done("b", "Build the app"), running("c", "Lint the code")]), busy: true });
+  expect(place()).toBe("3 of 3");
+  await press(KEYS.left);
+  expect(place()).toBe("2 of 3");
+  await press(KEYS.right);
+  await update({ ...turn([call("a"), done("b", "Build the app"), done("c", "Lint the code"), running("d", "Test the code")]), busy: true });
+  expect(place()).toBe("3 of 4");
+});
+
 test("a finished call opened while Claude works stays open as Claude starts the next", async () => {
   const { press, update, screen, row } = await launch({ ...turn([call("a"), running("b", "Build the app")]), busy: true });
   await press(KEYS.ctrlO);
