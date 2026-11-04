@@ -165,7 +165,9 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   // Where the anchored row would put the top of the viewport. Above the first row, that's room
   // left blank, so a row held where it was clicked doesn't move as its output opens below it.
   const wanted = anchored === null ? null : anchored - (anchor?.y ?? 0);
-  const top = wanted === null ? maxTop : Math.max(0, Math.min(maxTop, wanted));
+  // Before the first message there's nothing to follow: the start screen shows its top, where you are.
+  const welcome = state.items.length === 0 && !state.live;
+  const top = wanted === null ? (welcome ? 0 : maxTop) : Math.max(0, Math.min(maxTop, wanted));
   // A conversation shorter than the screen starts at the top. While a decision is open its end sits
   // right above the decision, so the line that asks is next to the answer.
   const asking = state.pending[0]?.id ?? state.questions[0]?.id ?? state.elicitations[0]?.id;
@@ -178,8 +180,8 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   const at = cursor ? cursorAt(transcript, cursor) : null;
 
   /** What handlers see: this render's numbers, moved along by events that haven't rendered yet. */
-  const now = useRef({ transcript, top, maxTop, view, thumb, pad, following: anchor === null, at });
-  now.current = { transcript, top, maxTop, view, thumb, pad, following: anchor === null, at };
+  const now = useRef({ transcript, top, maxTop, view, thumb, pad, following: anchor === null, at, welcome });
+  now.current = { transcript, top, maxTop, view, thumb, pad, following: anchor === null, at, welcome };
 
   const setSelection = (next: Selection | null) => {
     selected.current = next;
@@ -187,10 +189,11 @@ export function Screen({ state, epoch, start, columns, rows: height, expanded, w
   };
 
   const scrollTo = (index: number) => {
-    const { transcript, maxTop } = now.current;
+    const { transcript, maxTop, welcome } = now.current;
     const next = Math.max(0, Math.min(maxTop, Math.round(index)));
     const row = transcript.rows[next];
-    const held = next >= maxTop || !row ? null : { key: row.key, line: row.line };
+    // The start screen's end is held as any other row is, since following it would show its top.
+    const held = (next >= maxTop && !welcome) || !row ? null : { key: row.key, line: row.line };
     now.current = { ...now.current, top: next, following: held === null };
     setAnchor(held);
   };

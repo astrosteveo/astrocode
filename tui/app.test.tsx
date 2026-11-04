@@ -1548,18 +1548,39 @@ test("the wheel over the key sheet scrolls the sheet, and leaves the conversatio
   expect(behind()).toBe(transcript);
 });
 
+test("a start screen taller than the screen shows its top, where you are, and the wheel scrolls to the rest", async () => {
+  const state: State = {
+    ...initialState("/p", "/home/u"),
+    loaded: { version: "2.1.318", claudeMd: 1, plugins: 8, mcpServers: 3, skills: 41 },
+    recent: ["a", "b", "c"].map((id) => ({ id, title: `Session ${id}`, modified: Date.now() - 60_000 })),
+  };
+  const { screen, wheel } = await launch(state, { columns: 80, rows: 14 });
+  const lines = screen();
+  expect(lines[1]).toStartWith("  astrocode  ");
+  expect(lines[3]).toStartWith("  From Claude Code: CLAUDE.md");
+  expect(lines.some((line) => line.includes("esc stop Claude"))).toBe(false);
+  // It stays where the wheel leaves it, at its end too.
+  await wheel(10, 4, 10);
+  expect(screen().some((line) => line.includes("esc stop Claude"))).toBe(true);
+  expect(screen().some((line) => line.includes("From Claude Code"))).toBe(false);
+});
+
 test("a key sheet taller than the room above it cuts the start screen short, and never draws its lines over each other", async () => {
   const { press, screen } = await launch(initialState("/p", "/home/u"), { columns: 80, rows: 23 });
-  const start = new Set(screen().map((line) => line.trimEnd()));
-  /** The rows above the sheet's top edge, less the scrollbar's column, each a row of the start screen as it was before. */
+  const start = screen().map((line) => line.trimEnd());
+  /** The transcript's rows above the sheet, less the scrollbar's column and the blank row that sets the sheet apart. */
   const above = () => {
     const lines = screen();
-    return lines.slice(0, lines.findIndex((line) => /^▁{20}/.test(line))).map((line) => [...line].slice(0, 78).join(""));
+    const edge = lines.findIndex((line) => /^▁{20}/.test(line));
+    expect(lines[edge - 1]).toBe("");
+    return lines.slice(0, edge - 1).map((line) => [...line].slice(0, 78).join("").trimEnd());
   };
+  // What's above the sheet is the start screen's top, as it was before, its name first.
   await press("?");
-  for (const line of above()) expect(start).toContain(line.trimEnd());
+  expect(above()[1]).toStartWith("  astrocode  ");
+  expect(above()).toEqual(start.slice(0, above().length));
   // Filtering makes the sheet shorter, and the start screen has more room.
   for (const key of "send") await press(key);
   expect(above().length).toBeGreaterThan(3);
-  for (const line of above()) expect(start).toContain(line.trimEnd());
+  expect(above()).toEqual(start.slice(0, above().length));
 });
