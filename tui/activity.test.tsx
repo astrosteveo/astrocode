@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
-import { renderToString } from "ink";
+import { afterEach, expect, setSystemTime, test } from "bun:test";
+import { render, renderToString } from "ink";
+import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import { initialState, type Item, type State, type ToolCall } from "../src/view/state";
 import { Activity } from "./activity";
@@ -44,4 +45,42 @@ test("there's no now line while Claude waits on you, or once it's done", () => {
   expect(nowLine({ ...asking, pending: [{ id: "c", toolName: "Bash", input: { command: "rm -rf build" } }] })).toBe("");
   expect(nowLine({ ...working, elicitations: [{ id: "e", server: "github", message: "Pick a repository", mode: "form", fields: [] }] })).toBe("");
   expect(nowLine({ ...working, busy: false })).toBe("");
+});
+
+let quit: (() => void) | null = null;
+afterEach(() => {
+  quit?.();
+  quit = null;
+  setSystemTime();
+});
+
+/** One now line on a fake terminal, drawn again for each state `show` gets, as the app keeps it; `show` gives its last frame. */
+function mounted(state: State) {
+  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 100, rows: 10 });
+  let frame = "";
+  stdout.on("data", (chunk: Buffer) => {
+    frame = chunk.toString();
+  });
+  const app = render(<Activity state={state} width={100} />, { stdout: stdout as unknown as NodeJS.WriteStream, exitOnCtrlC: false, patchConsole: false, debug: true });
+  quit = () => app.unmount();
+  return async (next: State) => {
+    app.rerender(<Activity state={next} width={100} />);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return stripVTControlCharacters(frame).trim().replace(/ {2,}/g, "  ");
+  };
+}
+
+test("the now line's clock starts when the line shows: not while Claude was idle, nor while it waited on you", async () => {
+  setSystemTime(Date.now());
+  const idle = { ...working, busy: false };
+  const show = mounted(idle);
+  await show(idle);
+  setSystemTime(Date.now() + 5 * 60_000);
+  expect(await show(working)).toBe("◐ Working · 1s  esc to stop");
+
+  const command = { command: "rm -rf build", description: "Clean the build" };
+  const asking = running({ name: "Bash", input: command });
+  await show({ ...asking, pending: [{ id: "c", toolName: "Bash", input: command }] });
+  setSystemTime(Date.now() + 2 * 60_000);
+  expect(await show(asking)).toBe("◐ Cleaning the build · 1s  esc to stop");
 });

@@ -29,7 +29,8 @@ export function Activity({ state, width, stop = "esc" }: { state: State; width: 
   const shown = markTurns(state);
   const mark = useMark(shown);
   const doing = now(state);
-  const since = useSince(doing.key);
+  // Its clock starts when the line shows, so neither the wait between turns nor one for your OK counts.
+  const since = useSince(shown ? doing.key : null);
   if (!shown) return null;
   const live = state.live?.blocks.slice(state.live.finalized).reduce((sum, block) => sum + (block?.text.length ?? 0), 0) ?? 0;
   const tokens = state.turnTokens + Math.round(live / 4);
@@ -51,7 +52,7 @@ export function Activity({ state, width, stop = "esc" }: { state: State; width: 
 }
 
 /** When what `key` names started, as far as the now line has seen it. */
-function useSince(key: string) {
+function useSince(key: string | null) {
   const since = useRef({ key, at: Date.now() });
   if (since.current.key !== key) since.current = { key, at: Date.now() };
   return since.current.at;
