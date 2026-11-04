@@ -77,7 +77,9 @@ function now(state: State): Doing {
   const { call } = running;
   if (call.name === "Agent" || call.name === "Task") return { what: `Waiting on ${subagent(call)}`, key: call.id, elapsed: call.elapsed };
   const [row] = activityRows([call], NOTHING, state.cwd, state.home);
-  return { what: row!.verb, target: row!.target.map((part) => part.text).join(""), path: row!.path, key: call.id, elapsed: call.elapsed };
+  // The faint `$ ` that tells a bare command from a description on its line would read as part of the command here.
+  const parts = call.name === "Bash" && row!.target[0]?.text === "$ " ? row!.target.slice(1) : row!.target;
+  return { what: row!.verb, target: parts.map((part) => part.text).join(""), path: row!.path, key: call.id, elapsed: call.elapsed };
 }
 
 /** The subagent a call started, by its kind (`Explore`), or `a subagent` for the general one. */

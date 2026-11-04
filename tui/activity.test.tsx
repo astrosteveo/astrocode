@@ -25,6 +25,7 @@ test("the now line names what Claude is doing, its time and the turn's tokens, w
 
 test("a call is named as its activity line names it, in the present tense, with the time it has run", () => {
   expect(nowLine(running({ name: "Bash", input: { command: "bun test", description: "Run the tests" }, elapsed: 8 }))).toBe("◐ Running the tests · 8s  esc to stop");
+  expect(nowLine(running({ name: "Bash", input: { command: "bun test" }, elapsed: 8 }))).toBe("◐ Running bun test · 8s  esc to stop");
   expect(nowLine(running({ name: "Read", input: { file_path: "/p/src/retry.ts" } }))).toBe("◐ Reading src/retry.ts · 1s  esc to stop");
   expect(nowLine(running({ name: "Grep", input: { pattern: "Date.now", path: "/p/src" } }))).toBe("◐ Searching Date.now in src · 1s  esc to stop");
 });
