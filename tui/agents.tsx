@@ -7,18 +7,19 @@
 // and then deletes, Esc goes back.
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { attaches, groupAgents, leftForAgentView, listAgents, prLabel, projectOf, removeAgent, STATE_LABELS, stopAgent, summary, type Agent, type AgentState, type SessionSettings } from "../src/agents";
+import { attaches, groupAgents, leftForAgentView, listAgents, prLabel, projectOf, removeAgent, STATE_LABELS, stopAgent, summary, waitsOnYou, type Agent, type AgentState, type SessionSettings } from "../src/agents";
 import { installedBinary } from "../src/claude";
 import { topLevelEnv } from "../src/session";
-import { ago } from "../src/view/format";
+import { ago, modelLabel } from "../src/view/format";
 import type { State } from "../src/view/state";
 import { shortPath } from "../src/view/tools";
 import { describe } from "./activity";
 import { ChoiceRow } from "./choice";
 import { lendTerminal } from "./editor";
-import { firstPrompt, liveState, titleOf, type Conversation, type Fleet } from "./fleet";
+import { firstPrompt, liveState, needYou, titleOf, type Conversation, type Fleet } from "./fleet";
 import { cellWidth } from "./markdown";
 import { fit } from "./markdown-view";
+import { MODE_CHIPS } from "./status";
 import { PALETTE } from "./theme";
 
 /** How often the list is read again. */
@@ -27,6 +28,8 @@ const POLL_MS = 2000;
 const ARM_MS = 2000;
 /** The widest the name column gets. */
 const NAME_CELLS = 32;
+/** After the name of the conversation the view was opened from. */
+const THIS_ONE = "  (this one)";
 
 /** The state a row shows for one of astrocode's conversations: its live state, or once it's idle, how its last turn ended. */
 export function mineState(state: State, shells: number): AgentState | "idle" {
@@ -63,13 +66,18 @@ export async function othersListed(except: string | undefined) {
   return agents.some((agent) => !agent.sessionId || agent.sessionId !== except);
 }
 
+/**
+ * The Ledger's mark for each state, which says it on a row, and the word Space's peek uses. The
+ * running mark stands still here: only the running step and the now line turn. Idle, with nothing
+ * said yet, is a to-do's `○`.
+ */
 const LOOK: Record<AgentState | "idle", { glyph: string; color: string; label: string }> = {
-  working: { glyph: "◌", color: PALETTE.teal, label: STATE_LABELS.working },
-  blocked: { glyph: "●", color: PALETTE.gold, label: STATE_LABELS.blocked },
+  working: { glyph: "◐", color: PALETTE.teal, label: STATE_LABELS.working },
+  blocked: { glyph: "◇", color: PALETTE.gold, label: STATE_LABELS.blocked },
   done: { glyph: "✓", color: PALETTE.teal, label: STATE_LABELS.done },
   failed: { glyph: "✕", color: PALETTE.rose, label: STATE_LABELS.failed },
   stopped: { glyph: "■", color: PALETTE.ember, label: STATE_LABELS.stopped },
-  idle: { glyph: "◇", color: PALETTE.haze, label: "Idle" },
+  idle: { glyph: "○", color: PALETTE.dust, label: "Idle" },
 };
 
 /** One line of the list: a project's heading, one of astrocode's conversations, a background session, or the gap between projects. */
@@ -323,7 +331,8 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, onShow, o
   const rowOf = (line: Extract<Line, { kind: "mine" | "agent" }>) => {
     if (line.kind === "agent") {
       const { agent } = line;
-      return { key: agent.id, name: agent.name, state: agent.state, said: summary(agent), prs: prLabel(agent), age: ago(agent.updatedAt) };
+      const state: AgentState | "idle" = agent.state === "blocked" && !waitsOnYou(agent) ? "idle" : agent.state;
+      return { key: agent.id, name: agent.name, state, said: summary(agent), prs: prLabel(agent), age: ago(agent.updatedAt) };
     }
     const one = fleet.get(line.key);
     const state = one?.store.getSnapshot();
@@ -341,14 +350,24 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, onShow, o
   const shownRows = rowLines.map(rowOf);
 
   const inner = width - 2;
-  const nameCells = Math.min(NAME_CELLS, Math.floor(inner * 0.3), Math.max(8, ...shownRows.map((row) => cellWidth(row.name))));
+  const ownOf = (key: string) => (key === here ? THIS_ONE : "");
+  const nameCells = Math.min(NAME_CELLS, Math.floor(inner * 0.3), Math.max(8, ...shownRows.map((row) => cellWidth(row.name) + cellWidth(ownOf(row.key)))));
   const ageCells = Math.max(0, ...shownRows.map((row) => row.age.length));
   const prCells = Math.max(0, ...shownRows.map((row) => row.prs.length));
 
-  const counts = { blocked: 0, working: 0, done: 0 };
+  const counts = { blocked: 0, working: 0, done: 0, failed: 0 };
   for (const row of shownRows) if (row.state in counts) counts[row.state as keyof typeof counts] += 1;
-  const tally = [`${counts.blocked} need${counts.blocked === 1 ? "s" : ""} input`, `${counts.working} working`, `${counts.done} done`].join(" · ");
-  const newSessions = [settings.model, settings.effort && `${settings.effort} effort`, settings.mode].filter(Boolean).join(" · ");
+  // Gold for what waits on you, as everywhere; a count of none says nothing.
+  const tally = (
+    [
+      [counts.blocked, needYou(counts.blocked), PALETTE.gold],
+      [counts.working, `${counts.working} working`, PALETTE.teal],
+      [counts.done, `${counts.done} done`, PALETTE.haze],
+      [counts.failed, `${counts.failed} failed`, PALETTE.rose],
+    ] as const
+  ).filter(([count]) => count > 0);
+  const model = [settings.model && modelLabel(settings.model), settings.effort].filter(Boolean).join(" ");
+  const newSessions = [model, settings.mode && MODE_CHIPS[settings.mode].label].filter(Boolean).join(" · ");
 
   const peekLines = peek && focused ? peekOf(focused, focusedMine && { name: nameOf(focusedMine), state: focusedMine.store.getSnapshot(), shells: focusedMine.store.shells.size, cwd: focusedMine.cwd }, home) : [];
   const peekRows = peekLines.reduce((sum, line) => sum + Math.max(1, Math.ceil(cellWidth(line.text) / Math.max(1, inner - 10))), 0) + (peekLines.length ? 1 : 0);
@@ -368,13 +387,24 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, onShow, o
     <Box flexDirection="column" width={width} paddingX={1}>
       <Text>
         <Text bold color={PALETTE.star}>
-          Agents
+          Conversations
         </Text>
-        <Text color={PALETTE.dust}>{"  New sessions in "}</Text>
-        <Text color={PALETTE.star}>{shortPath(target, "", home)}</Text>
-        <Text color={PALETTE.dust}>{newSessions ? `: ${newSessions}` : ""}</Text>
+        <Text color={PALETTE.haze}>{`   new ones start in ${shortPath(target, "", home)}${newSessions ? ` · ${newSessions}` : ""}`}</Text>
       </Text>
-      <Text color={PALETTE.haze}>{agents ? tally : "Reading Claude Code's background sessions…"}</Text>
+      {agents ? (
+        <Text>
+          {tally.length
+            ? tally.map(([, words, color], i) => (
+                <Text key={words}>
+                  {i ? <Text color={PALETTE.dust}>{" · "}</Text> : null}
+                  <Text color={color}>{words}</Text>
+                </Text>
+              ))
+            : " "}
+        </Text>
+      ) : (
+        <Text color={PALETTE.haze}>Reading Claude Code's background sessions…</Text>
+      )}
       <Box flexDirection="column" marginTop={1} height={room} overflow="hidden">
         {error ? <Text color={PALETTE.rose}>{error}</Text> : null}
         {agents && !lines.length ? <Text color={PALETTE.haze}>No sessions yet. Describe a task below to start one.</Text> : null}
@@ -393,19 +423,20 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, onShow, o
           const look = LOOK[row.state];
           const tail = (prCells ? 2 + prCells : 0) + (ageCells ? 2 + ageCells : 0);
           const middle = Math.max(0, inner - 2 - 2 - nameCells - 2 - tail);
-          const state = `${look.label}${row.said ? " · " : ""}`;
+          const own = ownOf(row.key);
+          const name = fit(row.name, Math.max(1, nameCells - cellWidth(own)), false);
           return (
             <ChoiceRow key={row.key} selected={first + i === chosen} width={inner}>
               <Text wrap="truncate">
                 <Text color={look.color}>{`${look.glyph} `}</Text>
                 {/* The one the view was opened from stays bold, as in Claude Code's agent view. */}
-                <Text color={PALETTE.star} bold={row.key === here}>
-                  {pad(fit(row.name, nameCells, false), nameCells)}
+                <Text color={PALETTE.star} bold={Boolean(own)}>
+                  {name}
                 </Text>
+                <Text color={PALETTE.dust}>{pad(own, nameCells - cellWidth(name))}</Text>
                 {"  "}
-                <Text color={look.color}>{fit(state, middle, false)}</Text>
-                <Text color={PALETTE.haze}>{pad(fit(row.said, Math.max(0, middle - cellWidth(state)), false), Math.max(0, middle - cellWidth(state)))}</Text>
-                <Text color={PALETTE.dust}>{prCells ? `  ${row.prs.padStart(prCells)}` : ""}</Text>
+                <Text color={PALETTE.haze}>{pad(fit(row.said, middle, false), middle)}</Text>
+                <Text color={PALETTE.sky}>{prCells ? `  ${row.prs.padStart(prCells)}` : ""}</Text>
                 <Text color={PALETTE.dust}>{ageCells ? `  ${row.age.padStart(ageCells)}` : ""}</Text>
               </Text>
             </ChoiceRow>

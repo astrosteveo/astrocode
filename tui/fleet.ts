@@ -80,6 +80,11 @@ export function needsYou(conversations: readonly Conversation[], here: Store) {
   return conversations.filter((one) => one.store !== here && liveState(one.store.getSnapshot(), one.store.shells.size) === "blocked").length;
 }
 
+/** How many wait on you, in words: `1 needs you`, `2 need you`. */
+export function needYou(count: number) {
+  return `${count} ${count === 1 ? "needs" : "need"} you`;
+}
+
 /** What it's called: the name Claude Code gave it, else its first message. */
 export async function titleOf(conversation: Conversation) {
   const id = conversation.session.knownId;

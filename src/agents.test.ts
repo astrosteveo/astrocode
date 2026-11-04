@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { attaches, backgroundArgs, backgroundedId, checkFolder, groupAgents, leftForAgentView, parseAgentList, prLabel, summary, toAgent, type Agent } from "./agents";
+import { attaches, backgroundArgs, backgroundedId, checkFolder, groupAgents, leftForAgentView, parseAgentList, prLabel, summary, toAgent, waitsOnYou, type Agent } from "./agents";
 
 const LIST = JSON.stringify([
   {
@@ -91,6 +91,12 @@ test("moves in a session that's listed as needing input but is only waiting for 
   // As a conversation astrocode hands to the background service is listed until it's sent one.
   expect(attaches(agent({ alive: true, state: "blocked", status: "idle" }))).toBe(false);
   expect(attaches(agent({ alive: true, state: "blocked", status: "waiting", waitingFor: "permission prompt" }))).toBe(true);
+});
+
+test("waits on you only while needing input for more than a prompt", () => {
+  expect(waitsOnYou(agent({ alive: true, state: "blocked", status: "waiting", waitingFor: "permission prompt" }))).toBe(true);
+  expect(waitsOnYou(agent({ alive: true, state: "blocked", status: "idle" }))).toBe(false);
+  expect(waitsOnYou(agent({ alive: true, state: "working", status: "busy" }))).toBe(false);
 });
 
 test("an attached session that turns into Claude Code's agent view has been left for it", () => {

@@ -61,7 +61,7 @@ test("says in the status bar, after the mode, how many other conversations wait 
     const { line, stop } = bar(columns, { needsYou: 2 });
     const shown = line();
     stop();
-    expect(shown).toMatch(/^ ▐ask first▌ {2}shift\+tab {2}← 2 needs you /);
+    expect(shown).toMatch(/^ ▐ask first▌ {2}shift\+tab {2}← 2 need you /);
     // The readings make room for it, keeping the context first.
     expect(shown).toContain("context");
     expect(shown.trimEnd().length).toBeLessThanOrEqual(columns);
