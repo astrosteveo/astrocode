@@ -13,7 +13,7 @@ import { rmSync } from "node:fs";
 import { copyFile, lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
-import type { FileChange, Ledger } from "./events";
+import type { FileChange, Ledger, Trees } from "./events";
 
 /** Files bigger than this aren't hashed, so an edge never reads a build's output or a dataset whole. */
 const BIG = 10 * 1024 * 1024;
@@ -35,8 +35,14 @@ process.on("exit", () => {
   for (const folder of folders) rmSync(folder, { recursive: true, force: true });
 });
 
-/** The working tree as a tree at one edge, with HEAD then, if there was one, and when the edge started. */
-type Edge = { tree: string; head?: string; at: number };
+/**
+ * The working tree as a tree at one edge, with HEAD then, if there was one, when the edge started,
+ * and the files too big to read, whose stubs stand in for them, by path from the top.
+ */
+type Edge = { tree: string; head?: string; at: number; big: string[] };
+
+/** What a scope of /diff shows besides a turn: the files, the trees their diffs run between, and the branch it's against. */
+export type Changes = { files: FileChange[]; trees: Trees; base?: string };
 
 type Repo = {
   top: string;
@@ -79,17 +85,47 @@ export class Snapshots {
       this.last = await this.edge(signal);
       const repo = this.repo;
       if (!from || !this.last || !repo) return null;
-      const [numstat, log, unseen] = await Promise.all([
-        // A big file's lines aren't counted, so git doesn't read it to count them.
-        git(repo, ["-c", `core.bigFileThreshold=${BIG}`, "diff-tree", "-r", "--numstat", "-z", from.tree, this.last.tree], signal),
+      const trees = { from: from.tree, to: this.last.tree };
+      const [files, log, unseen] = await Promise.all([
+        filesBetween(repo, trees, [...from.big, ...this.last.big], signal),
         // Commits made since the turn started: a pull or a switch brings older ones, which don't count.
         // rev-list, not log, which your log settings, such as log.showSignature, would add lines to.
         git(repo, ["rev-list", "--abbrev-commit", `--since=@${Math.floor(from.at / 1000)}`, "HEAD", ...(from.head ? [`^${from.head}`] : [])], signal),
         unseenOf(repo, edited, signal),
       ]);
-      if (numstat === null) return null;
-      return { files: numstats(numstat, repo.top), commits: (log ?? "").split("\n").filter(Boolean).reverse(), unseen };
+      if (files === null) return null;
+      return { files, commits: (log ?? "").split("\n").filter(Boolean).reverse(), unseen, trees };
     }, null);
+  }
+
+  /**
+   * The working tree now against HEAD (`uncommitted`), or against where the branch left the one it
+   * started from (`branch`), as /diff's scopes show them. Recording it moves nothing a turn counts
+   * from. Null outside git, or with no branch to compare with.
+   */
+  changes(scope: "uncommitted" | "branch"): Promise<Changes | null> {
+    return this.serial(async (signal) => {
+      const now = await this.edge(signal);
+      const repo = this.repo;
+      if (!now || !repo) return null;
+      // Before the first commit, everything is new.
+      const base = scope === "branch" ? await baseOf(repo, signal) : { ref: now.head ?? (await git(repo, ["hash-object", "-t", "tree", "--stdin"], signal, ""))?.trim() };
+      if (!base?.ref) return null;
+      const trees = { from: base.ref, to: now.tree };
+      const files = await filesBetween(repo, trees, now.big, signal);
+      return files && { files, trees, base: "branch" in base ? base.branch : undefined };
+    }, null);
+  }
+
+  /**
+   * One file's diff between two trees, a renamed file's against where it was, or null once the
+   * trees are gone, as when the session closed.
+   */
+  async patch(trees: Trees, file: FileChange): Promise<string | null> {
+    const repo = this.repo;
+    if (!repo) return null;
+    const paths = [file.from, file.path].flatMap((path) => (path ? [relative(repo.top, path)] : []));
+    return git(repo, ["--literal-pathspecs", "-c", `core.bigFileThreshold=${BIG}`, "diff-tree", "-p", "-M", "--no-color", trees.from, trees.to, "--", ...paths], AbortSignal.timeout(this.deadline));
   }
 
   /** Deletes the index and objects; the next edge starts over. */
@@ -151,7 +187,7 @@ export class Snapshots {
     };
   }
 
-  private async write(repo: Repo, signal: AbortSignal): Promise<{ tree: string; head?: string } | null> {
+  private async write(repo: Repo, signal: AbortSignal): Promise<Omit<Edge, "at"> | null> {
     const run = (args: string[], input?: string) => git(repo, args, signal, input);
     if (this.seed) {
       await mkdir(join(repo.folder, "objects"), { recursive: true });
@@ -199,7 +235,7 @@ export class Snapshots {
       if ((await run(["update-index", "-z", "--index-info"], entries)) === null) return null;
     }
     const tree = (await run(["write-tree"]))?.trim();
-    return tree ? { tree, head: head?.trim() || undefined } : null;
+    return tree ? { tree, head: head?.trim() || undefined, big: big.map((file) => file.path) } : null;
   }
 }
 
@@ -298,12 +334,59 @@ async function git(repo: Pick<Repo, "top" | "env">, args: string[], signal?: Abo
   }
 }
 
-/** `diff-tree --numstat -z`'s lines as files, by absolute path. A binary file counts no lines. */
-function numstats(text: string, top: string): FileChange[] {
-  return text.split("\0").flatMap((record) => {
-    const match = /^(\d+|-)\t(\d+|-)\t([\s\S]+)$/.exec(record);
-    if (!match) return [];
+/**
+ * The files that differ between two trees, with renames found. `big`: the files whose stubs stand
+ * in for them at either tree, by path from the top. ~/.claude is left out, as the edges leave it,
+ * since a commit compared with one may hold it.
+ */
+async function filesBetween(repo: Repo, trees: Trees, big: string[], signal: AbortSignal): Promise<FileChange[] | null> {
+  const pathspec = repo.claude ? ["--", ".", `:(exclude,literal)${repo.claude}`] : [];
+  // A big file's lines aren't counted, so git doesn't read it to count them.
+  const text = await git(repo, ["-c", `core.bigFileThreshold=${BIG}`, "diff-tree", "-r", "-M", "--raw", "--numstat", "-z", trees.from, trees.to, ...pathspec], signal);
+  return text === null ? null : changesOf(text, repo.top, new Set(big));
+}
+
+/**
+ * `diff-tree --raw --numstat -z`'s records as files, by absolute path: first each file's status,
+ * then its counts, in the same order. A rename's paths, where it was and where it is, follow its
+ * status and its counts each as fields of their own. A binary file counts no lines.
+ */
+function changesOf(text: string, top: string, big: Set<string>): FileChange[] {
+  const fields = text.split("\0");
+  let at = 0;
+  const statuses: { status: string; paths: string[] }[] = [];
+  while (fields[at]?.startsWith(":")) {
+    const status = fields[at]!.split(" ").at(-1)!;
+    const paths = fields.slice(at + 1, at + (/^[RC]/.test(status) ? 3 : 2));
+    statuses.push({ status, paths });
+    at += 1 + paths.length;
+  }
+  return statuses.map(({ status, paths }) => {
+    const [, added = "-", removed = "-", path = ""] = /^(\d+|-)\t(\d+|-)\t([\s\S]*)$/.exec(fields[at] ?? "") ?? [];
+    at += path ? 1 : 3;
     const count = (value: string) => (value === "-" ? 0 : Number(value));
-    return [{ path: join(top, match[3]!), added: count(match[1]!), removed: count(match[2]!) }];
+    const where = paths.at(-1)!;
+    const file: FileChange = { path: join(top, where), added: count(added), removed: count(removed) };
+    if (status === "A") file.status = "new";
+    if (status === "D") file.status = "deleted";
+    if (paths.length > 1) file.from = join(top, paths[0]!);
+    if (paths.some((one) => big.has(one))) file.big = true;
+    else if (added === "-") file.binary = true;
+    return file;
   });
+}
+
+/**
+ * Where the branch left the one it started from, as `claude`'s /diff finds it: origin's default
+ * branch, else main or master, from origin or from here. HEAD itself, on that branch.
+ */
+async function baseOf(repo: Repo, signal: AbortSignal): Promise<{ ref: string; branch: string } | null> {
+  const named = (await git(repo, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], signal))?.trim().replace(/^origin\//, "");
+  for (const branch of new Set([...(named ? [named] : []), "main", "master"])) {
+    for (const ref of [`refs/remotes/origin/${branch}`, `refs/heads/${branch}`]) {
+      const at = (await git(repo, ["merge-base", "HEAD", ref], signal))?.trim();
+      if (at) return { ref: at, branch };
+    }
+  }
+  return null;
 }

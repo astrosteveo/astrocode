@@ -11,7 +11,7 @@ import type {
   SDKPartialAssistantMessage,
   SDKResultMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { CommandInfo, ElicitationRequest, FileChange, ImageAttachment, Ledger, Loaded, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, RemoteControl, SessionEvent } from "../events";
+import type { CommandInfo, ElicitationRequest, FileChange, ImageAttachment, Ledger, Loaded, ModelChoice, NoticeTone, PermissionRequest, QuestionRequest, RemoteControl, SessionEvent, Trees } from "../events";
 import type { SavedSession } from "../history";
 import { AGENT_LINES, agentLines, type AgentLine } from "./agents";
 import { compact, duration } from "./format";
@@ -147,6 +147,8 @@ export type Item =
       /** It pushed, and acted on a pull request, as Claude Code read its commands. */
       pushed?: boolean;
       pr?: { number: number; action: string };
+      /** The working tree at the turn's edges, which its files' diffs run between, while the session keeps them. */
+      trees?: Trees;
     }
   /**
    * `of`: the tool call a line of progress is about, which the next line for it replaces.
@@ -364,7 +366,7 @@ export function reduce(state: State, event: ViewEvent): State {
     case "sdk":
       return applySdk(state, event.message, event.images, event.at);
     case "ledger":
-      return { ...state, ledger: { files: event.files, commits: event.commits, unseen: event.unseen } };
+      return { ...state, ledger: { files: event.files, commits: event.commits, unseen: event.unseen, trees: event.trees } };
     case "permission": {
       const next = { ...state, pending: [...state.pending.filter((p) => p.id !== event.request.id), event.request] };
       // A subagent's prompt marks its call on the Agent call it runs under, and for a nested one the
