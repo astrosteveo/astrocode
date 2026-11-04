@@ -75,7 +75,7 @@ import { ModBand } from "./mod-band";
 import { useModCards } from "./mod-cards";
 import { ModStatus, StatusBar } from "./status";
 import type { Store } from "./store";
-import { RUNNING_STATUS, TaskView } from "./tasks";
+import { RUNNING_STATUS, TaskView, useTaskOutput } from "./tasks";
 import { PinnedTodos } from "./tool-row";
 import { useViewer } from "./viewer";
 
@@ -1591,6 +1591,10 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
   const inspectedAt = inspect ? state.tools[inspect.id] : undefined;
   const inspectedItem = inspectedAt === undefined ? undefined : state.items[inspectedAt];
   const inspected = inspectedItem?.kind === "tool" ? inspectedItem.call : undefined;
+  // An opened command that Claude Code runs as a task, in the background or while Claude waits on it,
+  // shows what that has printed, as it prints.
+  const printing = inspected?.name === "Bash" ? (runningTaskOf(inspected, state) ?? (inspected.taskId ? state.taskInfo[inspected.taskId] : undefined)) : undefined;
+  const printed = useTaskOutput(session, printing?.id, printing?.status === "running");
   // The key sheet a decision's `?` opened, which stands in the decision's place until it closes, or
   // until the decision is answered elsewhere or withdrawn.
   const sheet = overlay?.kind === "keys" && overlay.place === "decision";
@@ -1776,7 +1780,7 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
       rows={rows}
       expanded={expanded}
       waiting={waiting}
-      opened={inspected ? { id: inspected.id, tab: inspect?.tab, whole: inspect?.whole, follow: inspect?.follow } : undefined}
+      opened={inspected ? { id: inspected.id, tab: inspect?.tab, whole: inspect?.whole, follow: inspect?.follow, output: printed } : undefined}
       reveal={reveal}
       review={review}
       keys={!overlay}

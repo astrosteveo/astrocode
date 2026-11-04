@@ -304,18 +304,21 @@ function useNow(ticking: boolean) {
   return now;
 }
 
+/** What a task of Claude Code's printed, as its terminal would show it, and whether that's only its end. */
+export type TaskRead = { text: string; truncated: boolean };
+
 /**
- * What a task of Claude Code's printed, as its terminal would show it, read every second while it
- * runs and once more when it ends. Undefined until the first read comes back.
+ * What a task of Claude Code's printed, read every second while it runs and once more when it ends.
+ * Undefined until the first read of this task comes back.
  */
-function useTaskOutput(session: AgentSession, taskId: string | undefined, running: boolean) {
-  const [read, setRead] = useState<{ text: string; truncated: boolean }>();
+export function useTaskOutput(session: AgentSession, taskId: string | undefined, running: boolean): TaskRead | undefined {
+  const [read, setRead] = useState<TaskRead & { taskId: string }>();
   useEffect(() => {
     if (!taskId) return;
     let alive = true;
     const once = () =>
       void session.taskOutput(taskId).then((result) => {
-        if (alive) setRead(result ? { text: settle(result.output), truncated: result.truncated } : { text: "", truncated: false });
+        if (alive) setRead(result ? { taskId, text: settle(result.output), truncated: result.truncated } : { taskId, text: "", truncated: false });
       });
     once();
     if (!running) {
@@ -329,7 +332,8 @@ function useTaskOutput(session: AgentSession, taskId: string | undefined, runnin
       clearInterval(timer);
     };
   }, [session, taskId, running]);
-  return read;
+  // Another task's read, from before this one's first came back, isn't this one's.
+  return read?.taskId === taskId ? read : undefined;
 }
 
 /**
