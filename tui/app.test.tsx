@@ -118,6 +118,11 @@ async function launch(state: State, { columns = 200, rows = 40, follow = false, 
     stdin.write(`\x1b[<0;${x + 1};${y + 1}m`);
     await settle();
   };
+  /** The wheel turned `by` notches at a cell: up when negative. */
+  const wheel = async (x: number, y: number, by: number) => {
+    for (let i = 0; i < Math.abs(by); i++) stdin.write(`\x1b[<${by < 0 ? 64 : 65};${x + 1};${y + 1}M`);
+    await settle();
+  };
   const update = async (next: State) => {
     current = next;
     for (const listener of listeners) listener();
@@ -138,7 +143,7 @@ async function launch(state: State, { columns = 200, rows = 40, follow = false, 
     const box = lines.findIndex((line) => line.startsWith(" ❯"));
     return /^▁+$/.test(lines[box - 1] ?? "");
   };
-  return { screen, row, press, click, update, cursor, boxKeys, asked, writes, exited: () => exited };
+  return { screen, row, press, click, wheel, update, cursor, boxKeys, asked, writes, exited: () => exited };
 }
 
 const KEYS = { ctrlO: "\x0f", up: "\x1b[A", down: "\x1b[B", left: "\x1b[D", right: "\x1b[C", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", ctrlC: "\x03", ctrlL: "\x0c", ctrlA: "\x01", ctrlD: "\x04", shiftUp: "\x1b[1;2A" };
@@ -1009,4 +1014,18 @@ test("the key sheet over a permission prompt closes with it, when it's answered 
   await update({ ...THREE, pending: [{ id: "d", toolName: "Bash", input: { command: "git push" } }] });
   expect(sheetFirst(screen())).toBeUndefined();
   expect(row(/git push/)).not.toBe(-1);
+});
+
+test("the wheel over the key sheet scrolls the sheet, and leaves the conversation behind it where it was", async () => {
+  const { press, screen, row, wheel } = await launch(turn(Array.from({ length: 60 }, (_, i) => call(`c${i}`))), { columns: 120, rows: 40 });
+  await press("?");
+  const behind = () => screen().slice(0, 4).join("\n");
+  const transcript = behind();
+  const keys = () => screen()[row(/^ Keys\b/) + 2];
+  const first = keys();
+  await wheel(20, row(/^ Keys\b/) + 5, 3);
+  expect(keys()).not.toBe(first);
+  await wheel(20, row(/^ Keys\b/) + 5, -5);
+  expect(keys()).toBe(first);
+  expect(behind()).toBe(transcript);
 });

@@ -3,12 +3,13 @@
 // default, and one bound to nothing isn't offered. Keys that aren't actions (the box's own, the
 // transcript's, a permission prompt's) are listed as they are, the box's only while no binding has
 // taken them. Sections stand in columns, as many across as fit, and ↑↓ scroll what doesn't.
-import { Box, Text, useInput } from "ink";
-import { useState } from "react";
+import { Box, Text, useInput, type DOMElement } from "ink";
+import { useRef, useState } from "react";
 import { ANYWHERE } from "./focus";
 import { ACTIONS, hintKey, hintOf, startsChord, type Action, type Keymap } from "./keys";
 import { cellWidth } from "./markdown";
 import { Panel } from "./markdown-view";
+import { hit, useMouse } from "./mouse";
 import { PALETTE } from "./theme";
 
 /** What has your keys as the sheet opens. An opened call is under its line in full screen, and the inspector in scrollback. */
@@ -194,6 +195,14 @@ export function KeySheet({ sections, custom, width, rows, onClose }: Props) {
   const height = Math.max(0, ...columns.map((column) => column.lines.length));
   const most = Math.max(0, height - rows);
   const from = Math.min(top, most);
+  const panel = useRef<DOMElement>(null);
+
+  // The wheel over the sheet scrolls it, and never what's behind it.
+  useMouse((event) => {
+    if (event.type !== "wheel" || !hit(panel.current, event)) return;
+    event.handled = true;
+    setTop(Math.max(0, Math.min(most, from + event.wheel)));
+  });
 
   useInput((input, key) => {
     if (key.eventType === "release") return;
@@ -210,32 +219,34 @@ export function KeySheet({ sections, custom, width, rows, onClose }: Props) {
   });
 
   return (
-    <Panel width={width} accent={PALETTE.gold}>
-      <Text wrap="truncate-end">
-        <Text bold color={PALETTE.star}>
-          Keys
+    <Box ref={panel} flexDirection="column">
+      <Panel width={width} accent={PALETTE.gold}>
+        <Text wrap="truncate-end">
+          <Text bold color={PALETTE.star}>
+            Keys
+          </Text>
+          <Text color={filter ? PALETTE.gold : PALETTE.dust}>{filter ? `   ${filter}` : custom ? "   as your keybindings.json sets them" : ""}</Text>
         </Text>
-        <Text color={filter ? PALETTE.gold : PALETTE.dust}>{filter ? `   ${filter}` : custom ? "   as your keybindings.json sets them" : ""}</Text>
-      </Text>
-      <Box flexDirection="column" marginTop={1}>
-        {columns.length ? (
-          Array.from({ length: Math.min(rows, height) }, (_, i) => (
-            <Box key={from + i}>
-              {columns.map((column, x) => (
-                <Box key={x} width={Math.min(room, column.width + (x < columns.length - 1 ? GAP : 0))}>
-                  <Cell line={column.lines[from + i]} keyWidth={column.keyWidth} />
-                </Box>
-              ))}
-            </Box>
-          ))
-        ) : (
-          <Text color={PALETTE.haze}>Nothing matches.</Text>
-        )}
-      </Box>
-      <Box marginTop={1}>
-        <Text color={PALETTE.dust}>{[most ? "↑↓ to scroll" : "", "type to filter", "esc to close"].filter(Boolean).join("   ")}</Text>
-      </Box>
-    </Panel>
+        <Box flexDirection="column" marginTop={1}>
+          {columns.length ? (
+            Array.from({ length: Math.min(rows, height) }, (_, i) => (
+              <Box key={from + i}>
+                {columns.map((column, x) => (
+                  <Box key={x} width={Math.min(room, column.width + (x < columns.length - 1 ? GAP : 0))}>
+                    <Cell line={column.lines[from + i]} keyWidth={column.keyWidth} />
+                  </Box>
+                ))}
+              </Box>
+            ))
+          ) : (
+            <Text color={PALETTE.haze}>Nothing matches.</Text>
+          )}
+        </Box>
+        <Box marginTop={1}>
+          <Text color={PALETTE.dust}>{[most ? "↑↓ to scroll" : "", "type to filter", "esc to close"].filter(Boolean).join("   ")}</Text>
+        </Box>
+      </Panel>
+    </Box>
   );
 }
 
