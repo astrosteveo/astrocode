@@ -12,6 +12,10 @@ const KEYS = {
   escape: "\x1b",
   up: "\x1b[A",
   left: "\x1b[D",
+  right: "\x1b[C",
+  tab: "\t",
+  shiftTab: "\x1b[Z",
+  backspace: "\x7f",
   shiftUp: "\x1b[1;2A",
   shiftDown: "\x1b[1;2B",
   ctrlC: "\x03",
@@ -20,7 +24,7 @@ const KEYS = {
 };
 
 /** The message box on a fake terminal, with what it asked the app to do. */
-function box(options: { busy?: boolean; history?: string[]; commands?: CommandInfo[] } = {}) {
+function box(options: { busy?: boolean; history?: string[]; commands?: CommandInfo[]; suggestion?: string } = {}) {
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 80, rows: 24 });
   let screen = "";
@@ -38,6 +42,7 @@ function box(options: { busy?: boolean; history?: string[]; commands?: CommandIn
       active
       fullscreen={false}
       busy={options.busy ?? false}
+      suggestion={options.suggestion}
       width={80}
       cwd={process.cwd()}
       history={history}
@@ -79,7 +84,9 @@ function box(options: { busy?: boolean; history?: string[]; commands?: CommandIn
       await settle();
     }
   };
-  return { press, calls, sent, armed, effort, history, app, screen: () => stripVTControlCharacters(screen) };
+  /** The rows last drawn: each frame is drawn as one synchronized update. */
+  const frame = () => stripVTControlCharacters(screen.split("\x1b[?2026h").at(-1) ?? "").split("\n").map((row) => row.trimEnd()).filter(Boolean);
+  return { press, calls, sent, armed, effort, history, app, frame, screen: () => stripVTControlCharacters(screen) };
 }
 
 const settle = (ms = 60) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -217,4 +224,70 @@ test("Shift+↑ steps the effort with the / menu open too, where ↑ moves in th
   await press("/", KEYS.shiftUp);
   app.unmount();
   expect(effort).toEqual([1]);
+});
+
+// Claude Code's guess at your next message, offered in the empty box after a turn.
+const SUGGESTED = "next one adds two numbers";
+
+test("the empty box offers Claude Code's suggestion, and Tab takes it to send unchanged, as in claude", async () => {
+  const { press, frame, sent, app } = box({ suggestion: SUGGESTED });
+  expect(frame().join("\n")).toContain(SUGGESTED);
+  expect(frame().join("\n")).toContain("tab to use");
+  await press(KEYS.tab);
+  expect(frame()).toContain(` ❯ ${SUGGESTED}`);
+  expect(frame().join("\n")).not.toContain("tab to use");
+  await press(KEYS.enter);
+  app.unmount();
+  expect(sent).toEqual([SUGGESTED]);
+});
+
+test("→ takes the suggestion on an empty box, and only moves the cursor once something's typed", async () => {
+  const empty = box({ suggestion: SUGGESTED });
+  await empty.press(KEYS.right, KEYS.enter);
+  empty.app.unmount();
+  expect(empty.sent).toEqual([SUGGESTED]);
+  const typed = box({ suggestion: SUGGESTED });
+  await typed.press("ac", KEYS.left, KEYS.right, KEYS.left, "b", KEYS.enter);
+  typed.app.unmount();
+  expect(typed.sent).toEqual(["abc"]);
+});
+
+test("typing hides the suggestion, and emptying the box brings it back, as in claude", async () => {
+  const { press, frame, sent, app } = box({ suggestion: SUGGESTED });
+  await press("x");
+  expect(frame().join("\n")).not.toContain(SUGGESTED);
+  await press(KEYS.tab);
+  expect(frame()).toContain(" ❯ x");
+  await press(KEYS.backspace);
+  expect(frame().join("\n")).toContain(SUGGESTED);
+  await press(KEYS.tab, KEYS.enter);
+  app.unmount();
+  expect(sent).toEqual([SUGGESTED]);
+});
+
+test("Shift+Tab still changes the mode with a suggestion showing", async () => {
+  const { press, frame, calls, app } = box({ suggestion: SUGGESTED });
+  await press(KEYS.shiftTab);
+  app.unmount();
+  expect(calls).toEqual(["cycleMode"]);
+  expect(frame().join("\n")).toContain("tab to use");
+});
+
+test("while Claude works the box says so, and offers no suggestion", async () => {
+  const { press, frame, sent, app } = box({ busy: true, suggestion: SUGGESTED });
+  expect(frame().join("\n")).toContain("Claude is working");
+  expect(frame().join("\n")).not.toContain(SUGGESTED);
+  await press(KEYS.tab, KEYS.right, KEYS.enter);
+  app.unmount();
+  expect(sent).toEqual([]);
+});
+
+test("a long suggestion keeps to the box's one row, with tab to use beside it", async () => {
+  const long = "now write the tests for every one of the five functions we wrote, and run them all";
+  const { frame, app } = box({ suggestion: long });
+  const row = frame().find((one) => one.includes("tab to use"));
+  app.unmount();
+  expect(row).toContain("now write the tests");
+  expect(row).toContain("…");
+  expect(row!.length).toBeLessThanOrEqual(80);
 });

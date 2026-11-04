@@ -7,6 +7,9 @@
 // The keys are Claude Code's, from the keymap (`keys.ts`), and the shell's: Ctrl+K, Ctrl+U, Ctrl+W
 // and Alt+D cut and Ctrl+Y puts back, Alt+B and Alt+F move by words. Ctrl+S puts the message aside
 // until Ctrl+S brings it back.
+//
+// After a turn the empty box offers Claude Code's guess at your next message, as `claude` does: Tab,
+// or → where it wouldn't move the cursor, puts it in the box. It hides while anything's typed.
 import { Box, Text, useAnimation, useInput, usePaste, type DOMElement } from "ink";
 import { useEffect, useReducer, useRef, type ReactNode, type RefObject } from "react";
 import wrapAnsi from "wrap-ansi";
@@ -36,6 +39,8 @@ type Props = {
   busy: boolean;
   /** A decision has the box's place: nothing is drawn, but what's typed stays for after. */
   hidden?: boolean;
+  /** Claude Code's suggested next message, offered while the box is empty. */
+  suggestion?: string;
   width: number;
   /** The project, whose files `@` offers. */
   cwd: string;
@@ -121,6 +126,9 @@ const CHORD_MS = 3000;
 
 /** Steps Ctrl+_ can undo. */
 const UNDO_STEPS = 200;
+
+/** What the box says beside a suggestion, at its right edge: the key, then what it does. */
+const TAKE_HINT = { key: "tab", does: " to use" };
 
 
 /**
@@ -436,6 +444,9 @@ export function Prompt(props: Props) {
     redraw();
   };
 
+  /** Claude Code's suggestion, while the box is `text` and nothing else speaks in it. */
+  const offer = (text: string) => (!text && !busy && !props.hidden ? props.suggestion : undefined);
+
   /** What a key bound in the keymap does. */
   const perform = (action: Action) => {
     const { text, cursor } = buffer.current;
@@ -588,7 +599,9 @@ export function Prompt(props: Props) {
         recall.current = null;
         return set("", 0);
       }
-      if (key.tab) return;
+      // Claude Code's suggestion goes in the box as it is, so sending it unchanged counts as using it.
+      const offered = offer(text);
+      if (key.tab) return offered && !key.shift ? set(offered, offered.length) : undefined;
       if (key.return) {
         // Shift+Enter (with the kitty keyboard protocol) or Alt+Enter: a new line, as in `claude`.
         if (key.shift || key.meta) insert("\n");
@@ -607,6 +620,7 @@ export function Prompt(props: Props) {
       if (key.meta && input === "f") return set(text, wordEnd(text, cursor));
       if (key.meta && input === "d") return cut(cursor, wordEnd(text, cursor));
       if (key.leftArrow && !text && !key.ctrl && !key.meta && props.onAgents) return props.onAgents();
+      if (key.rightArrow && offered && !key.ctrl && !key.meta) return set(offered, offered.length);
       if (key.leftArrow) return set(text, key.ctrl || key.meta ? wordStart(text, cursor) : previous(text, cursor));
       if (key.rightArrow) return set(text, key.ctrl || key.meta ? wordEnd(text, cursor) : next(text, cursor));
       // Ctrl+Home and Ctrl+End scroll full screen to the top and the end.
@@ -680,6 +694,12 @@ export function Prompt(props: Props) {
   // An idle, empty box says nothing but, until you've opened the conversations once, that ← does,
   // while ← is the box's to read; it speaks up while Claude works.
   const placeholder = busy ? "Claude is working. Type to queue a message" : props.hintAgents && active ? "← for conversations" : "";
+  const offered = offer(buffer.current.text);
+  // One row, so the box never grows: a long suggestion gives way to the hint, and the hint to a narrow box.
+  const row = width - 4 - (active ? 1 : 0);
+  const hintCells = cellWidth(TAKE_HINT.key + TAKE_HINT.does) + 2;
+  const takeHint = offered !== undefined && active && row >= 3 * hintCells;
+  const suggested = offered === undefined ? "" : fit(offered.replace(/\s+/g, " "), takeHint ? row - hintCells : row, false);
   const caret = (character: string) =>
     active ? (
       <Text backgroundColor={PALETTE.gold} color={PALETTE.ink}>
@@ -742,7 +762,13 @@ export function Prompt(props: Props) {
               {text === "" ? (
                 <Text>
                   {active && !onMarker ? caret(" ") : null}
-                  {mode ? null : <Text color={PALETTE.haze}>{placeholder}</Text>}
+                  {mode ? null : offered !== undefined ? (
+                    <Text color={PALETTE.dust} italic>
+                      {suggested}
+                    </Text>
+                  ) : (
+                    <Text color={PALETTE.haze}>{placeholder}</Text>
+                  )}
                 </Text>
               ) : (
                 <Text color={PALETTE.star}>
@@ -753,6 +779,14 @@ export function Prompt(props: Props) {
                 </Text>
               )}
             </Box>
+            {takeHint ? (
+              <Box flexShrink={0} paddingLeft={2}>
+                <Text color={PALETTE.haze}>
+                  {TAKE_HINT.key}
+                  <Text color={PALETTE.dust}>{TAKE_HINT.does}</Text>
+                </Text>
+              </Box>
+            ) : null}
           </Box>
         </Panel>
         {unfolded > 0 && folding ? (
