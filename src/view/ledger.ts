@@ -23,7 +23,7 @@ export type TurnWork = Pick<Turn, "files" | "commands" | "tests" | "commits" | "
  * sent while Claude worked, which it took mid-turn, doesn't split the turn. `git` is what git said
  * the turn changed, when the session could record its edges.
  */
-export function turnWork(items: Item[], { cwd, home }: { cwd: string; home: string }, git?: Ledger): TurnWork {
+export function workOf(items: Item[], { cwd, home }: { cwd: string; home: string }, git?: Ledger): TurnWork {
   const start = items.findLastIndex((item) => item.kind === "turn" || (item.kind === "prompt" && item.starts));
   const edits = new Map<string, FileChange>();
   const commands: string[] = [];

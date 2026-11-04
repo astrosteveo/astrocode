@@ -565,11 +565,14 @@ function TurnEnd({ item, expanded, cwd, home, width }: { item: Extract<Item, { k
   );
 }
 
-/** What opening a turn's closing line lists, counted: `2 files · 3 commands`, or empty when there's nothing to list. */
+/**
+ * What opening a turn's closing line lists, counted: `2 files changed · 3 commands · 1.2k tokens`,
+ * or empty when there's nothing to list.
+ */
 export function turnWork(item: Extract<Item, { kind: "turn" }>) {
   const files = item.files?.length ?? 0;
   const commands = item.commands?.length ?? 0;
-  return [files ? `${plural(files, "file")} changed` : "", commands ? plural(commands, "command") : ""].filter(Boolean).join(" · ");
+  return [files ? `${plural(files, "file")} changed` : "", commands ? plural(commands, "command") : "", item.tokens > 0 ? `${compact(item.tokens)} tokens` : ""].filter(Boolean).join(" · ");
 }
 
 function firstLine(text: string) {
