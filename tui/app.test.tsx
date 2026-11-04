@@ -343,6 +343,25 @@ test("a line of several reads, the last of them running, opens on the one runnin
   expect(opened()).toBe("‹ 4 of 4 ›");
 });
 
+test("a line of edits to one file opens on the one that waits for your OK, and follows Claude from there", async () => {
+  const edit = (id: string) => call(id, { name: "Edit", status: "running", input: { file_path: "/p/src/x.ts", old_string: `a${id}`, new_string: `b${id}` }, result: undefined });
+  const edits = { ...turn([call("g"), edit("e1"), edit("e2"), edit("e3")]), busy: true };
+  const { click, update, screen, row } = await launch({ ...edits, pending: [{ id: "e1", toolName: "Edit", input: edits.items[2]!.kind === "tool" ? edits.items[2]!.call.input : {} }] });
+  const opened = () => screen().find((line) => /‹ \d of \d ›/.test(line))?.match(/‹ \d of \d ›/)?.[0];
+  await click(10, row(/Edit +src\/x\.ts/));
+  expect(opened()).toBe("‹ 2 of 4 ›");
+  await update({ ...turn([call("g"), edit("e1"), edit("e2"), edit("e3"), running("c", "Lint the code")]), busy: true });
+  expect(opened()).toBe("‹ 5 of 5 ›");
+});
+
+test("a line of reads that finished out of order opens on the one still running", async () => {
+  const read = (id: string, file: string, more: Partial<ToolCall> = {}) => call(id, { name: "Read", input: { file_path: `/p/src/${file}` }, result: "1\tx", ...more });
+  const { press, screen } = await launch({ ...turn([call("g"), read("r1", "a.ts", { status: "running", result: undefined }), read("r2", "b.ts")]), busy: true });
+  await press(KEYS.ctrlO);
+  await press(KEYS.enter);
+  expect(screen().find((line) => /‹ \d of \d ›/.test(line))).toContain("‹ 2 of 3 ›");
+});
+
 test("a finished call opened while Claude works stays open as Claude starts the next", async () => {
   const { press, update, screen, row } = await launch({ ...turn([call("a"), running("b", "Build the app")]), busy: true });
   await press(KEYS.ctrlO);
