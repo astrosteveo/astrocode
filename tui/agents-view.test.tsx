@@ -299,13 +299,29 @@ test("the status bar stays under the view, the one you came from's, saying how m
   expect(alone.screen()).not.toContain("shift+tab");
 });
 
-test("the header stays on one line, the folder cut from its start to fit", async () => {
+test("the header stays on one line, leaving out the model, then cutting the folder from its start to fit", async () => {
   const deep = join(root, "projects", "a-rather-long-project-folder-name", "with-a-worktree-under-it");
   const { app, screen } = view({ columns: 80, cwd: deep, here: "astrocode-1", mine: ["first"], settings: { model: "claude-opus-5-5", effort: "xhigh", mode: "bypassPermissions" } });
   await settle(500);
   app.unmount();
   const [header, counts] = (screen().split("Conversations").at(-1) ?? "").split("\n");
-  expect(header).toMatch(/^ {3}new ones start in …[^ ]*-it · Opus 5\.5 xhigh · bypass permissions$/);
+  expect(header).toMatch(/^ {3}new ones start in …[^ ]*-it · bypass permissions$/);
   expect(("Conversations" + header).length).toBeLessThanOrEqual(78);
   expect(counts).toContain("working");
+});
+
+test("at 80 columns the conversation you came from keeps its name beside (this one), and the header its folder, leaving out the model first", async () => {
+  const projects = join(root, "Projects", "astrocode");
+  const { app, screen } = view({ columns: 80, cwd: projects, here: "astrocode-1", mine: ["Cache gets the clock"], settings: { model: "claude-opus-5-5", effort: "xhigh", mode: "bypassPermissions" } });
+  await settle(500);
+  app.unmount();
+  const last = screen().split("Conversations").at(-1) ?? "";
+  const [header] = last.split("\n");
+  expect(header).toBe("   new ones start in ~/Projects/astrocode · bypass permissions");
+  expect(last).toContain("Cache gets the clock  (this one)");
+  // With room, all of it.
+  const wide = view({ columns: 120, cwd: projects, here: "astrocode-1", mine: ["Cache gets the clock"], settings: { model: "claude-opus-5-5", effort: "xhigh", mode: "bypassPermissions" } });
+  await settle(500);
+  wide.app.unmount();
+  expect((wide.screen().split("Conversations").at(-1) ?? "").split("\n")[0]).toBe("   new ones start in ~/Projects/astrocode · Opus 5.5 xhigh · bypass permissions");
 });

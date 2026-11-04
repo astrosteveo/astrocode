@@ -31,6 +31,8 @@ const POLL_MS = 2000;
 const ARM_MS = 2000;
 /** The widest the name column gets. */
 const NAME_CELLS = 32;
+/** The least room a row keeps beside the names for what its conversation is doing. */
+const SAID_LEAST = 24;
 /** After the name of the conversation the view was opened from. */
 const THIS_ONE = "  (this one)";
 
@@ -392,9 +394,11 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, git = nul
 
   const inner = width - 2;
   const ownOf = (key: string) => (key === here ? THIS_ONE : "");
-  const nameCells = Math.min(NAME_CELLS, Math.floor(inner * 0.3), Math.max(8, ...shownRows.map((row) => cellWidth(row.name) + cellWidth(ownOf(row.key)))));
   const ageCells = Math.max(0, ...shownRows.map((row) => row.age.length));
   const prCells = Math.max(0, ...shownRows.map((row) => row.prs.length));
+  const tail = (prCells ? 2 + prCells : 0) + (ageCells ? 2 + ageCells : 0);
+  // The mark, and a gap on each side of what a conversation is doing.
+  const nameCells = Math.min(NAME_CELLS, Math.max(8, inner - 6 - tail - SAID_LEAST), Math.max(8, ...shownRows.map((row) => cellWidth(row.name) + cellWidth(ownOf(row.key)))));
 
   const counts = { blocked: 0, working: 0, done: 0, failed: 0 };
   for (const row of shownRows) if (row.state in counts) counts[row.state as keyof typeof counts] += 1;
@@ -410,9 +414,13 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, git = nul
   // With none picked, a new one gets Claude Code's default model, as the one you came from did.
   const newModel = settings.model ?? back?.store.getSnapshot().model;
   const model = [newModel && modelLabel(newModel), settings.effort].filter(Boolean).join(" ");
-  const newSessions = [model, MODE_CHIPS[settings.mode ?? DEFAULT_MODE].label].filter(Boolean).join(" · ");
-  // The folder gets what room the line leaves it, keeping its end, so the header stays one line.
-  const startsIn = fit(shortPath(target, "", home), inner - cellWidth(`Conversations   new ones start in  · ${newSessions}`), true);
+  const mode = MODE_CHIPS[settings.mode ?? DEFAULT_MODE].label;
+  const folder = shortPath(target, "", home);
+  // The header stays one line: the model goes before the folder is cut, which then gets what room
+  // the line leaves it, keeping its end.
+  const whole = [model, mode].filter(Boolean).join(" · ");
+  const newSessions = cellWidth(`Conversations   new ones start in ${folder} · ${whole}`) <= inner ? whole : mode;
+  const startsIn = fit(folder, inner - cellWidth(`Conversations   new ones start in  · ${newSessions}`), true);
 
   const peekLines = peek && focused ? peekOf(focused, focusedMine && { name: nameOf(focusedMine), state: focusedMine.store.getSnapshot(), shells: focusedMine.store.shells.size, cwd: focusedMine.cwd }, home) : [];
   const peekRows = peekLines.reduce((sum, line) => sum + Math.max(1, Math.ceil(cellWidth(line.text) / Math.max(1, inner - 10))), 0) + (peekLines.length ? 1 : 0);
@@ -471,7 +479,6 @@ export function AgentsView({ fleet, here, cwd, home, settings, notice, git = nul
           }
           const row = rowOf(line);
           const look = LOOK[row.state];
-          const tail = (prCells ? 2 + prCells : 0) + (ageCells ? 2 + ageCells : 0);
           const middle = Math.max(0, inner - 2 - 2 - nameCells - 2 - tail);
           const own = ownOf(row.key);
           const name = fit(row.name, Math.max(1, nameCells - cellWidth(own)), false);
