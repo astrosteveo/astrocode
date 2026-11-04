@@ -118,3 +118,14 @@ test("a whole tab opened isn't drawn again each time Claude starts another call 
   expect(body(after)).toEqual(body(before));
   expect(body(after)).toHaveLength(3000);
 });
+
+test("an activity line ends at its result, with no › after it and no meter for an edit's size", () => {
+  const patch = [{ oldStart: 1, oldLines: 4, newStart: 1, newLines: 9, lines: ["-a", "-b", "-c", "-d", ...Array.from({ length: 9 }, (_, i) => `+${i}`)] }];
+  const edit = call("e", { name: "Edit", input: { file_path: "/p/src/retry.ts", old_string: "a", new_string: "b" }, output: { filePath: "/p/src/retry.ts", structuredPatch: patch } });
+  const lines = plain(layout(input(turn([call("a"), edit]), 118)));
+  expect(lines.find((line) => line.includes("Edited"))?.trimEnd()).toMatch(/src\/retry\.ts +\+9 −4$/);
+  for (const line of lines) {
+    expect(line).not.toMatch(/›\s*$/);
+    expect(line).not.toContain("■");
+  }
+});

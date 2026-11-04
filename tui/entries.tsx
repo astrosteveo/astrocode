@@ -197,7 +197,7 @@ type StepProps = {
   links?: FigureLinks;
   cwd: string;
   home: string;
-  /** Whether a click acts on it, as in full screen, which the marks for opening and inspecting say. */
+  /** Whether a click acts on it, as in full screen, which the step's mark for opening says. */
   clickable?: boolean;
 };
 
@@ -315,7 +315,7 @@ export function stepPieces({ step, rail, open, width, picked, pictureRows, links
       );
     }
     const isPicked = picked !== undefined && row.calls.some((call) => call.id === picked);
-    pieces.push(railed(`row:${id}`, <ActivityLine row={row} width={inner} picked={isPicked} again={row.verb === verb} clickable={clickable} />, target));
+    pieces.push(railed(`row:${id}`, <ActivityLine row={row} width={inner} picked={isPicked} again={row.verb === verb} />, target));
     // What goes under the line sets the next one apart, which then says its verb again.
     verb = row.failure || row.calls.some((call) => (call.status === "running" && call.subagent) || hasPictures(call)) ? "" : row.verb;
     if (row.failure) {
@@ -362,12 +362,12 @@ const VERB_COLORS: Partial<Record<ActivityRow["status"], string>> = { waiting: P
 const LIT = new Set<Tone>(["plain", "bright", "quiet", "faint", "code"]);
 
 /**
- * `  Edited    src/retry.ts            +9 −4  ■■■■□  ›`: the verb, what the calls acted on, and what
- * came of them against the right edge. `again`: the line above has the same verb, which this one
- * leaves out. The line of the call opened has a gold mark, and its words are lit in gold, as the
- * pointer lights a line (`lit()`). A line waiting on you is lit in gold too.
+ * `  Edited    src/retry.ts            +9 −4`: the verb, what the calls acted on, and what came of
+ * them against the right edge. `again`: the line above has the same verb, which this one leaves
+ * out. The line of the call opened has a gold mark, and its words are lit in gold, as the pointer
+ * lights a line (`lit()`). A line waiting on you is lit in gold too.
  */
-function ActivityLine({ row, width, picked, again, clickable }: { row: ActivityRow; width: number; picked: boolean; again: boolean; clickable: boolean }) {
+function ActivityLine({ row, width, picked, again }: { row: ActivityRow; width: number; picked: boolean; again: boolean }) {
   // A command running in the background is done as a call, but still running.
   const going = row.calls.at(-1)?.background === "running" ? "running" : row.status;
   const verbColor = VERB_COLORS[going] ?? (picked ? PALETTE.gold : PALETTE.dust);
@@ -377,9 +377,7 @@ function ActivityLine({ row, width, picked, again, clickable }: { row: ActivityR
   // A verb the line above has is left out, unless how the line is going colors it.
   const verb = again && !VERB_COLORS[going] ? " ".repeat(cellWidth(named)) : named;
   const result = row.result.reduce((sum, part) => sum + cellWidth(part.text), 0);
-  const bars = row.diff && row.diff.added + row.diff.removed > 0 ? 7 : 0;
-  const right = result + bars + (clickable ? 3 : 0);
-  const room = Math.max(4, width - INDENT - cellWidth(verb) - right - 2);
+  const room = Math.max(4, width - INDENT - cellWidth(verb) - result - 2);
   const target = fitParts(row.target, room, row.path);
   return (
     <Box justifyContent="space-between" width={width}>
@@ -398,26 +396,8 @@ function ActivityLine({ row, width, picked, again, clickable }: { row: ActivityR
             {part.text}
           </Text>
         ))}
-        {bars ? <Diffstat added={row.diff!.added} removed={row.diff!.removed} /> : null}
-        {clickable ? <Text color={picked ? PALETTE.gold : PALETTE.dust}>{"  ›"}</Text> : null}
       </Text>
     </Box>
-  );
-}
-
-/** Five squares, teal for the share added and rose for the share removed, more of them for a bigger change. */
-function Diffstat({ added, removed }: { added: number; removed: number }) {
-  const total = added + removed;
-  const filled = Math.min(5, Math.max(1, Math.ceil(Math.log2(total + 1))));
-  const teal = added ? Math.max(1, Math.round((filled * added) / total)) : 0;
-  const rose = Math.min(filled - teal, removed ? Math.max(1, filled - teal) : 0);
-  return (
-    <Text>
-      <Text>{"  "}</Text>
-      <Text color={PALETTE.teal}>{"■".repeat(teal)}</Text>
-      <Text color={PALETTE.rose}>{"■".repeat(rose)}</Text>
-      <Text color={PALETTE.raised}>{"■".repeat(5 - teal - rose)}</Text>
-    </Text>
   );
 }
 
