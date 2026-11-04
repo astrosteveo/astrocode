@@ -1,8 +1,9 @@
 // Claude describes each command it runs in the imperative, as the Bash tool asks ("Run the test
-// suite"). An activity line says what Claude did, so it says the description in the past tense
-// ("Ran the test suite"): the first word, and the verbs joined to it by "and", "then" or a comma
-// ("Merged the PR, deleted the branch and updated main"). Only verbs listed here change, so a
-// description that doesn't start with one is left as it is.
+// suite"). An activity line says what Claude did, so once the command is done it says the
+// description in the past tense ("Ran the test suite"), and while it runs in the present ("Running
+// the test suite"): the first word, and the verbs joined to it by "and", "then" or a comma ("Merged
+// the PR, deleted the branch and updated main"). Only verbs listed here change, so a description
+// that doesn't start with one is left as it is.
 
 /** Verbs whose past tense isn't the verb and -ed. */
 const IRREGULAR: Record<string, string> = {
@@ -24,7 +25,7 @@ const IRREGULAR: Record<string, string> = {
 
 /** Verbs that double their last letter before -ed, besides the short ones the rule finds (stop, log, scan). */
 const DOUBLED = new Set(
-  "admit commit compel control debug defer deter emit equip expel format incur infer kidnap occur omit patrol permit prefer program propel rebel recur refer regret screenshot snapshot submit transfer transmit unplug unwrap unzip worship".split(" "),
+  "admit begin bootstrap commit compel control debug defer deter emit equip expel forget format incur infer kidnap occur omit patrol permit prefer program propel rebel recur refer regret screenshot snapshot submit transfer transmit unplug unwrap unzip upset worship".split(" "),
 );
 
 /** The verbs, besides the irregular ones, that start a command's description: `Check`, `Commit`, `Install`. */
@@ -76,35 +77,48 @@ const NOUNISH = new Set("build light log map register review size test type".spl
 const OBJECT =
   /^(?:the|a|an|this|that|these|those|it|its|them|their|his|her|my|our|your|every|each|all|any|both|no|some|how|what|which|where|why|whether|if|when|who|up|down|out|in|on|off|back|over|through|to|for|from|with|into|at|by|again|everything|anything)\b/i;
 
-/** The past tense of a verb in lower case, or null when it isn't one listed here. */
-function past(verb: string): string | null {
-  if (IRREGULAR[verb]) return IRREGULAR[verb]!;
+/** Verbs whose present participle the rules below don't make. */
+const IRREGULAR_ING: Record<string, string> = { be: "being", checkout: "checking out", setup: "setting up" };
+
+/** A verb's past tense or its present participle, in lower case. */
+type Form = "past" | "participle";
+
+/** `verb` in `form`, in lower case, or null when it isn't a verb listed here. */
+function conjugate(verb: string, form: Form): string | null {
+  const irregular = form === "past" ? IRREGULAR[verb] : IRREGULAR_ING[verb];
+  if (irregular) return irregular;
   // `type-check`, `re-run`, `fast-forward`: the last part changes, after a part that makes a verb
   // of it, unlike `real-time` or `fixed-point`.
   const hyphen = verb.lastIndexOf("-");
   if (hyphen > 0) {
-    const last = HYPHENED.has(verb.slice(0, hyphen)) ? past(verb.slice(hyphen + 1)) : null;
+    const last = HYPHENED.has(verb.slice(0, hyphen)) ? conjugate(verb.slice(hyphen + 1), form) : null;
     return last && !last.includes(" ") ? `${verb.slice(0, hyphen + 1)}${last}` : null;
   }
-  if (!REGULAR.has(verb) && !DOUBLED.has(verb)) {
-    // `reshoot`, `unwrap`: again or undone, of a verb listed here.
-    const prefix = /^(re|un)(?=[a-z]{3})/.exec(verb)?.[0];
-    const rest = prefix ? past(verb.slice(prefix.length)) : null;
-    return rest && !rest.includes(" ") ? `${prefix}${rest}` : null;
-  }
+  // `reshoot`, `unwrap`, `rerun`: again or undone, of a verb listed here.
+  const prefix = /^(re|un)(?=[a-z]{3})/.exec(verb)?.[0];
+  const rest = prefix && !REGULAR.has(verb) && !DOUBLED.has(verb) ? conjugate(verb.slice(prefix.length), form) : null;
+  if (rest && !rest.includes(" ")) return `${prefix}${rest}`;
+  if (!REGULAR.has(verb) && !DOUBLED.has(verb) && !IRREGULAR[verb]) return null;
+  const end = form === "past" ? "ed" : "ing";
   // A short verb ending in a vowel and a consonant doubles it: stop, log, scan, but not show or fix.
-  if (DOUBLED.has(verb) || /^[^aeiou]*[aeiou][bdgklmnprstvz]$/.test(verb)) return `${verb}${verb.at(-1)}ed`;
+  if (DOUBLED.has(verb) || /^[^aeiou]*[aeiou][bdgklmnprstvz]$/.test(verb)) return `${verb}${verb.at(-1)}${end}`;
+  if (form === "participle") {
+    if (verb.endsWith("ie")) return `${verb.slice(0, -2)}ying`;
+    // `make` makes `making`, but `see` and `free` keep their e.
+    if (verb.endsWith("e") && !/[eoy]e$/.test(verb)) return `${verb.slice(0, -1)}ing`;
+    return `${verb}ing`;
+  }
   if (verb.endsWith("e")) return `${verb}d`;
   if (/[^aeiou]y$/.test(verb)) return `${verb.slice(0, -1)}ied`;
   return `${verb}ed`;
 }
 
-/** `word` in the past tense, keeping its first letter's case, or null when it isn't a verb listed here. */
-function pastOf(word: string) {
+/** `word` in `form`, keeping its first letter's case, or null when it isn't a verb listed here. */
+function conjugateWord(word: string, form: Form) {
   const lower = word.toLowerCase();
   // Words in capitals, such as `README`, aren't verbs.
   if (word !== lower && word.slice(1) !== lower.slice(1)) return null;
-  const done = past(lower);
+  const done = conjugate(lower, form);
   if (!done) return null;
   return word[0] === lower[0] ? done : done[0]!.toUpperCase() + done.slice(1);
 }
@@ -116,10 +130,15 @@ const JOINED = /((?:[,;]|\band\b|\bthen\b|&)\s+(?:and\s+|then\s+)?)([a-z][a-z-]*
  * A command's description in the past tense, or null when it doesn't start with a verb listed
  * here. What follows a colon or a bracket, which says more about what came before, stays as it is.
  */
-export function inPastTense(description: string) {
+export const inPastTense = (description: string) => inForm(description, "past");
+
+/** A command's description in the present tense (`Running the tests`), or null as `inPastTense` is. */
+export const inPresentTense = (description: string) => inForm(description, "participle");
+
+function inForm(description: string, form: Form) {
   const text = description.split("\n")[0]!.trim().replace(/\.$/, "");
   const first = /^([A-Za-z][A-Za-z-]*)(.*)$/.exec(text);
-  const verb = first ? pastOf(first[1]!) : null;
+  const verb = first ? conjugateWord(first[1]!, form) : null;
   if (!first || !verb) return null;
   const rest = first[2]!;
   const cut = rest.search(/[:([—]/);
@@ -136,7 +155,7 @@ export function inPastTense(description: string) {
       const verbal = ends || OBJECT.test(next.trimStart());
       if (NOUNISH.has(word) && !verbal) return all;
       if (listing && !verbal && !/^\s+(?:and|then|or)\b/.test(next)) return all;
-      const done = pastOf(word);
+      const done = conjugateWord(word, form);
       return done ? before + done : all;
     }) +
     after

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { inPastTense } from "./tense";
+import { inPastTense, inPresentTense } from "./tense";
 
 test("puts a description's first verb in the past tense", () => {
   expect(inPastTense("Run the bun test suite")).toBe("Ran the bun test suite");
@@ -52,4 +52,29 @@ test("handles verbs with a hyphen, and words that aren't verbs", () => {
   expect(inPastTense("README, then the docs")).toBeNull();
   expect(inPastTense("The final check")).toBeNull();
   expect(inPastTense("")).toBeNull();
+});
+
+test("doubles the last letter of bootstrap, as of the verbs listed with it", () => {
+  expect(inPastTense("Bootstrap the project")).toBe("Bootstrapped the project");
+});
+
+test("puts a description in the present tense, joined verbs too", () => {
+  expect(inPresentTense("Run the bun test suite")).toBe("Running the bun test suite");
+  expect(inPresentTense("Make the build reproducible")).toBe("Making the build reproducible");
+  expect(inPresentTense("See what changed")).toBe("Seeing what changed");
+  expect(inPresentTense("Free the port")).toBe("Freeing the port");
+  expect(inPresentTense("Tie off the loose ends")).toBe("Tying off the loose ends");
+  expect(inPresentTense("Fix the build")).toBe("Fixing the build");
+  expect(inPresentTense("Copy the file")).toBe("Copying the file");
+  expect(inPresentTense("Stop the server and log the frames")).toBe("Stopping the server and logging the frames");
+  expect(inPresentTense("Commit the change, then push it")).toBe("Committing the change, then pushing it");
+  expect(inPresentTense("Begin the migration")).toBe("Beginning the migration");
+  expect(inPresentTense("Edit the config")).toBe("Editing the config");
+  expect(inPresentTense("Open the pull request")).toBe("Opening the pull request");
+  expect(inPresentTense("Checkout main")).toBe("Checking out main");
+  expect(inPresentTense("Rerun the suite")).toBe("Rerunning the suite");
+  expect(inPresentTense("Rewrite the tests")).toBe("Rewriting the tests");
+  expect(inPresentTense("Type-check the mod")).toBe("Type-checking the mod");
+  expect(inPresentTense("Check the logs and test results")).toBe("Checking the logs and test results");
+  expect(inPresentTense("README, then the docs")).toBeNull();
 });
