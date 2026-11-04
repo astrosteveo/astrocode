@@ -34,6 +34,7 @@ import { ElicitationPrompt } from "./elicitation";
 import { EFFORT_NOTES, effortStep, effortsOf, ULTRACODE_NOTE } from "./effort";
 import { editFile, editText, readInEditor } from "./editor";
 import { FindBar, type Find } from "./find";
+import { needsYou, type Fleet } from "./fleet";
 import { focusOf } from "./focus";
 import { HooksPanel } from "./hooks";
 import { ItemView, LiveView, StepView, targetCall } from "./entries";
@@ -179,10 +180,13 @@ type Props = {
   onToggleFullscreen: () => void;
   /** ← in an empty message box: the agents view, with this conversation kept open behind it. */
   onAgents: () => void;
+  /** The conversations astrocode runs, this one among them. */
+  fleet: Fleet;
 };
 
-export function App({ store, session, branch, fullscreen, onToggleFullscreen, onAgents }: Props) {
+export function App({ store, session, branch, fullscreen, onToggleFullscreen, onAgents, fleet }: Props) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const othersWaiting = useSyncExternalStore(fleet.watch, () => needsYou(fleet.getSnapshot(), store));
   useModCards(session, state, store.emit);
   const { exit, suspendTerminal } = useApp();
   const mouse = useContext(MouseContext);
@@ -1676,6 +1680,8 @@ export function App({ store, session, branch, fullscreen, onToggleFullscreen, on
           modToast={modToast}
           keepWarm={keepWarm}
           usageMode={usageMode}
+          needsYou={othersWaiting}
+          onNeedsYou={onAgents}
           follow={follow ? (inspected ? "paused" : "on") : undefined}
           onFollow={toggleFollow}
           onCache={toggleKeepWarm}

@@ -168,6 +168,7 @@ export async function startTerminal(options: TerminalOptions) {
             fullscreen={fullscreen}
             onToggleFullscreen={() => leave("layout")}
             onAgents={() => leave("agents")}
+            fleet={fleet}
           />
         </MouseContext>,
         {
