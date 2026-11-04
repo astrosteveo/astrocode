@@ -292,3 +292,20 @@ test("stops recording for the session once an edge runs out of time, so no turn 
     expect(readdirSync(temp)).toEqual([]);
   });
 });
+
+test("deletes the folders an astrocode that was killed left behind, and only those", async () => {
+  const top = repo({ "a.txt": lines(1) });
+  const temp = folder();
+  const gone = Bun.spawnSync(["true"]).pid;
+  const running = Bun.spawn(["sleep", "10"]);
+  try {
+    mkdirSync(join(temp, `astrocode-ledger-${gone}-AbC123`));
+    mkdirSync(join(temp, `astrocode-ledger-${running.pid}-DeF456`));
+    await withTemp(temp, () => snapshots(top).start());
+    const left = readdirSync(temp);
+    expect(left).not.toContain(`astrocode-ledger-${gone}-AbC123`);
+    expect(left).toContain(`astrocode-ledger-${running.pid}-DeF456`);
+  } finally {
+    running.kill();
+  }
+});
