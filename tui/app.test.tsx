@@ -430,3 +430,25 @@ test("the transcript's hint in the box's edge lists four to six keys, all of the
   expect(pairs().length).toBeLessThanOrEqual(6);
   expect(pairs().at(-1)).toBe("esc close");
 });
+
+test("exactly one gold mark in every place your keys can be, and Esc from an overlay gives them back to the transcript", async () => {
+  const { press, cursor, update, screen } = await launch(THREE);
+  // A gold hairline is a panel's top edge drawn with `▁`: the box's, a decision's or an overlay's.
+  const marks = () => screen().filter((line) => line.startsWith("▁")).length + (cursor() === -1 ? 0 : 1);
+  const where = () => ({ marks: marks(), cursor: cursor() !== -1, box: screen().some((line, i, lines) => lines[i + 1]?.startsWith(" ❯") && /^▁+$/.test(line)) });
+  expect(where()).toEqual({ marks: 1, cursor: false, box: true });
+  await press(KEYS.ctrlO);
+  expect(where()).toEqual({ marks: 1, cursor: true, box: false });
+  await press(KEYS.enter);
+  expect(screen().some((line) => line.includes("‹ 3 of 3 ›"))).toBe(true);
+  expect(where()).toEqual({ marks: 1, cursor: true, box: false });
+  await update({ ...THREE, pending: [{ id: "c", toolName: "Bash", input: { command: "rm -rf build" } }] });
+  expect(where()).toEqual({ marks: 1, cursor: false, box: false });
+  await update(THREE);
+  expect(where()).toEqual({ marks: 1, cursor: true, box: false });
+  // Alt+P, a key that works anywhere, opens the model picker over the transcript.
+  await press("\x1bp");
+  expect(where()).toEqual({ marks: 1, cursor: false, box: false });
+  await press(KEYS.esc);
+  expect(where()).toEqual({ marks: 1, cursor: true, box: false });
+});

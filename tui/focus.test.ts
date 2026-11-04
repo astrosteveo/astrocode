@@ -1,15 +1,13 @@
 import { expect, test } from "bun:test";
-import { focusOf, type Focus } from "./focus";
+import { focusOf } from "./focus";
 
 const states = [false, true].flatMap((decision) => [false, true].flatMap((overlay) => [false, true].map((transcript) => ({ decision, overlay, transcript }))));
 
-test("exactly one region has your keys in every state", () => {
-  const regions: Focus[] = ["box", "transcript", "overlay", "decision"];
+test("your keys go to a place that's there to take them, and to the box when nothing else is", () => {
   for (const state of states) {
     const focus = focusOf(state);
-    expect(regions.filter((region) => region === focus)).toHaveLength(1);
-    // And it's one that's there to take them: the box always is.
-    if (focus !== "box") expect(state[focus]).toBe(true);
+    if (focus === "box") expect(state).toEqual({ decision: false, overlay: false, transcript: false });
+    else expect(state[focus]).toBe(true);
   }
 });
 
